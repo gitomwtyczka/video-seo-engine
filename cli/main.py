@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PressAI Video SEO Engine — Unified CLI entry point.
+"""PressAI Video SEO Engine -- Unified CLI entry point.
 
 Usage:
   vse generate --video <YT_ID>                        # Single video -> SEO JSON
@@ -10,16 +10,20 @@ Usage:
   vse fetch --channel <CHANNEL_ID>                    # List channel videos
   vse match                                           # Match WP posts to YouTube IDs
   vse sitemap                                         # Generate video sitemap XML
+  vse watch --channel <CHANNEL_ID>                    # Monitor YT channel for new videos
+  vse watch --channel <CHANNEL_ID> --dry-run          # Dry-run: show what would be processed
 
 For full options on any subcommand:
   vse <command> --help
 
 Environment variables (or .env file):
-  GEMINI_API_KEY    -- required for generate
-  WP_USER           -- required for inject
-  WP_APP_PASSWORD   -- required for inject
-  WP_BASE_URL       -- required for inject / match / sitemap (default: https://prawy.pl)
-  YT_API_KEY        -- optional, enables interactionStatistic (view count)
+  GEMINI_API_KEY    -- required for generate / watch
+  WP_USER           -- required for inject / watch
+  WP_APP_PASSWORD   -- required for inject / watch
+  WP_BASE_URL       -- required for inject / match / sitemap / watch (default: https://prawy.pl)
+  YT_API_KEY        -- required for watch (YouTube Data API v3)
+  CHANNEL_ID        -- YouTube channel ID (for watch)
+  MONITOR_INTERVAL  -- polling interval in seconds (default: 3600)
   PORTAL            -- prawy | kurier365 | biznesciti (default: prawy)
   SUBS_DIR          -- path to .vtt files directory
   SEO_DIR           -- path to seo_results directory
@@ -28,6 +32,7 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 
 from dotenv import load_dotenv  # type: ignore
 
@@ -271,6 +276,48 @@ def cmd_inject(args: argparse.Namespace) -> None:
 
 
 # ============================================================
+# SUBCOMMAND: watch (MODE A -- YouTube Channel Monitor)
+# ============================================================
+
+def cmd_watch(args: argparse.Namespace) -> None:
+    """Watch a YouTube channel for new videos and create WP drafts (MODE A)."""
+    from core.monitor import watch  # type: ignore
+
+    channel_id = args.channel or os.environ.get("CHANNEL_ID", "")
+    if not channel_id:
+        logger.error("Provide --channel <CHANNEL_ID> or set CHANNEL_ID in .env")
+        sys.exit(1)
+
+    yt_api_key = _require_env("YT_API_KEY")
+    wp_base_url = os.environ.get("WP_BASE_URL", "https://prawy.pl")
+    wp_user = _require_env("WP_USER")
+    wp_app_pass = _require_env("WP_APP_PASSWORD")
+    gemini_api_key = _require_env("GEMINI_API_KEY")
+    subs_dir = os.environ.get("SUBS_DIR", "subs")
+    seo_dir = os.environ.get("SEO_DIR", "seo_results")
+    interval = args.interval or int(os.environ.get("MONITOR_INTERVAL", "3600"))
+    registry_dir = Path(args.registry_dir)
+
+    if args.dry_run:
+        logger.info("DRY RUN -- no WordPress or Gemini calls will be made")
+
+    watch(
+        channel_id=channel_id,
+        yt_api_key=yt_api_key,
+        wp_base_url=wp_base_url,
+        wp_user=wp_user,
+        wp_app_pass=wp_app_pass,
+        gemini_api_key=gemini_api_key,
+        subs_dir=subs_dir,
+        seo_dir=seo_dir,
+        interval=interval,
+        registry_dir=registry_dir,
+        dry_run=args.dry_run,
+        run_once=args.once,
+    )
+
+
+# ============================================================
 # MAIN PARSER
 # ============================================================
 
@@ -323,6 +370,33 @@ def main() -> None:
     inj_p.add_argument("--skip-thumbnail", action="store_true",
                         help="Skip YouTube thumbnail upload/set")
     inj_p.set_defaults(func=cmd_inject)
+
+    # --- watch ---
+    watch_p = subparsers.add_parser(
+        "watch",
+        help="Monitor YouTube channel for new videos (MODE A -- push)",
+    )
+    watch_p.add_argument(
+        "--channel", metavar="CHANNEL_ID",
+        help="YouTube channel ID (or set CHANNEL_ID in .env)",
+    )
+    watch_p.add_argument(
+        "--interval", metavar="SECONDS", type=int,
+        help="Polling interval in seconds (default: MONITOR_INTERVAL env or 3600)",
+    )
+    watch_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Show what would be processed without making any API calls",
+    )
+    watch_p.add_argument(
+        "--once", action="store_true",
+        help="Poll once and exit (useful for cron / CI)",
+    )
+    watch_p.add_argument(
+        "--registry-dir", metavar="DIR", default="registry",
+        help="Path to the registry directory (default: registry/)",
+    )
+    watch_p.set_defaults(func=cmd_watch)
 
     args = parser.parse_args()
     args.func(args)
