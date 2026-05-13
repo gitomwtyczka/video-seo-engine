@@ -1,14 +1,24 @@
 {
   "callsign": "vse-architect-01",
-  "status": "working",
-  "current_task": "Workspace bootstrap — structure, code migration, docs",
-  "timestamp": "2026-05-13T10:30:00Z",
+  "status": "done",
+  "current_task": "Workspace bootstrap — COMPLETE",
+  "timestamp": "2026-05-13T10:39:00Z",
+  "last_completed": [
+    "heartbeat init — commit d5efd2c (2026-05-13)",
+    "README.md professional — commit 0ac923a (2026-05-13)",
+    "AGENTS.md — commit 6e7c01e (2026-05-13)",
+    "core/fetcher.py migration — commit 70d3dbc (2026-05-13)",
+    "core/matcher.py migration — commit 3d1e4a8 (2026-05-13)",
+    "core/sitemap.py migration — commit 5b89d78 (2026-05-13)",
+    "core scaffolding (generator/injector/monitor/yt_admin placeholders) — commit 4a82742 (2026-05-13)",
+    ".gitignore + .env.example + requirements.txt + dirs — commit 142fa92 (2026-05-13)",
+    "knowledge base — commit f31a913 (2026-05-13)",
+    "bootstrap report dual-write — commit dbdd8c8 (2026-05-13)"
+  ],
   "pending": [
-    "README.md update",
-    "AGENTS.md creation",
-    "Directory structure",
-    "Code migration from shadow-perihelion",
-    "Knowledge base",
-    "Final report dual-write"
+    "DISPATCH-VSE-MIGRATE-GENERATOR — user dostarcza test_full_seo_v4.py",
+    "DISPATCH-VSE-MIGRATE-INJECTOR — user dostarcza inject_rest_v5.py",
+    "DISPATCH-VSE-TESTS — pytest dla fetcher, matcher, sitemap",
+    "DISPATCH-VSE-CHANNEL-MONITOR — Faza 2"
   ]
 }
