@@ -1,18 +1,22 @@
 {
   "callsign": "vse-architect-01",
   "status": "done",
-  "current_task": "DISPATCH-VSE-VALIDATE-01 — COMPLETE",
-  "timestamp": "2026-05-13T21:51:00Z",
+  "current_task": "DISPATCH-VSE-ARCHITECT-03 — Faza 2 COMPLETE",
+  "timestamp": "2026-05-14T00:27:00Z",
   "last_completed": [
     "[DISPATCH-02] core/generator.py migration — commit 3f9c243 (2026-05-13)",
     "[DISPATCH-02] core/injector.py migration — commit cde3bb2 (2026-05-13)",
     "[DISPATCH-02] cli/main.py generate+inject — commit f75e2a0 (2026-05-13)",
-    "[DISPATCH-02] .env.example + knowledge — commit b6570b7 (2026-05-13)",
-    "[VALIDATE-01] fix CP1250 UnicodeEncodeError in CLI prints — commit f6fef0f (2026-05-13)",
-    "[VALIDATE-01] U9HLRRXs5EU inject live: REST 200, thumb media#119569 (2026-05-13)"
+    "[VALIDATE-01] fix CP1250 UnicodeEncodeError — commit f6fef0f (2026-05-13)",
+    "[VALIDATE-01] U9HLRRXs5EU inject live: REST 200, media#119569 (2026-05-13)",
+    "[DISPATCH-03] core/monitor.py Channel Monitor — commit 58a9ff6 (2026-05-14)",
+    "[DISPATCH-03] cli/main.py + vse watch — commit f6f0a5c (2026-05-14)",
+    "[DISPATCH-03] registry/U9HLRRXs5EU.json — commit 3435596 (2026-05-14)",
+    "[DISPATCH-03] .env.example CHANNEL_ID + MONITOR_INTERVAL — commit ea147eb (2026-05-14)",
+    "[DISPATCH-03] knowledge/video-seo-pipeline.md — commit 62ac145 (2026-05-14)"
   ],
   "pending": [
-    "Faza 2 — core/monitor.py YouTube Channel Monitor",
-    "Faza 2 — MODE A: nowy film na kanale -> draft WP"
+    "Faza 3 — FastAPI web UI (standalone app)",
+    "Aktywacja Channel Monitor: wymaga CHANNEL_ID Prawy TV + YT_API_KEY"
   ]
 }
