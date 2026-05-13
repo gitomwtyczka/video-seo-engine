@@ -1,8 +1,8 @@
 {
   "callsign": "vse-architect-01",
-  "status": "done",
-  "current_task": "Workspace bootstrap — COMPLETE",
-  "timestamp": "2026-05-13T10:39:00Z",
+  "status": "working",
+  "current_task": "DISPATCH-02 — Faza 1: migracja core/generator.py + core/injector.py + CLI + env",
+  "timestamp": "2026-05-13T19:52:00Z",
   "last_completed": [
     "heartbeat init — commit d5efd2c (2026-05-13)",
     "README.md professional — commit 0ac923a (2026-05-13)",
@@ -16,9 +16,11 @@
     "bootstrap report dual-write — commit dbdd8c8 (2026-05-13)"
   ],
   "pending": [
-    "DISPATCH-VSE-MIGRATE-GENERATOR — user dostarcza test_full_seo_v4.py",
-    "DISPATCH-VSE-MIGRATE-INJECTOR — user dostarcza inject_rest_v5.py",
-    "DISPATCH-VSE-TESTS — pytest dla fetcher, matcher, sitemap",
+    "core/generator.py — migracja z test_full_seo_v4.py [W TOKU]",
+    "core/injector.py — migracja z inject_rest_v5.py [W TOKU]",
+    "cli/main.py — rozszerzenie komend generate/inject",
+    ".env.example — aktualizacja o YT_API_KEY + PORTAL",
+    ".agents/knowledge/video-seo-pipeline.md — roadmap Faz 1-7",
     "DISPATCH-VSE-CHANNEL-MONITOR — Faza 2"
   ]
 }
