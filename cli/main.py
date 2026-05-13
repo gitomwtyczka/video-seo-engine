@@ -2,7 +2,7 @@
 """PressAI Video SEO Engine — Unified CLI entry point.
 
 Usage:
-  vse generate --video <YT_ID>                        # Single video → SEO JSON
+  vse generate --video <YT_ID>                        # Single video -> SEO JSON
   vse generate --batch prawy_tv_matches.json          # Batch generate from matches file
   vse inject --video <YT_ID> --wp-id <WP_ID>         # Inject single video to WP
   vse inject --batch seo_results/                     # Batch inject from SEO dir
@@ -15,14 +15,14 @@ For full options on any subcommand:
   vse <command> --help
 
 Environment variables (or .env file):
-  GEMINI_API_KEY    — required for generate
-  WP_USER           — required for inject
-  WP_APP_PASSWORD   — required for inject
-  WP_BASE_URL       — required for inject / match / sitemap (default: https://prawy.pl)
-  YT_API_KEY        — optional, enables interactionStatistic (view count)
-  PORTAL            — prawy | kurier365 | biznesciti (default: prawy)
-  SUBS_DIR          — path to .vtt files directory
-  SEO_DIR           — path to seo_results directory
+  GEMINI_API_KEY    -- required for generate
+  WP_USER           -- required for inject
+  WP_APP_PASSWORD   -- required for inject
+  WP_BASE_URL       -- required for inject / match / sitemap (default: https://prawy.pl)
+  YT_API_KEY        -- optional, enables interactionStatistic (view count)
+  PORTAL            -- prawy | kurier365 | biznesciti (default: prawy)
+  SUBS_DIR          -- path to .vtt files directory
+  SEO_DIR           -- path to seo_results directory
 """
 import argparse
 import logging
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# HELPERS — env resolution
+# HELPERS -- env resolution
 # ============================================================
 
 def _require_env(name: str) -> str:
@@ -70,7 +70,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
 # ============================================================
 
 def cmd_match(args: argparse.Namespace) -> None:
-    """Match WordPress posts to YouTube IDs (MODE B — portal scanner)."""
+    """Match WordPress posts to YouTube IDs (MODE B -- portal scanner)."""
     from core.matcher import main as matcher_main  # type: ignore
     matcher_main()
 
@@ -100,7 +100,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     seo_dir = os.environ.get("SEO_DIR", "seo_results")
 
     if args.video:
-        # Single video mode — requires --wp-id and --title
+        # Single video mode -- requires --wp-id and --title
         if not args.wp_id or not args.title:
             logger.error("Single mode requires --wp-id and --title")
             sys.exit(1)
@@ -119,12 +119,12 @@ def cmd_generate(args: argparse.Namespace) -> None:
             api_key=api_key,
             out_dir=seo_dir,
         )
-        print(f"OK: {yt_id} → {seo_dir}/{yt_id}.json")
+        print(f"OK: {yt_id} -> {seo_dir}/{yt_id}.json")
         print(f"  focus_keyphrase: {result.get('focus_keyphrase')}")
         print(f"  chapters: {len(result.get('chapters', []))}")
 
     elif args.batch:
-        # Batch mode — load matches JSON
+        # Batch mode -- load matches JSON
         if not os.path.exists(args.batch):
             logger.error("Batch file not found: %s", args.batch)
             sys.exit(1)
@@ -144,13 +144,13 @@ def cmd_generate(args: argparse.Namespace) -> None:
             logger.info("[%d/%d] %s | WP#%s", i + 1, len(matches), yt_id, wp_id)
 
             if not os.path.exists(vtt_path):
-                logger.warning("  SKIP — VTT not found: %s", vtt_path)
+                logger.warning("  SKIP -- VTT not found: %s", vtt_path)
                 fail_count += 1
                 continue
 
             out_path = os.path.join(seo_dir, f"{yt_id}.json")
             if os.path.exists(out_path) and not args.force:
-                logger.info("  SKIP — already exists (use --force to overwrite)")
+                logger.info("  SKIP -- already exists (use --force to overwrite)")
                 ok_count += 1
                 continue
 
@@ -193,10 +193,10 @@ def cmd_inject(args: argparse.Namespace) -> None:
     dry_run = args.dry_run
 
     if dry_run:
-        logger.info("DRY RUN mode — no actual changes to WordPress")
+        logger.info("DRY RUN mode -- no actual changes to WordPress")
 
     if args.video:
-        # Single inject mode — requires --wp-id and seo JSON
+        # Single inject mode -- requires --wp-id and seo JSON
         if not args.wp_id:
             logger.error("Single inject requires --wp-id")
             sys.exit(1)
@@ -223,7 +223,7 @@ def cmd_inject(args: argparse.Namespace) -> None:
         print(f"[{status_str}] WP#{args.wp_id} | {result['link']}")
 
     elif args.batch:
-        # Batch inject — iterate all JSONs in a directory
+        # Batch inject -- iterate all JSONs in a directory
         seo_dir = args.batch.rstrip("/\\")
         if not os.path.isdir(seo_dir):
             logger.error("Batch dir not found: %s", seo_dir)
@@ -239,7 +239,7 @@ def cmd_inject(args: argparse.Namespace) -> None:
             yt_id = seo.get("youtube_id", fname.replace(".json", ""))
             wp_id = seo.get("wp_id", 0)
             if not wp_id:
-                logger.warning("[%d/%d] SKIP — no wp_id in %s", i + 1, len(json_files), fname)
+                logger.warning("[%d/%d] SKIP -- no wp_id in %s", i + 1, len(json_files), fname)
                 fail_count += 1
                 continue
             logger.info("[%d/%d] WP#%s | YT:%s", i + 1, len(json_files), wp_id, yt_id)
@@ -278,7 +278,7 @@ def main() -> None:
     """Main CLI dispatcher for PressAI Video SEO Engine."""
     parser = argparse.ArgumentParser(
         prog="vse",
-        description="PressAI Video SEO Engine — automated video content optimization",
+        description="PressAI Video SEO Engine -- automated video content optimization",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
