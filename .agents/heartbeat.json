@@ -1,28 +1,19 @@
 {
   "callsign": "vse-architect-01",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-ARCHITECT-02 — KOMPLETNY",
-  "timestamp": "2026-05-13T20:01:00Z",
+  "status": "working",
+  "current_task": "DISPATCH-VSE-VALIDATE-01 — walidacja pipeline na U9HLRRXs5EU",
+  "timestamp": "2026-05-13T20:21:00Z",
   "last_completed": [
-    "heartbeat init — commit d5efd2c (2026-05-13)",
-    "README.md professional — commit 0ac923a (2026-05-13)",
-    "AGENTS.md — commit 6e7c01e (2026-05-13)",
-    "core/fetcher.py migration — commit 70d3dbc (2026-05-13)",
-    "core/matcher.py migration — commit 3d1e4a8 (2026-05-13)",
-    "core/sitemap.py migration — commit 5b89d78 (2026-05-13)",
-    "core scaffolding — commit 4a82742 (2026-05-13)",
-    ".gitignore + .env.example + requirements.txt — commit 142fa92 (2026-05-13)",
-    "knowledge base — commit f31a913 (2026-05-13)",
-    "bootstrap report dual-write — commit dbdd8c8 (2026-05-13)",
     "[DISPATCH-02] core/generator.py migration — commit 3f9c243 (2026-05-13)",
     "[DISPATCH-02] core/injector.py migration — commit cde3bb2 (2026-05-13)",
-    "[DISPATCH-02] .env.example update — commit 5e67aa5 (2026-05-13)",
-    "[DISPATCH-02] cli/main.py generate+inject subcommands — commit f75e2a0 (2026-05-13)",
-    "[DISPATCH-02] knowledge/video-seo-pipeline.md roadmap Faz 1-7 — commit b6570b7 (2026-05-13)"
+    "[DISPATCH-02] cli/main.py generate+inject — commit f75e2a0 (2026-05-13)",
+    "[DISPATCH-02] .env.example + knowledge — commit b6570b7 (2026-05-13)"
   ],
   "pending": [
-    "DISPATCH-VSE-CHANNEL-MONITOR — Faza 2 (core/monitor.py)",
-    "pytest tests dla generator.py + injector.py",
-    "DISPATCH-VSE-ARCHITECT-03 — Faza 3 multi-portal lub Faza 2 Channel Monitor"
+    "DISPATCH-VSE-VALIDATE-01 — Krok 1: znajdź WP post dla U9HLRRXs5EU",
+    "DISPATCH-VSE-VALIDATE-01 — Krok 2: sprawdź VTT",
+    "DISPATCH-VSE-VALIDATE-01 — Krok 3: generate SEO",
+    "DISPATCH-VSE-VALIDATE-01 — Krok 4: inject do WP",
+    "DISPATCH-VSE-VALIDATE-01 — Krok 5: weryfikacja live"
   ]
 }
