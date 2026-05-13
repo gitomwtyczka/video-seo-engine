@@ -1,8 +1,8 @@
 {
   "callsign": "vse-architect-01",
-  "status": "working",
-  "current_task": "DISPATCH-02 — Faza 1: migracja core/generator.py + core/injector.py + CLI + env",
-  "timestamp": "2026-05-13T19:52:00Z",
+  "status": "done",
+  "current_task": "DISPATCH-VSE-ARCHITECT-02 — KOMPLETNY",
+  "timestamp": "2026-05-13T20:01:00Z",
   "last_completed": [
     "heartbeat init — commit d5efd2c (2026-05-13)",
     "README.md professional — commit 0ac923a (2026-05-13)",
@@ -10,17 +10,19 @@
     "core/fetcher.py migration — commit 70d3dbc (2026-05-13)",
     "core/matcher.py migration — commit 3d1e4a8 (2026-05-13)",
     "core/sitemap.py migration — commit 5b89d78 (2026-05-13)",
-    "core scaffolding (generator/injector/monitor/yt_admin placeholders) — commit 4a82742 (2026-05-13)",
-    ".gitignore + .env.example + requirements.txt + dirs — commit 142fa92 (2026-05-13)",
+    "core scaffolding — commit 4a82742 (2026-05-13)",
+    ".gitignore + .env.example + requirements.txt — commit 142fa92 (2026-05-13)",
     "knowledge base — commit f31a913 (2026-05-13)",
-    "bootstrap report dual-write — commit dbdd8c8 (2026-05-13)"
+    "bootstrap report dual-write — commit dbdd8c8 (2026-05-13)",
+    "[DISPATCH-02] core/generator.py migration — commit 3f9c243 (2026-05-13)",
+    "[DISPATCH-02] core/injector.py migration — commit cde3bb2 (2026-05-13)",
+    "[DISPATCH-02] .env.example update — commit 5e67aa5 (2026-05-13)",
+    "[DISPATCH-02] cli/main.py generate+inject subcommands — commit f75e2a0 (2026-05-13)",
+    "[DISPATCH-02] knowledge/video-seo-pipeline.md roadmap Faz 1-7 — commit b6570b7 (2026-05-13)"
   ],
   "pending": [
-    "core/generator.py — migracja z test_full_seo_v4.py [W TOKU]",
-    "core/injector.py — migracja z inject_rest_v5.py [W TOKU]",
-    "cli/main.py — rozszerzenie komend generate/inject",
-    ".env.example — aktualizacja o YT_API_KEY + PORTAL",
-    ".agents/knowledge/video-seo-pipeline.md — roadmap Faz 1-7",
-    "DISPATCH-VSE-CHANNEL-MONITOR — Faza 2"
+    "DISPATCH-VSE-CHANNEL-MONITOR — Faza 2 (core/monitor.py)",
+    "pytest tests dla generator.py + injector.py",
+    "DISPATCH-VSE-ARCHITECT-03 — Faza 3 multi-portal lub Faza 2 Channel Monitor"
   ]
 }
