@@ -1,0 +1,38 @@
+# Credentials — NEVER commit real values!
+.env
+*.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Output / data
+output/
+*.vtt
+seo_results_v5/
+seo_results/
+prawy_tv_matches.json
+batch_summary.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
