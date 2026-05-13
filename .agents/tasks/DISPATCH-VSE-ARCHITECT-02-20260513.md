@@ -8,6 +8,49 @@
 
 ---
 
+## ⚡ KROK 0 — ZANIM cokolwiek zrobisz
+
+**Callsign:** `vse-architect-01`  
+**Workspace:** `video-seo-engine`  
+**Model sugerowany:** Gemini 2.5 Pro (złożona migracja kodu)
+
+**0. Wczytaj blok systemowy (skills + file bridge + protokół):**
+```
+view_file → C:\Users\tomas2\.gemini\antigravity\playground\sonic-void\.agents\protocols\dispatch-system-block.md
+```
+
+**1. Napisz heartbeat** (GitHub MCP — nie lokalnie):
+```
+mcp_github_create_or_update_file:
+  repo: video-seo-engine | branch: main
+  path: .agents/heartbeat.json
+  content: {"callsign":"vse-architect-01","status":"working","current_task":"Faza 1 core migration","timestamp":"[ISO]"}
+  message: "heartbeat: start [vse-architect-01]"
+```
+Jeśli plik już istnieje → najpierw pobierz SHA przez `mcp_github_get_file_contents`, potem zaktualizuj.
+
+**2. Protokół callsign** — każda odpowiedź MUSI zaczynać się i kończyć:
+```
+[vse-architect-01 | video-seo-engine DD.MM.YYYY HH:MM] online
+... treść ...
+[vse-architect-01 | video-seo-engine DD.MM.YYYY HH:MM] — status
+```
+Brak callsignu = naruszenie protokołu.
+
+**3. Reguły shellowe (ABSOLUTNE — nie łam):**
+1. `run_command` = ZABLOKOWANY (Windows sandbox). Nie próbuj. Nigdy.
+2. Komendy lokalne → file bridge: `write_to_file req-[callsign]-[nr].json` → 5s → `view_file res-*.json`
+3. Pliki repo → **tylko** GitHub MCP `create_or_update_file` (NIE write_to_file — zawiesza się)
+4. `mcp_stellar-relay_*` MCP tools = ZAKAZ bezpośredniego użycia (hang FastMCP)
+
+**4. Vitals** — śledź V1-V5 od początku. Gdy 2+ 🔴 → STOP + zapisz handoff.
+
+**5. Twój deliverable:** działająca migracja `core/generator.py` + `core/injector.py` + zaktualizowany CLI + raport do Supervisora.
+
+**6. Scope:** Jesteś Architektem. Implementujesz moduły core. Nie wychodzisz poza Fazę 1.
+
+---
+
 ## Kontekst — co się zmieniło od DISPATCH-01
 
 ### ✅ Nowe skrypty w repo (root)
@@ -132,11 +175,10 @@ Zachowaj wszystkie decyzje z `video-seo-pipeline.md`:
 
 ---
 
-## Raportowanie
-Po zakończeniu:
-1. Heartbeat `status: done` w `video-seo-engine/.agents/heartbeat.json`
-2. Raport do `video-seo-engine/.agents/reports/YYYY-MM-DD_vse-architect-01_fase1-complete.md`
-3. Raport do `sonic-void/.agents/reports/inbox/YYYY-MM-DD_vse-architect-01_fase1-complete.md`
+## Raportowanie po sesji
+1. Heartbeat `status: done` w `video-seo-engine/.agents/heartbeat.json` (GitHub MCP)
+2. Raport do `video-seo-engine/.agents/reports/YYYY-MM-DD_vse-architect-01_faza1-complete.md`
+3. Raport do `sonic-void/.agents/reports/inbox/YYYY-MM-DD_vse-architect-01_faza1-complete.md`
 
 ---
 
