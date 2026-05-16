@@ -12,6 +12,8 @@ Usage:
   vse sitemap                                         # Generate video sitemap XML
   vse watch --channel <CHANNEL_ID>                    # Monitor YT channel for new videos
   vse watch --channel <CHANNEL_ID> --dry-run          # Dry-run: show what would be processed
+  vse update-yt --all-registry                        # Update YT descriptions for all registry videos
+  vse update-yt --video <YT_ID> --wp-url <URL>        # Update single video description on YouTube
 
 For full options on any subcommand:
   vse <command> --help
@@ -22,6 +24,9 @@ Environment variables (or .env file):
   WP_APP_PASSWORD   -- required for inject / watch
   WP_BASE_URL       -- required for inject / match / sitemap / watch (default: https://prawy.pl)
   YT_API_KEY        -- required for watch (YouTube Data API v3)
+  YT_CLIENT_ID      -- required for update-yt (OAuth 2.0)
+  YT_CLIENT_SECRET  -- required for update-yt (OAuth 2.0)
+  YT_REFRESH_TOKEN  -- required for update-yt (OAuth 2.0)
   CHANNEL_ID        -- YouTube channel ID (for watch)
   MONITOR_INTERVAL  -- polling interval in seconds (default: 3600)
   PORTAL            -- prawy | kurier365 | biznesciti (default: prawy)
@@ -276,6 +281,83 @@ def cmd_inject(args: argparse.Namespace) -> None:
 
 
 # ============================================================
+# SUBCOMMAND: update-yt (Faza 2B — YouTube Description Writer)
+# ============================================================
+
+def cmd_update_yt(args: argparse.Namespace) -> None:
+    """Write enriched descriptions + chapters + footer back to YouTube (OAuth).
+
+    Faza 2B: retroactive batch update for 213+ Prawy TV videos.
+    Uses YouTube Data API v3 videos.update (50 quota units each).
+    Daily limit: ~200 updates/day at default delay.
+
+    Requires OAuth credentials in .env:
+        YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN
+    """
+    import json
+    from core.yt_admin import update_video_description, batch_update_from_registry  # type: ignore
+
+    wp_base_url = os.environ.get("WP_BASE_URL", "https://prawy.pl")
+    seo_dir = Path(os.environ.get("SEO_DIR", "seo_results"))
+    registry_dir = Path(args.registry_dir)
+    dry_run = args.dry_run
+    delay = args.delay
+
+    # Verify OAuth credentials are present
+    for cred in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN"):
+        if not os.environ.get(cred):
+            logger.error("Missing OAuth credential: %s (set in .env)", cred)
+            sys.exit(1)
+
+    if dry_run:
+        logger.info("DRY RUN -- no changes will be made to YouTube")
+
+    if args.all_registry:
+        # Batch mode: update all videos with SEO JSON in the registry
+        logger.info(
+            "Batch update-yt: registry=%s seo=%s delay=%.1fs",
+            registry_dir, seo_dir, delay,
+        )
+        stats = batch_update_from_registry(
+            registry_dir=registry_dir,
+            seo_dir=seo_dir,
+            wp_base_url=wp_base_url,
+            dry_run=dry_run,
+            delay_between=delay,
+        )
+        print(
+            f"\nBatch complete: {stats['success']} updated | "
+            f"{stats['failed']} failed | {stats['skipped']} skipped | "
+            f"{stats['total']} total"
+        )
+
+    elif args.video:
+        # Single video mode
+        yt_id = args.video
+        wp_url = args.wp_url or wp_base_url
+
+        seo_file = seo_dir / f"{yt_id}.json"
+        if not seo_file.exists():
+            logger.error("SEO JSON not found: %s (run 'vse generate' first)", seo_file)
+            sys.exit(1)
+
+        with open(seo_file, "r", encoding="utf-8") as f:
+            seo = json.load(f)
+
+        logger.info("update-yt: %s | wp_url=%s", yt_id, wp_url)
+        ok = update_video_description(yt_id, seo, wp_url, dry_run=dry_run)
+        if ok:
+            print(f"[OK] YouTube description updated: {yt_id}")
+        else:
+            print(f"[FAIL] Could not update: {yt_id}")
+            sys.exit(1)
+
+    else:
+        logger.error("Provide --video <YT_ID> --wp-url <URL> or --all-registry")
+        sys.exit(1)
+
+
+# ============================================================
 # SUBCOMMAND: watch (MODE A -- YouTube Channel Monitor)
 # ============================================================
 
@@ -298,6 +380,13 @@ def cmd_watch(args: argparse.Namespace) -> None:
     interval = args.interval or int(os.environ.get("MONITOR_INTERVAL", "3600"))
     registry_dir = Path(args.registry_dir)
 
+    publish_delay_min = args.publish_delay_min or int(
+        os.environ.get("PUBLISH_DELAY_MIN", "5")
+    )
+    publish_delay_max = args.publish_delay_max or int(
+        os.environ.get("PUBLISH_DELAY_MAX", "37")
+    )
+
     if args.dry_run:
         logger.info("DRY RUN -- no WordPress or Gemini calls will be made")
 
@@ -314,6 +403,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
         registry_dir=registry_dir,
         dry_run=args.dry_run,
         run_once=args.once,
+        publish_delay_min=publish_delay_min,
+        publish_delay_max=publish_delay_max,
     )
 
 
@@ -371,6 +462,37 @@ def main() -> None:
                         help="Skip YouTube thumbnail upload/set")
     inj_p.set_defaults(func=cmd_inject)
 
+    # --- update-yt ---
+    uyt_p = subparsers.add_parser(
+        "update-yt",
+        help="Write enriched descriptions + chapters + footer to YouTube (OAuth 2.0)",
+    )
+    uyt_p.add_argument(
+        "--video", metavar="YT_ID",
+        help="Single YouTube video ID to update",
+    )
+    uyt_p.add_argument(
+        "--wp-url", metavar="URL",
+        help="WordPress article URL to include in description (single mode)",
+    )
+    uyt_p.add_argument(
+        "--all-registry", action="store_true",
+        help="Update all videos in registry/ that have a matching SEO JSON",
+    )
+    uyt_p.add_argument(
+        "--registry-dir", metavar="DIR", default="registry",
+        help="Path to registry directory (default: registry/)",
+    )
+    uyt_p.add_argument(
+        "--dry-run", action="store_true",
+        help="Build descriptions and log without pushing to YouTube",
+    )
+    uyt_p.add_argument(
+        "--delay", metavar="SECONDS", type=float, default=2.0,
+        help="Delay between API calls in batch mode (default: 2.0s)",
+    )
+    uyt_p.set_defaults(func=cmd_update_yt)
+
     # --- watch ---
     watch_p = subparsers.add_parser(
         "watch",
@@ -395,6 +517,14 @@ def main() -> None:
     watch_p.add_argument(
         "--registry-dir", metavar="DIR", default="registry",
         help="Path to the registry directory (default: registry/)",
+    )
+    watch_p.add_argument(
+        "--publish-delay-min", metavar="MINUTES", type=int, default=None,
+        help="Min WP publish delay after YT premiere (default: 5)",
+    )
+    watch_p.add_argument(
+        "--publish-delay-max", metavar="MINUTES", type=int, default=None,
+        help="Max WP publish delay after YT premiere (default: 37)",
     )
     watch_p.set_defaults(func=cmd_watch)
 
