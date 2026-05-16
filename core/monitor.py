@@ -2,20 +2,23 @@
 
 Watches a YouTube channel for new videos and:
   1. Checks the local registry to prevent double-processing.
-  2. Creates a WordPress draft with the video title + embed.
-  3. Triggers core/generator.py to enrich the draft with SEO schema.
-  4. Updates the registry with final status.
+  2. Detects scheduled/premiere videos and sets WP publish time accordingly.
+  3. Creates a WordPress draft or scheduled post with the video title + embed.
+  4. Triggers core/generator.py to enrich the draft with SEO schema.
+  5. Updates the registry with final status.
 
 Usage (via CLI):
   vse watch --channel UC... --interval 3600 --dry-run
 
 Environment variables:
-  CHANNEL_ID        -- YouTube channel ID (UCxxx...)
-  MONITOR_INTERVAL  -- polling interval in seconds (default: 3600)
-  YT_API_KEY        -- YouTube Data API v3 key (required for get_latest_videos)
-  WP_USER           -- WordPress username
-  WP_APP_PASSWORD   -- WordPress Application Password
-  WP_BASE_URL       -- e.g. https://prawy.pl
+  CHANNEL_ID          -- YouTube channel ID (UCxxx...)
+  MONITOR_INTERVAL    -- polling interval in seconds (default: 3600)
+  YT_API_KEY          -- YouTube Data API v3 key (required for get_latest_videos)
+  WP_USER             -- WordPress username
+  WP_APP_PASSWORD     -- WordPress Application Password
+  WP_BASE_URL         -- e.g. https://prawy.pl
+  PUBLISH_DELAY_MIN   -- Minimum WP publish delay after YT (minutes, default: 5)
+  PUBLISH_DELAY_MAX   -- Maximum WP publish delay after YT (minutes, default: 37)
 
 Dependencies:
   pip install requests python-dotenv
@@ -23,8 +26,9 @@ Dependencies:
 import json
 import logging
 import os
+import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +38,43 @@ logger = logging.getLogger(__name__)
 
 # Default registry directory (relative to CWD / project root)
 REGISTRY_DIR = Path("registry")
+
+
+# ============================================================
+# SMART PUBLISH DELAY — variable timing to look natural
+# ============================================================
+
+def calculate_publish_delay(
+    delay_min: int = 5,
+    delay_max: int = 37,
+) -> int:
+    """Calculate a randomised publish delay in minutes.
+
+    Base range: [delay_min, delay_max] (default 5-37 minutes).
+    Occasionally (~15% of calls) produces an "outlier" that
+    slightly exceeds the range in either direction, simulating
+    organic editorial timing variation.
+
+    Args:
+        delay_min: Minimum delay in minutes (default: 5).
+        delay_max: Maximum delay in minutes (default: 37).
+
+    Returns:
+        Delay in minutes (int), always >= 3.
+    """
+    base = random.randint(delay_min, delay_max)
+
+    # ~15% chance of outlier
+    if random.random() < 0.15:
+        direction = random.choice([-1, 1])
+        if direction == -1:
+            # Publish slightly ahead of schedule (3-4 min before range)
+            base = random.randint(max(3, delay_min - 4), delay_min - 1)
+        else:
+            # Publish somewhat later (slightly above range)
+            base = random.randint(delay_max + 1, delay_max + 15)
+
+    return max(3, base)
 
 
 # ============================================================
@@ -66,6 +107,7 @@ def update_registry(
     wp_post_id: Optional[int] = None,
     agent: str = "vse-architect-01",
     registry_dir: Path = REGISTRY_DIR,
+    extra: Optional[dict] = None,
 ) -> None:
     """Write or update a registry entry for a video.
 
@@ -75,17 +117,30 @@ def update_registry(
         wp_post_id: WordPress post ID (if created/updated).
         agent: Agent callsign that processed the video.
         registry_dir: Path to the registry directory.
+        extra: Optional additional fields to merge into the record.
     """
     registry_dir.mkdir(parents=True, exist_ok=True)
     registry_path = registry_dir / f"{video_id}.json"
 
+    # Preserve existing fields (e.g. yt_desc_updated)
+    existing = {}
+    if registry_path.exists():
+        try:
+            existing = json.loads(registry_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
     record = {
+        **existing,
         "video_id": video_id,
         "status": status,
-        "wp_post_id": wp_post_id,
+        "wp_post_id": wp_post_id if wp_post_id is not None else existing.get("wp_post_id"),
         "injected_at": datetime.now(timezone.utc).isoformat(),
         "agent": agent,
     }
+    if extra:
+        record.update(extra)
+
     registry_path.write_text(
         json.dumps(record, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -136,7 +191,8 @@ def get_latest_videos(
         max_results: Maximum number of results to return (max 50).
 
     Returns:
-        List of dicts with keys: video_id, title, published_at, description.
+        List of dicts with keys: video_id, title, published_at, description,
+        thumbnail_url.
 
     Raises:
         requests.HTTPError: On YouTube API errors.
@@ -168,6 +224,7 @@ def get_latest_videos(
             "title": snippet.get("title", ""),
             "published_at": snippet.get("publishedAt", ""),
             "description": snippet.get("description", ""),
+            "live_broadcast_content": snippet.get("liveBroadcastContent", "none"),
             "thumbnail_url": (
                 snippet.get("thumbnails", {})
                 .get("maxres", snippet.get("thumbnails", {}).get("high", {}))
@@ -182,8 +239,64 @@ def get_latest_videos(
     return videos
 
 
+def get_video_scheduled_time(video_id: str, yt_api_key: str) -> Optional[datetime]:
+    """Fetch scheduledStartTime for premiere/livestream videos from YouTube API.
+
+    Used to detect future-scheduled uploads so that the WP post can be
+    set to 'future' status and published shortly after the video goes live.
+
+    Args:
+        video_id: YouTube video ID.
+        yt_api_key: YouTube Data API v3 key.
+
+    Returns:
+        Scheduled start datetime (UTC, timezone-aware) if available,
+        or None for regular (already-published) videos.
+    """
+    url = "https://www.googleapis.com/youtube/v3/videos"
+    params = {
+        "part": "liveStreamingDetails,snippet,status",
+        "id": video_id,
+        "key": yt_api_key,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        items = resp.json().get("items", [])
+        if not items:
+            return None
+
+        item = items[0]
+        # Scheduled premiere / live stream
+        live_details = item.get("liveStreamingDetails", {})
+        scheduled_str = live_details.get("scheduledStartTime")
+        if scheduled_str:
+            try:
+                dt = datetime.fromisoformat(scheduled_str.replace("Z", "+00:00"))
+                logger.info("Video %s scheduled at %s", video_id, dt.isoformat())
+                return dt
+            except ValueError:
+                logger.warning("Could not parse scheduledStartTime: %s", scheduled_str)
+
+        # Regular upload with publishAt (privacy = private + scheduled)
+        status = item.get("status", {})
+        publish_at_str = status.get("publishAt")
+        if publish_at_str:
+            try:
+                dt = datetime.fromisoformat(publish_at_str.replace("Z", "+00:00"))
+                logger.info("Video %s publishAt: %s", video_id, dt.isoformat())
+                return dt
+            except ValueError:
+                logger.warning("Could not parse publishAt: %s", publish_at_str)
+
+    except Exception as exc:
+        logger.warning("get_video_scheduled_time %s: %s", video_id, exc)
+
+    return None
+
+
 # ============================================================
-# WORDPRESS — create draft post
+# WORDPRESS — create draft or scheduled post
 # ============================================================
 
 def create_draft(
@@ -193,9 +306,14 @@ def create_draft(
     wp_base_url: str,
     wp_user: str,
     wp_app_pass: str,
+    scheduled_at: Optional[datetime] = None,
     dry_run: bool = False,
 ) -> Optional[int]:
-    """Create a WordPress draft post with YouTube embed.
+    """Create a WordPress post with YouTube embed.
+
+    If scheduled_at is in the future, creates the post with status='future'
+    so WordPress publishes it automatically at the specified time.
+    Otherwise creates a regular draft.
 
     Args:
         video_id: YouTube video ID (for embed URL construction).
@@ -204,6 +322,8 @@ def create_draft(
         wp_base_url: WordPress site URL.
         wp_user: WordPress username.
         wp_app_pass: WordPress Application Password.
+        scheduled_at: Optional UTC datetime when WP post should go live.
+            If None or in the past, creates a draft.
         dry_run: If True, log the action without making API calls.
 
     Returns:
@@ -219,15 +339,33 @@ def create_draft(
         f'<!-- /wp:embed -->'
     )
 
-    payload = {
+    now_utc = datetime.now(timezone.utc)
+
+    # Determine WP post status and date
+    if scheduled_at and scheduled_at > now_utc:
+        wp_status = "future"
+        # Use date_gmt (UTC) for scheduled posts
+        wp_date_gmt = scheduled_at.strftime("%Y-%m-%dT%H:%M:%S")
+        logger.info(
+            "Scheduling WP post for %s at %s UTC",
+            video_id, wp_date_gmt,
+        )
+    else:
+        wp_status = "draft"
+        wp_date_gmt = None
+
+    payload: dict = {
         "title": post_title,
         "content": embed_block,
-        "status": "draft",
+        "status": wp_status,
     }
+    if wp_date_gmt:
+        payload["date_gmt"] = wp_date_gmt
 
     if dry_run:
         logger.info(
-            "DRY RUN -- would create draft: %r | YT:%s", post_title[:60], video_id
+            "DRY RUN -- would create %s: %r | YT:%s | scheduled=%s",
+            wp_status, post_title[:60], video_id, wp_date_gmt,
         )
         return None
 
@@ -242,7 +380,10 @@ def create_draft(
     post_data = resp.json()
     wp_id = post_data.get("id")
     link = post_data.get("link", "")
-    logger.info("Draft created: WP#%s | %s", wp_id, link)
+    logger.info(
+        "Post created [%s]: WP#%s | scheduled=%s | %s",
+        wp_status, wp_id, wp_date_gmt, link,
+    )
     return wp_id
 
 
@@ -325,8 +466,15 @@ def watch(
     registry_dir: Path = REGISTRY_DIR,
     dry_run: bool = False,
     run_once: bool = False,
+    publish_delay_min: int = 5,
+    publish_delay_max: int = 37,
 ) -> None:
     """Main watch loop — poll YouTube channel and process new videos.
+
+    For each new video:
+      - If it's a future premiere: creates a WordPress scheduled post
+        with publish time = YT premiere time + random(5..37) minutes.
+      - If already published: creates a draft for editorial review.
 
     Args:
         channel_id: YouTube channel ID.
@@ -341,18 +489,23 @@ def watch(
         registry_dir: Path to the registry directory.
         dry_run: If True, no actual WP or Gemini calls.
         run_once: If True, poll once and exit (useful for cron/CI).
+        publish_delay_min: Min WP publish delay after YT premiere (minutes).
+        publish_delay_max: Max WP publish delay after YT premiere (minutes).
     """
     logger.info(
-        "Monitor starting | channel=%s | interval=%ds | dry_run=%s",
-        channel_id, interval, dry_run,
+        "Monitor starting | channel=%s | interval=%ds | dry_run=%s | "
+        "publish_delay=%d-%dmin",
+        channel_id, interval, dry_run, publish_delay_min, publish_delay_max,
     )
 
     last_check: Optional[datetime] = None
 
     while True:
         now = datetime.now(timezone.utc)
-        logger.info("Polling YouTube channel %s (since=%s)...", channel_id,
-                    last_check.isoformat() if last_check else "any")
+        logger.info(
+            "Polling YouTube channel %s (since=%s)...", channel_id,
+            last_check.isoformat() if last_check else "any",
+        )
 
         try:
             videos = get_latest_videos(
@@ -382,10 +535,38 @@ def watch(
 
             # Mark as pending immediately to prevent race conditions
             if not dry_run:
-                update_registry(vid_id, "pending", agent="vse-architect-01",
-                                registry_dir=registry_dir)
+                update_registry(
+                    vid_id, "pending",
+                    agent="vse-architect-01",
+                    registry_dir=registry_dir,
+                )
 
-            # Create WP draft
+            # -----------------------------------------------
+            # SMART SCHEDULING — detect premiere/scheduledTime
+            # -----------------------------------------------
+            scheduled_yt_time: Optional[datetime] = None
+
+            live_content = video.get("live_broadcast_content", "none")
+            if live_content == "upcoming":
+                # Premiere or live stream scheduled for the future
+                scheduled_yt_time = get_video_scheduled_time(vid_id, yt_api_key)
+
+            wp_publish_at: Optional[datetime] = None
+            if scheduled_yt_time and scheduled_yt_time > now:
+                delay_minutes = calculate_publish_delay(
+                    publish_delay_min, publish_delay_max
+                )
+                wp_publish_at = scheduled_yt_time + timedelta(minutes=delay_minutes)
+                logger.info(
+                    "Scheduled post: YT@%s + %dmin = WP@%s",
+                    scheduled_yt_time.strftime("%H:%M"),
+                    delay_minutes,
+                    wp_publish_at.strftime("%H:%M"),
+                )
+
+            # -----------------------------------------------
+            # CREATE WP POST (draft or scheduled future)
+            # -----------------------------------------------
             wp_id = create_draft(
                 video_id=vid_id,
                 post_title=title,
@@ -393,10 +574,13 @@ def watch(
                 wp_base_url=wp_base_url,
                 wp_user=wp_user,
                 wp_app_pass=wp_app_pass,
+                scheduled_at=wp_publish_at,
                 dry_run=dry_run,
             )
 
-            # Trigger SEO generation (requires VTT to be available)
+            # -----------------------------------------------
+            # SEO GENERATION (requires VTT to be available)
+            # -----------------------------------------------
             gen_ok = trigger_generate(
                 video_id=vid_id,
                 wp_id=wp_id or 0,
@@ -407,11 +591,21 @@ def watch(
                 dry_run=dry_run,
             )
 
-            # Update registry with final status
+            # -----------------------------------------------
+            # UPDATE REGISTRY
+            # -----------------------------------------------
             if not dry_run:
                 final_status = "injected" if (wp_id and gen_ok) else "pending"
-                update_registry(vid_id, final_status, wp_post_id=wp_id,
-                                agent="vse-architect-01", registry_dir=registry_dir)
+                extra = {}
+                if wp_publish_at:
+                    extra["wp_scheduled_at"] = wp_publish_at.isoformat()
+                update_registry(
+                    vid_id, final_status,
+                    wp_post_id=wp_id,
+                    agent="vse-architect-01",
+                    registry_dir=registry_dir,
+                    extra=extra if extra else None,
+                )
 
         logger.info(
             "Poll done: %d new videos processed | next check in %ds",
