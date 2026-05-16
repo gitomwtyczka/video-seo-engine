@@ -77,6 +77,24 @@ def _make_auth(wp_user: str, wp_app_pass: str) -> HTTPBasicAuth:
     return HTTPBasicAuth(wp_user, wp_app_pass)
 
 
+def _build_rankmath_meta(seo: dict) -> dict:
+    """Build RankMath SEO meta fields for the WP REST API 'meta' payload."""
+    focus_keyword = seo.get("focus_keyphrase", "").strip()
+    lead_plain = _strip_html(seo.get("lead", ""))
+    meta_desc = lead_plain[:157] + "..." if len(lead_plain) > 160 else lead_plain
+    seo_title = seo.get("seo_title", "").strip()
+    meta: dict = {}
+    if focus_keyword:
+        meta["rank_math_focus_keyword"] = focus_keyword
+    if meta_desc:
+        meta["rank_math_description"] = meta_desc
+    if seo_title:
+        meta["rank_math_title"] = seo_title
+    if meta:
+        logger.info("  RankMath: keyphrase=%r title=%r", focus_keyword[:40], seo_title[:40])
+    return meta
+
+
 # ============================================================
 # FETCH POST DATE FROM WP REST API
 # ============================================================
@@ -145,13 +163,29 @@ def get_youtube_view_count(yt_id: str, yt_api_key: Optional[str] = None) -> Opti
 # SET YOUTUBE THUMBNAIL AS FEATURED IMAGE
 # ============================================================
 
+def _set_media_alt(media_id: int, alt_text: str, title: str, wp_base_url: str, auth: HTTPBasicAuth) -> None:
+    """PATCH WP media item to set alt_text and title."""
+    try:
+        requests.post(
+            f"{wp_base_url}/wp-json/wp/v2/media/{media_id}",
+            json={"alt_text": alt_text, "title": title},
+            auth=auth,
+            timeout=10,
+        )
+        logger.info("  THUMB ALT: set alt_text=%r", alt_text[:60])
+    except Exception as exc:
+        logger.warning("  THUMB ALT: could not set alt_text: %s", exc)
+
+
 def set_youtube_thumbnail(
     wp_id: int,
     yt_id: str,
     post_title: str,
     wp_base_url: str,
     auth: HTTPBasicAuth,
+    alt_text: str = "",
 ) -> Optional[int]:
+    """Download YouTube thumbnail, set as featured image, and set ALT text with focus keyphrase."""
     """Download YouTube thumbnail and set it as the WP post's featured image.
 
     Tries maxresdefault → hqdefault → mqdefault. Deduplicates uploads
@@ -194,6 +228,8 @@ def set_youtube_thumbnail(
                 auth=auth,
                 timeout=15,
             )
+            if alt_text:
+                _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth)
             logger.info("  THUMB: reuse existing media #%s", media_id)
             return media_id
     except Exception as exc:
@@ -221,6 +257,8 @@ def set_youtube_thumbnail(
                 timeout=15,
             )
             if set_resp.status_code == 200:
+                if alt_text:
+                    _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth)
                 logger.info("  THUMB: uploaded + set as featured (media #%s)", media_id)
                 return media_id
         logger.warning("  THUMB: upload failed HTTP %s", upload_resp.status_code)
@@ -492,17 +530,19 @@ def update_post(
 
     content = build_post_content(seo, yt_id, upload_date, yt_api_key)
     excerpt = _strip_html(seo["lead"])
+    rankmath_meta = _build_rankmath_meta(seo)
 
     if dry_run:
         logger.info("  DRY RUN — skipping PATCH for WP#%s", wp_id)
+        logger.info("  Would set: keyphrase=%r", rankmath_meta.get("rank_math_focus_keyword", "-"))
         return 0, "DRY_RUN"
 
     url = f"{wp_base_url}/wp-json/wp/v2/posts/{wp_id}"
+    payload: dict = {"content": content, "excerpt": excerpt}
+    if rankmath_meta:
+        payload["meta"] = rankmath_meta
     try:
-        resp = requests.post(
-            url, json={"content": content, "excerpt": excerpt},
-            auth=auth, timeout=30,
-        )
+        resp = requests.post(url, json=payload, auth=auth, timeout=30)
         link = resp.json().get("link", "?")
         logger.info("  REST API: %s | %s", resp.status_code, link)
         if resp.status_code != 200:
@@ -549,10 +589,15 @@ def inject_video(
     auth = _make_auth(wp_user, wp_app_pass)
     logger.info("Injecting WP#%s | YT:%s", wp_id, yt_id)
 
+    # ALT text: focus keyphrase + channel name for SEO
+    focus_kw = seo.get("focus_keyphrase", "").strip()
+    img_alt = f"{focus_kw} | Prawy TV" if focus_kw else seo.get("seo_title", "")[:80]
+
     media_id = None
     if not skip_thumbnail and not dry_run:
         media_id = set_youtube_thumbnail(
-            wp_id, yt_id, seo.get("original_title", ""), wp_base_url, auth
+            wp_id, yt_id, seo.get("original_title", ""), wp_base_url, auth,
+            alt_text=img_alt,
         )
 
     status, link = update_post(
