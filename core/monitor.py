@@ -592,10 +592,50 @@ def watch(
             )
 
             # -----------------------------------------------
+            # INJECT FULL SEO CONTENT (if generation succeeded)
+            # Content + thumbnail + RankMath meta
+            # -----------------------------------------------
+            inject_ok = False
+            if gen_ok and wp_id:
+                seo_path = os.path.join(seo_dir, f"{vid_id}.json")
+                if os.path.exists(seo_path):
+                    try:
+                        import json as _json
+                        from core.injector import inject_video  # type: ignore
+
+                        seo_data = _json.loads(
+                            open(seo_path, encoding="utf-8").read()
+                        )
+                        result = inject_video(
+                            wp_id=wp_id,
+                            yt_id=vid_id,
+                            seo=seo_data,
+                            wp_base_url=wp_base_url,
+                            wp_user=wp_user,
+                            wp_app_pass=wp_app_pass,
+                            dry_run=dry_run,
+                        )
+                        inject_ok = result.get("ok", False)
+                        logger.info(
+                            "Inject %s: WP#%s | RankMath=%s | %s",
+                            "OK" if inject_ok else "FAIL",
+                            wp_id,
+                            result.get("rankmath_ok", False),
+                            result.get("link", "?"),
+                        )
+                    except Exception as exc:
+                        logger.error("Inject exception for %s: %s", vid_id, exc)
+                else:
+                    logger.warning(
+                        "SEO JSON not found after generate for %s: %s",
+                        vid_id, seo_path,
+                    )
+
+            # -----------------------------------------------
             # UPDATE REGISTRY
             # -----------------------------------------------
             if not dry_run:
-                final_status = "injected" if (wp_id and gen_ok) else "pending"
+                final_status = "injected" if (wp_id and gen_ok and inject_ok) else "pending"
                 extra = {}
                 if wp_publish_at:
                     extra["wp_scheduled_at"] = wp_publish_at.isoformat()
@@ -606,6 +646,7 @@ def watch(
                     registry_dir=registry_dir,
                     extra=extra if extra else None,
                 )
+
 
         logger.info(
             "Poll done: %d new videos processed | next check in %ds",

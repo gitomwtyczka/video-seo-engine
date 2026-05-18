@@ -78,7 +78,11 @@ def _make_auth(wp_user: str, wp_app_pass: str) -> HTTPBasicAuth:
 
 
 def _build_rankmath_meta(seo: dict) -> dict:
-    """Build RankMath SEO meta fields for the WP REST API 'meta' payload."""
+    """Build RankMath SEO meta fields dict (used for update_rankmath_meta).
+
+    Returns a dict with keys: rank_math_focus_keyword, rank_math_description,
+    rank_math_title. Empty values are omitted.
+    """
     focus_keyword = seo.get("focus_keyphrase", "").strip()
     lead_plain = _strip_html(seo.get("lead", ""))
     meta_desc = lead_plain[:157] + "..." if len(lead_plain) > 160 else lead_plain
@@ -93,6 +97,60 @@ def _build_rankmath_meta(seo: dict) -> dict:
     if meta:
         logger.info("  RankMath: keyphrase=%r title=%r", focus_keyword[:40], seo_title[:40])
     return meta
+
+
+def update_rankmath_meta(
+    wp_id: int,
+    seo: dict,
+    wp_base_url: str,
+    auth: HTTPBasicAuth,
+) -> bool:
+    """Push SEO meta to RankMath via its dedicated REST endpoint.
+
+    WP REST API's standard ``meta`` field silently ignores RankMath keys
+    (only 'footnotes' is returned). The correct approach is the
+    ``rankmath/v1/updateMeta`` endpoint which accepts objectType + objectID + meta.
+
+    Verified live on prawy.pl: POST rankmath/v1/updateMeta returns
+    ``{"slug": true, ...}`` on success.
+
+    Args:
+        wp_id: WordPress post ID.
+        seo: SEO result dict from generator.process_video().
+        wp_base_url: WordPress site base URL.
+        auth: HTTPBasicAuth instance.
+
+    Returns:
+        True if RankMath accepted the update, False otherwise.
+    """
+    rankmath_meta = _build_rankmath_meta(seo)
+    if not rankmath_meta:
+        logger.warning("  RankMath: no meta to update for WP#%s (empty focus_keyphrase?)", wp_id)
+        return False
+
+    url = f"{wp_base_url.rstrip('/')}/wp-json/rankmath/v1/updateMeta"
+    payload = {
+        "objectType": "post",
+        "objectID": wp_id,
+        "meta": rankmath_meta,
+    }
+    try:
+        resp = requests.post(url, json=payload, auth=auth, timeout=20)
+        data = resp.json()
+        if resp.status_code == 200 and data.get("slug") is True:
+            logger.info(
+                "  RankMath OK: WP#%s | keyphrase=%r",
+                wp_id, rankmath_meta.get("rank_math_focus_keyword", "-")[:40],
+            )
+            return True
+        logger.error(
+            "  RankMath FAIL WP#%s: HTTP %s | %s",
+            wp_id, resp.status_code, str(data)[:200],
+        )
+        return False
+    except Exception as exc:
+        logger.error("  RankMath exception WP#%s: %s", wp_id, exc)
+        return False
 
 
 # ============================================================
@@ -530,17 +588,17 @@ def update_post(
 
     content = build_post_content(seo, yt_id, upload_date, yt_api_key)
     excerpt = _strip_html(seo["lead"])
-    rankmath_meta = _build_rankmath_meta(seo)
 
     if dry_run:
+        rankmath_meta = _build_rankmath_meta(seo)
         logger.info("  DRY RUN — skipping PATCH for WP#%s", wp_id)
         logger.info("  Would set: keyphrase=%r", rankmath_meta.get("rank_math_focus_keyword", "-"))
         return 0, "DRY_RUN"
 
     url = f"{wp_base_url}/wp-json/wp/v2/posts/{wp_id}"
+    # NOTE: WP REST 'meta' field silently ignores rank_math_* keys —
+    # use update_rankmath_meta() separately for the correct endpoint.
     payload: dict = {"content": content, "excerpt": excerpt}
-    if rankmath_meta:
-        payload["meta"] = rankmath_meta
     try:
         resp = requests.post(url, json=payload, auth=auth, timeout=30)
         link = resp.json().get("link", "?")
@@ -604,11 +662,24 @@ def inject_video(
         wp_id, seo, yt_id, wp_base_url, auth, yt_api_key, dry_run
     )
 
+    # RankMath SEO meta — via dedicated rankmath/v1/updateMeta endpoint
+    # (WP REST 'meta' field silently ignores rank_math_* keys)
+    rankmath_ok = False
+    if not dry_run and status == 200:
+        rankmath_ok = update_rankmath_meta(wp_id, seo, wp_base_url, auth)
+    elif dry_run:
+        rankmath_meta = _build_rankmath_meta(seo)
+        logger.info(
+            "  DRY RUN RankMath — would set keyphrase=%r",
+            rankmath_meta.get("rank_math_focus_keyword", "-"),
+        )
+
     return {
         "wp_id": wp_id,
         "yt_id": yt_id,
         "status": status,
         "link": link,
         "thumbnail_media_id": media_id,
+        "rankmath_ok": rankmath_ok,
         "ok": status == 200 or dry_run,
     }
