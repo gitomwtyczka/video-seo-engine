@@ -87,6 +87,36 @@ def _strip_html(html: str) -> str:
     """Strip HTML tags from a string."""
     return re.sub(r"<[^>]+>", "", html).strip()
 
+def _sanitize_slug(text: str) -> str:
+    """Convert SEO title/post_title to a URL-safe WP slug.
+
+    Transliterates Polish chars, lowercases, replaces spaces with hyphens,
+    strips stop-words and special characters. Result <= 60 chars.
+
+    Should only be used when WP slug is not provided by Gemini (wp_slug field).
+    Gemini-generated wp_slug is preferred.
+
+    Args:
+        text: Input string (post_title or seo_title).
+
+    Returns:
+        URL-safe slug string, max 60 chars.
+    """
+    PL_MAP = str.maketrans(
+        "\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b",
+        "acelnoszzACELNOSZZ",
+    )
+    STOP_WORDS = {
+        "i", "w", "z", "na", "do", "ze", "si\u0119", "lub",
+        "oraz", "dla", "jak", "jest", "by", "to", "nie", "co",
+    }
+    slug = text.lower().translate(PL_MAP)
+    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
+    words = [w for w in slug.split() if w not in STOP_WORDS and len(w) > 1]
+    slug = "-".join(words)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug[:60]
+
 
 def _make_auth(wp_user: str, wp_app_pass: str) -> HTTPBasicAuth:
     """Build HTTPBasicAuth from credentials."""
@@ -629,6 +659,25 @@ def update_post(
     # NOTE: WP REST 'meta' field silently ignores rank_math_* keys —
     # use update_rankmath_meta() separately for the correct endpoint.
     payload: dict = {"content": content, "excerpt": excerpt}
+
+    # Post title — update only if provided by generator
+    post_title_val = seo.get("post_title", "").strip()
+    if post_title_val:
+        payload["title"] = post_title_val
+        logger.info("  WP title -> %r", post_title_val[:60])
+
+    # Slug — use Gemini-generated wp_slug first, fallback to sanitize from post_title
+    # CRITICAL: always set explicit slug to prevent WP from auto-deriving from new title.
+    # For published posts WP won't change existing slug even if we send new one,
+    # but being explicit protects drafts and new articles.
+    wp_slug = seo.get("wp_slug", "").strip()
+    if not wp_slug and post_title_val:
+        wp_slug = _sanitize_slug(post_title_val)
+        logger.info("  WP slug derived (fallback): %r", wp_slug)
+    if wp_slug:
+        payload["slug"] = wp_slug
+        logger.info("  WP slug -> %r", wp_slug)
+
     try:
         resp = requests.post(url, json=payload, auth=auth, timeout=30)
         link = resp.json().get("link", "?")
@@ -710,19 +759,29 @@ def inject_video(
             rankmath_meta.get("rank_math_focus_keyword", "-"),
         )
 
-    # YouTube description update — via OAuth (yt_admin module)
+    # YouTube title + description update — single API call (quota optimization)
     # Skipped gracefully if OAuth not configured or video not on our channel (403)
-    yt_desc_ok = False
+    yt_update_ok = False
     if not dry_run and status == 200:
         try:
-            from core.yt_admin import update_video_description  # type: ignore
-            yt_desc_ok = update_video_description(yt_id, seo, link, dry_run=False)
+            from core.yt_admin import update_video_title_and_description  # type: ignore
+            yt_update_ok = update_video_title_and_description(yt_id, seo, link, dry_run=False)
         except EnvironmentError as exc:
-            logger.info("  YT desc skipped — OAuth not configured: %s", exc)
+            logger.info("  YT update skipped — OAuth not configured: %s", exc)
         except Exception as exc:
-            logger.warning("  YT desc update failed for %s: %s", yt_id, exc)
+            logger.warning("  YT title+desc update failed for %s: %s", yt_id, exc)
     elif dry_run:
-        logger.info("  DRY RUN YT desc — would update description for %s", yt_id)
+        logger.info(
+            "  DRY RUN YT — would update title=%r desc for %s",
+            seo.get("yt_title", "?")[:60], yt_id,
+        )
+
+    # Resolve wp_slug for return dict (same logic as in update_post)
+    _wp_slug_ret = seo.get("wp_slug", "").strip()
+    if not _wp_slug_ret:
+        _pt = seo.get("post_title", "").strip()
+        if _pt:
+            _wp_slug_ret = _sanitize_slug(_pt)
 
     return {
         "wp_id": wp_id,
@@ -731,6 +790,8 @@ def inject_video(
         "link": link,
         "thumbnail_media_id": media_id,
         "rankmath_ok": rankmath_ok,
-        "yt_desc_ok": yt_desc_ok,
+        "yt_update_ok": yt_update_ok,
+        "wp_title_updated": bool(seo.get("post_title", "").strip()),
+        "wp_slug_set": bool(_wp_slug_ret),
         "ok": status == 200 or dry_run,
     }

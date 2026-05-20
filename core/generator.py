@@ -177,9 +177,9 @@ def generate_seo_v4(
 ) -> dict:
     """Call Gemini to generate full SEO package for a video.
 
-    Generates: focus_keyphrase, seo_title, meta_description, lead,
-    article_body, quotes (with anchor_text), chapters (with anchor_text),
-    faq, youtube_description, video_description, tags.
+    Generates: focus_keyphrase, post_title, seo_title, yt_title, wp_slug,
+    meta_description, lead, article_body, quotes (with anchor_text),
+    chapters (with anchor_text), faq, youtube_description, video_description, tags.
 
     Args:
         title: WordPress post title.
@@ -239,21 +239,24 @@ Rozdzialy musza:
 ## CO WYGENEROWAC
 
 1. **focus_keyphrase** — 2-4 slowa, naturalna fraza Google.
-2. **seo_title** — max 60 znakow, z fraza kluczowa.
-3. **meta_description** — max 155 znakow, z fraza kluczowa.
-4. **lead** — 2-3 zdania, max 300 znakow, z fraza kluczowa.
-5. **article_body** — HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
-6. **quotes** — {qt_range} cytatow z rozmowy:
+2. **post_title** — max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
+3. **seo_title** — max 60 znakow, dla tagu <title> i RankMath. Z branding pipe: "| Prawy TV". Moze byc krotsza wersja post_title.
+4. **yt_title** — max 100 znakow. Angazujacy tytul YouTube. MUSI zawierac focus_keyphrase. Pytanie lub emocja. NIE moze byc identyczny z post_title. Pisany jak naglowek viralowy.
+5. **wp_slug** — max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj: a->a, e->e, s->s, o->o, etc.), bez stop-words (i, w, z, na, do, ze, sie). Musi zawierac slowa kluczowe z focus_keyphrase. Optymalna dlugosc 40-60 znakow.
+6. **meta_description** — max 155 znakow, z fraza kluczowa.
+7. **lead** — 2-3 zdania, max 300 znakow, z fraza kluczowa.
+8. **article_body** — HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
+9. **quotes** — {qt_range} cytatow z rozmowy:
    - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania (yyy, eee), powtorzenia, urwane zdania. Zachowaj SENS i STYL mowcy ale napisz to poprawna, plynna polszczyzna. Cytat musi brzmiec jak profesjonalny wywiad w prasie — nie jak surowy transkrypt.
    - "speaker": imie i nazwisko
    - "anchor_text": DOKLADNE 8-15 pierwszych slow ORYGINALNEGO transkryptu (surowe, bez edycji!) z tego fragmentu — potrzebne do odnalezienia momentu w nagraniu
-7. **chapters** — {ch_range} rozdzialow:
-   - "label": tytul (max 60 zn)
-   - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow tego fragmentu z transkryptu
-8. **faq** — {faq_range} pytan i odpowiedzi z tresci.
-9. **youtube_description** — max 500 zn, z hashtagami.
-10. **video_description** — max 200 zn, dla schema.
-11. **tags** — 5-8 tagow lowercase.
+10. **chapters** — {ch_range} rozdzialow:
+    - "label": tytul (max 60 zn)
+    - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow tego fragmentu z transkryptu
+11. **faq** — {faq_range} pytan i odpowiedzi z tresci.
+12. **youtube_description** — max 500 zn, z hashtagami.
+13. **video_description** — max 200 zn, dla schema.
+14. **tags** — 5-8 tagow lowercase.
 
 Odpowiedz TYLKO JSON (bez markdown):
 {{"focus_keyphrase":"...","seo_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}"""

@@ -320,6 +320,8 @@ def update_video_description(
 ) -> bool:
     """Fetch current snippet and write enriched description to YouTube.
 
+    Deprecated: prefer update_video_title_and_description() for quota efficiency.
+
     Preserves: title, categoryId, tags, defaultLanguage.
     Replaces: description (with enriched version including chapters + footer).
 
@@ -374,6 +376,103 @@ def update_video_description(
         )
         if resp.status_code == 200:
             logger.info("✅ YouTube description updated: %s", video_id)
+            return True
+        logger.error(
+            "YouTube update FAIL for %s: HTTP %s | %s",
+            video_id, resp.status_code, resp.text[:400],
+        )
+        return False
+    except Exception as exc:
+        logger.error("YouTube update exception for %s: %s", video_id, exc)
+        return False
+
+
+# ============================================================
+# UPDATE VIDEO TITLE + DESCRIPTION — single API call (quota opt)
+# ============================================================
+
+def update_video_title_and_description(
+    video_id: str,
+    seo: dict,
+    wp_url: str,
+    dry_run: bool = False,
+) -> bool:
+    """Update YouTube video title AND description in a single API call.
+
+    Quota optimization: videos.update costs 50 units regardless of whether
+    we update title only, description only, or both. Always combine.
+
+    Args:
+        video_id: YouTube video ID.
+        seo: SEO result dict from generator.process_video(). Must contain
+             'yt_title' (str, max 100 chars) and fields for build_description().
+        wp_url: Full URL of the corresponding WordPress article.
+        dry_run: If True, log only without making API calls.
+
+    Returns:
+        True on success or dry_run, False on API failure.
+
+    Raises:
+        EnvironmentError: If OAuth credentials are not configured.
+    """
+    try:
+        video_data = get_video_data(video_id)
+    except Exception as exc:
+        logger.error("get_video_data failed for %s: %s", video_id, exc)
+        return False
+
+    snippet = video_data.get("snippet", {})
+    original_description = snippet.get("description", "")
+
+    yt_title = seo.get("yt_title", "").strip()
+    if not yt_title:
+        # Fallback: use existing YT title (description-only update)
+        yt_title = snippet.get("title", "")
+        logger.warning(
+            "yt_title missing in seo dict for %s — preserving existing title", video_id
+        )
+
+    if len(yt_title) > 100:
+        logger.warning(
+            "yt_title truncated from %d to 100 chars for %s", len(yt_title), video_id
+        )
+        yt_title = yt_title[:100]
+
+    new_description = build_description(seo, wp_url, original_description)
+
+    if dry_run:
+        logger.info(
+            "DRY RUN — YT update for %s:\n  title: %r\n  desc (%d chars): %s…",
+            video_id, yt_title, len(new_description), new_description[:200],
+        )
+        return True
+
+    update_body = {
+        "id": video_id,
+        "snippet": {
+            "title": yt_title,
+            "description": new_description,
+            "categoryId": snippet.get("categoryId", "25"),  # 25 = News & Politics
+            "defaultLanguage": snippet.get("defaultLanguage", "pl"),
+            "defaultAudioLanguage": snippet.get("defaultAudioLanguage", "pl"),
+        },
+    }
+    if snippet.get("tags"):
+        update_body["snippet"]["tags"] = snippet["tags"]
+
+    api_url = "https://www.googleapis.com/youtube/v3/videos?part=snippet"
+    try:
+        resp = requests.put(
+            api_url,
+            headers=_auth_headers(),
+            json=update_body,
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            logger.info(
+                "✅ YouTube title+description updated: %s | title=%r",
+                video_id, yt_title[:60],
+            )
             return True
         logger.error(
             "YouTube update FAIL for %s: HTTP %s | %s",
