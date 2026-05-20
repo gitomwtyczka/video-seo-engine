@@ -5,6 +5,29 @@
 
 ---
 
+## ⚡ KROK 0 — OBOWIĄZKOWY START KAŻDEJ SESJI
+
+**Pierwsza i ostatnia linia każdej wiadomości** = callsign + vitals w jednej linii:
+
+```
+[CALLSIGN | video-seo-engine YYYY-MM-DD HH:MM] 📊 V1:0/40 🟢 V2:1str 🟢 V3:0pl 🟢 V4:stabilny V5:ok — online
+```
+
+Vitals co 3-5 kroków. Skróty: `V1:X/40` kroki | `V2:Xstr` strumienie | `V3:Xpl` pliki | `V4` pewność | `V5` recovery.
+
+Heartbeat przy starcie:
+```bash
+echo '{"callsign":"[CALLSIGN]","status":"working","current_task":"[OPIS]","timestamp":"'$(date -Iseconds)'"}' > .agents/heartbeat.json
+```
+
+Pełny protokół bloku systemowego:
+```
+view_file → /home/tobroz/projects/sonic-void/.agents/protocols/dispatch-system-block.md
+```
+
+---
+
+
 ## 🎯 Misja Projektu
 
 PressAI Video SEO Engine automatyzuje optymalizację SEO treści wideo.
