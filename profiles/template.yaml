@@ -1,0 +1,53 @@
+# profiles/template.yaml
+# Szablon dla nowego portalu — skopiuj i uzupełnij
+# Plik: profiles/<portal_id>.yaml
+
+portal_id: "WYPELNIJ"           # np. kurier365, biznesciti, myportal
+display_name: "Nazwa Portalu"
+active: true
+
+# ---- WordPress ----
+wp_base_url: "https://twojportal.pl"
+wp_user: "${WP_USER_PORTAL}"
+wp_app_password: "${WP_APP_PASS_PORTAL}"
+
+# ---- YouTube kanały ----
+channel_ids:
+  - "UCxxxxxxxxxxxxxxxxxx"     # Główny kanał
+  # - "UCyyyyyyyyyyyyyyyyyy"   # Opcjonalny drugi kanał
+
+# ---- YouTube OAuth ----
+yt_oauth:
+  client_id: "${YT_CLIENT_ID_PORTAL}"
+  client_secret: "${YT_CLIENT_SECRET_PORTAL}"
+  refresh_token: "${YT_REFRESH_TOKEN_PORTAL}"
+
+yt_api_key: "${YT_API_KEY}"
+
+# ---- Gemini AI ----
+gemini_api_key: "${GEMINI_API_KEY}"
+gemini_model: "gemini-2.5-flash"
+
+# ---- SEO customization ----
+seo:
+  language: pl
+  chapter_js_class: "portal-chapter"     # CSS class dla linków do rozdziałów
+  seek_fn_name: "portalSeek"             # Nazwa funkcji JS seekTo
+
+# ---- Publish delay ----
+publish_delay:
+  min: 5
+  max: 37
+
+# ---- Ścieżki ----
+paths:
+  subs_dir: "data/PORTAL_ID/subs"
+  seo_dir: "data/PORTAL_ID/seo_results"
+  registry_dir: "data/PORTAL_ID/registry"
+  cookies_file: "cookies/PORTAL_ID_cookies.txt"
+
+# ---- Monitor ----
+monitor:
+  interval_seconds: 1800
+  lookback_days: 14
+  dry_run: false

@@ -195,11 +195,16 @@ def cmd_inject(args: argparse.Namespace) -> None:
     """Inject SEO content to WordPress post(s) via REST API."""
     import json
     from core.injector import inject_video  # type: ignore
+    from core.profile import resolve_profile  # type: ignore
 
-    wp_base_url = os.environ.get("WP_BASE_URL", "https://prawy.pl")
-    wp_user = _require_env("WP_USER")
-    wp_app_pass = _require_env("WP_APP_PASSWORD")
-    yt_api_key = os.environ.get("YT_API_KEY", "") or None
+    # Load profile (YAML or env fallback)
+    profile = resolve_profile(getattr(args, "profile", None))
+    paths = profile.get("paths", {})
+
+    wp_base_url = profile.get("wp_base_url") or os.environ.get("WP_BASE_URL", "https://prawy.pl")
+    wp_user = profile.get("wp_user") or _require_env("WP_USER")
+    wp_app_pass = profile.get("wp_app_password") or _require_env("WP_APP_PASSWORD")
+    yt_api_key = profile.get("yt_api_key") or os.environ.get("YT_API_KEY", "") or None
     dry_run = args.dry_run
 
     if dry_run:
@@ -211,7 +216,7 @@ def cmd_inject(args: argparse.Namespace) -> None:
             logger.error("Single inject requires --wp-id")
             sys.exit(1)
         yt_id = args.video
-        seo_dir = os.environ.get("SEO_DIR", "seo_results")
+        seo_dir = paths.get("seo_dir") or os.environ.get("SEO_DIR", "seo_results")
         seo_path = os.path.join(seo_dir, f"{yt_id}.json")
         if not os.path.exists(seo_path):
             logger.error("SEO JSON not found: %s (run 'vse generate' first)", seo_path)
@@ -228,6 +233,7 @@ def cmd_inject(args: argparse.Namespace) -> None:
             yt_api_key=yt_api_key,
             dry_run=dry_run,
             skip_thumbnail=args.skip_thumbnail,
+            profile=profile,
         )
         status_str = "OK" if result["ok"] else "FAIL"
         print(f"[{status_str}] WP#{args.wp_id} | {result['link']}")
@@ -264,6 +270,7 @@ def cmd_inject(args: argparse.Namespace) -> None:
                     yt_api_key=yt_api_key,
                     dry_run=dry_run,
                     skip_thumbnail=args.skip_thumbnail,
+                    profile=profile,
                 )
                 if result["ok"]:
                     ok_count += 1
@@ -364,26 +371,33 @@ def cmd_update_yt(args: argparse.Namespace) -> None:
 def cmd_watch(args: argparse.Namespace) -> None:
     """Watch a YouTube channel for new videos and create WP drafts (MODE A)."""
     from core.monitor import watch  # type: ignore
+    from core.profile import resolve_profile  # type: ignore
 
-    channel_id = args.channel or os.environ.get("CHANNEL_ID", "")
+    # Load profile (YAML or env fallback)
+    profile = resolve_profile(getattr(args, "profile", None))
+    paths = profile.get("paths", {})
+    mon_cfg = profile.get("monitor", {})
+    delay_cfg = profile.get("publish_delay", {})
+
+    channel_id = args.channel or (profile.get("channel_ids") or [None])[0] or os.environ.get("CHANNEL_ID", "")
     if not channel_id:
-        logger.error("Provide --channel <CHANNEL_ID> or set CHANNEL_ID in .env")
+        logger.error("Provide --channel <CHANNEL_ID>, set in profile, or CHANNEL_ID in .env")
         sys.exit(1)
 
-    yt_api_key = _require_env("YT_API_KEY")
-    wp_base_url = os.environ.get("WP_BASE_URL", "https://prawy.pl")
-    wp_user = _require_env("WP_USER")
-    wp_app_pass = _require_env("WP_APP_PASSWORD")
-    gemini_api_key = _require_env("GEMINI_API_KEY")
-    subs_dir = os.environ.get("SUBS_DIR", "subs")
-    seo_dir = os.environ.get("SEO_DIR", "seo_results")
-    interval = args.interval or int(os.environ.get("MONITOR_INTERVAL", "3600"))
-    registry_dir = Path(args.registry_dir)
+    yt_api_key = profile.get("yt_api_key") or _require_env("YT_API_KEY")
+    wp_base_url = profile.get("wp_base_url") or os.environ.get("WP_BASE_URL", "https://prawy.pl")
+    wp_user = profile.get("wp_user") or _require_env("WP_USER")
+    wp_app_pass = profile.get("wp_app_password") or _require_env("WP_APP_PASSWORD")
+    gemini_api_key = profile.get("gemini_api_key") or _require_env("GEMINI_API_KEY")
+    subs_dir = paths.get("subs_dir") or os.environ.get("SUBS_DIR", "subs")
+    seo_dir = paths.get("seo_dir") or os.environ.get("SEO_DIR", "seo_results")
+    interval = args.interval or mon_cfg.get("interval_seconds") or int(os.environ.get("MONITOR_INTERVAL", "3600"))
+    registry_dir = Path(paths.get("registry_dir") or args.registry_dir)
 
-    publish_delay_min = args.publish_delay_min or int(
+    publish_delay_min = args.publish_delay_min or delay_cfg.get("min") or int(
         os.environ.get("PUBLISH_DELAY_MIN", "5")
     )
-    publish_delay_max = args.publish_delay_max or int(
+    publish_delay_max = args.publish_delay_max or delay_cfg.get("max") or int(
         os.environ.get("PUBLISH_DELAY_MAX", "37")
     )
 
@@ -448,6 +462,9 @@ def main() -> None:
                         help="Overwrite existing SEO JSON files")
     gen_p.add_argument("--sleep", type=int, default=5,
                         help="Seconds between Gemini calls in batch mode (default: 5)")
+    gen_p.add_argument("--profile", metavar="PROFILE",
+                        default=os.environ.get("PORTAL", "prawy"),
+                        help="Portal profile name (default: prawy)")
     gen_p.set_defaults(func=cmd_generate)
 
     # --- inject ---
@@ -460,6 +477,9 @@ def main() -> None:
                         help="Print what would be done without changing WordPress")
     inj_p.add_argument("--skip-thumbnail", action="store_true",
                         help="Skip YouTube thumbnail upload/set")
+    inj_p.add_argument("--profile", metavar="PROFILE",
+                        default=os.environ.get("PORTAL", "prawy"),
+                        help="Portal profile name (default: prawy)")
     inj_p.set_defaults(func=cmd_inject)
 
     # --- update-yt ---
@@ -525,6 +545,11 @@ def main() -> None:
     watch_p.add_argument(
         "--publish-delay-max", metavar="MINUTES", type=int, default=None,
         help="Max WP publish delay after YT premiere (default: 37)",
+    )
+    watch_p.add_argument(
+        "--profile", metavar="PROFILE",
+        default=os.environ.get("PORTAL", "prawy"),
+        help="Portal profile name (default: prawy)",
     )
     watch_p.set_defaults(func=cmd_watch)
 

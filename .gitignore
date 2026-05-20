@@ -3,6 +3,7 @@
 *.env
 .env.*
 !.env.example
+!.env.production.example
 
 # Python
 __pycache__/
@@ -23,6 +24,12 @@ seo_results_v5/
 seo_results/
 prawy_tv_matches.json
 batch_summary.json
+data/                  # per-portal runtime data (subs, seo_results, registry)
+logs/
+
+# Cookies (VPS yt-dlp auth — sensitive!)
+cookies/
+*.txt
 
 # IDE
 .idea/

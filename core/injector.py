@@ -35,32 +35,48 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # PLAYER JAVASCRIPT — seekTo via postMessage
 # ============================================================
-PLAYER_JS = """<script>
-(function(){
+
+
+def _build_player_js(seek_fn: str = "prawySeek", chapter_class: str = "prawy-chapter") -> str:
+    """Build the seekTo player JavaScript with profile-specific identifiers.
+
+    Args:
+        seek_fn: Name of the global JS seek function (e.g. 'prawySeek', 'vseSeek').
+        chapter_class: CSS class selector for chapter links (e.g. 'prawy-chapter').
+
+    Returns:
+        HTML <script> block string.
+    """
+    return f"""<script>
+(function(){{
   var iframe = document.querySelector('iframe[src*="youtube.com"]');
   if(!iframe) return;
   var src = iframe.src;
-  if(src.indexOf('enablejsapi=1') === -1){
+  if(src.indexOf('enablejsapi=1') === -1){{
     iframe.src = src + (src.indexOf('?')>-1?'&':'?') + 'enablejsapi=1';
-  }
-  window.prawySeek = function(seconds){
-    iframe.contentWindow.postMessage(JSON.stringify({
+  }}
+  window.{seek_fn} = function(seconds){{
+    iframe.contentWindow.postMessage(JSON.stringify({{
       event:'command', func:'seekTo', args:[seconds, true]
-    }), '*');
-    iframe.contentWindow.postMessage(JSON.stringify({
+    }}), '*');
+    iframe.contentWindow.postMessage(JSON.stringify({{
       event:'command', func:'playVideo', args:[]
-    }), '*');
-    iframe.scrollIntoView({behavior:'smooth', block:'center'});
-  };
-  document.querySelectorAll('.prawy-chapter').forEach(function(el){
-    el.addEventListener('click', function(e){
+    }}), '*');
+    iframe.scrollIntoView({{behavior:'smooth', block:'center'}});
+  }};
+  document.querySelectorAll('.{chapter_class}').forEach(function(el){{
+    el.addEventListener('click', function(e){{
       e.preventDefault();
       var t = parseInt(this.getAttribute('data-time'));
-      window.prawySeek(t);
-    });
-  });
-})();
+      window.{seek_fn}(t);
+    }});
+  }});
+}})();
 </script>"""
+
+
+# Legacy constant — backward compat for callers that import PLAYER_JS directly
+PLAYER_JS = _build_player_js(seek_fn="prawySeek", chapter_class="prawy-chapter")
 
 
 # ============================================================
@@ -438,7 +454,13 @@ def build_schema_jsonld(
 # BUILD POST CONTENT — WP blocks + seekTo JS
 # ============================================================
 
-def build_post_content(seo: dict, yt_id: str, upload_date: str, yt_api_key: Optional[str] = None) -> str:
+def build_post_content(
+    seo: dict,
+    yt_id: str,
+    upload_date: str,
+    yt_api_key: Optional[str] = None,
+    profile: Optional[dict] = None,
+) -> str:
     """Build full WordPress post content with blocks, schema JSON-LD, and seekTo JS.
 
     Produces: lead paragraph → <!-- more --> → YT embed → chapters list →
@@ -449,10 +471,15 @@ def build_post_content(seo: dict, yt_id: str, upload_date: str, yt_api_key: Opti
         yt_id: YouTube video ID.
         upload_date: ISO 8601 datetime string with timezone.
         yt_api_key: Optional YouTube Data API key for view count.
+        profile: Optional portal profile dict. If None, uses Prawy.pl defaults.
 
     Returns:
         Full WP post content string (Gutenberg block syntax).
     """
+    # Resolve profile-specific identifiers (backward compat defaults)
+    seo_cfg = (profile or {}).get("seo", {})
+    chapter_class = seo_cfg.get("chapter_js_class", "prawy-chapter")
+    seek_fn = seo_cfg.get("seek_fn_name", "prawySeek")
     lead_html = seo["lead"]
     article_body = seo["article_body"]
     chapters = seo.get("chapters", [])
@@ -479,21 +506,21 @@ def build_post_content(seo: dict, yt_id: str, upload_date: str, yt_api_key: Opti
         f"<!-- /wp:embed -->"
     )
 
-    # Chapters list with seekTo
+    # Chapters list with seekTo (uses profile chapter_class)
     ch_items = []
     for ch in chapters:
         t = ch["time"]
         m = int(t // 60)
         s = int(t % 60)
         ch_items.append(
-            f'<li><a href="#" class="prawy-chapter" data-time="{int(t)}">'
+            f'<li><a href="#" class="{chapter_class}" data-time="{int(t)}">'
             f"<strong>{m:02d}:{s:02d}</strong> \u2014 {ch['label']}</a></li>"
         )
     chapters_block = ""
     if ch_items:
         chapters_block = (
             "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Rozdzia\u0142y nagrania</h2>\n<!-- /wp:heading -->\n\n"
-            f"<!-- wp:list -->\n<ul class=\"prawy-chapters-list\">\n"
+            f"<!-- wp:list -->\n<ul class=\"{chapter_class}s-list\">\n"
             + "\n".join(ch_items)
             + "\n</ul>\n<!-- /wp:list -->"
         )
@@ -545,8 +572,9 @@ def build_post_content(seo: dict, yt_id: str, upload_date: str, yt_api_key: Opti
             f"{schema_json}\n</script>\n<!-- /wp:html -->"
         )
 
-    # Player JS
-    js_block = f"<!-- wp:html -->\n{PLAYER_JS}\n<!-- /wp:html -->"
+    # Player JS — use profile identifiers (seek_fn, chapter_class)
+    player_js = _build_player_js(seek_fn=seek_fn, chapter_class=chapter_class)
+    js_block = f"<!-- wp:html -->\n{player_js}\n<!-- /wp:html -->"
 
     parts = [
         lead_block, embed_block, chapters_block,
@@ -568,6 +596,7 @@ def update_post(
     auth: HTTPBasicAuth,
     yt_api_key: Optional[str] = None,
     dry_run: bool = False,
+    profile: Optional[dict] = None,
 ) -> tuple[int, str]:
     """Fetch uploadDate and inject full content to a WordPress post.
 
@@ -579,6 +608,7 @@ def update_post(
         auth: HTTPBasicAuth instance.
         yt_api_key: Optional YouTube Data API key for view count.
         dry_run: If True, skip actual PATCH and return (0, 'DRY_RUN').
+        profile: Optional portal profile dict for multi-tenant customization.
 
     Returns:
         Tuple of (http_status_code, post_url_or_message).
@@ -586,7 +616,7 @@ def update_post(
     upload_date = get_post_date(wp_id, wp_base_url, auth)
     logger.info("  uploadDate: %s", upload_date)
 
-    content = build_post_content(seo, yt_id, upload_date, yt_api_key)
+    content = build_post_content(seo, yt_id, upload_date, yt_api_key, profile=profile)
     excerpt = _strip_html(seo["lead"])
 
     if dry_run:
@@ -625,10 +655,13 @@ def inject_video(
     yt_api_key: Optional[str] = None,
     dry_run: bool = False,
     skip_thumbnail: bool = False,
+    profile: Optional[dict] = None,
 ) -> dict:
     """Run the full injection pipeline for a single video post.
 
-    Sets thumbnail (optional) and injects SEO content via REST API.
+    Steps: thumbnail → WP content/excerpt → RankMath meta → YT description.
+    YT description update is skipped gracefully if OAuth not configured or
+    the video does not belong to the authenticated channel (403).
 
     Args:
         wp_id: WordPress post ID.
@@ -638,18 +671,21 @@ def inject_video(
         wp_user: WordPress username.
         wp_app_pass: WordPress Application Password.
         yt_api_key: Optional YouTube Data API key.
-        dry_run: If True, skip actual PATCH calls.
+        dry_run: If True, skip actual API write calls.
         skip_thumbnail: If True, skip thumbnail upload.
+        profile: Optional portal profile dict for multi-tenant customization.
 
     Returns:
-        Dict with keys: wp_id, yt_id, status, link, thumbnail_media_id.
+        Dict with keys: wp_id, yt_id, ok, status, link,
+        thumbnail_media_id, rankmath_ok, yt_desc_ok.
     """
     auth = _make_auth(wp_user, wp_app_pass)
     logger.info("Injecting WP#%s | YT:%s", wp_id, yt_id)
 
-    # ALT text: focus keyphrase + channel name for SEO
+    # ALT text: focus keyphrase + portal display name for SEO
+    portal_name = (profile or {}).get("display_name", "Prawy TV")
     focus_kw = seo.get("focus_keyphrase", "").strip()
-    img_alt = f"{focus_kw} | Prawy TV" if focus_kw else seo.get("seo_title", "")[:80]
+    img_alt = f"{focus_kw} | {portal_name}" if focus_kw else seo.get("seo_title", "")[:80]
 
     media_id = None
     if not skip_thumbnail and not dry_run:
@@ -659,7 +695,7 @@ def inject_video(
         )
 
     status, link = update_post(
-        wp_id, seo, yt_id, wp_base_url, auth, yt_api_key, dry_run
+        wp_id, seo, yt_id, wp_base_url, auth, yt_api_key, dry_run, profile=profile
     )
 
     # RankMath SEO meta — via dedicated rankmath/v1/updateMeta endpoint
@@ -674,6 +710,20 @@ def inject_video(
             rankmath_meta.get("rank_math_focus_keyword", "-"),
         )
 
+    # YouTube description update — via OAuth (yt_admin module)
+    # Skipped gracefully if OAuth not configured or video not on our channel (403)
+    yt_desc_ok = False
+    if not dry_run and status == 200:
+        try:
+            from core.yt_admin import update_video_description  # type: ignore
+            yt_desc_ok = update_video_description(yt_id, seo, link, dry_run=False)
+        except EnvironmentError as exc:
+            logger.info("  YT desc skipped — OAuth not configured: %s", exc)
+        except Exception as exc:
+            logger.warning("  YT desc update failed for %s: %s", yt_id, exc)
+    elif dry_run:
+        logger.info("  DRY RUN YT desc — would update description for %s", yt_id)
+
     return {
         "wp_id": wp_id,
         "yt_id": yt_id,
@@ -681,5 +731,6 @@ def inject_video(
         "link": link,
         "thumbnail_media_id": media_id,
         "rankmath_ok": rankmath_ok,
+        "yt_desc_ok": yt_desc_ok,
         "ok": status == 200 or dry_run,
     }

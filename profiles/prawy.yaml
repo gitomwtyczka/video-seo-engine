@@ -1,0 +1,55 @@
+# profiles/prawy.yaml
+# Portal: Prawy.pl — ImpresjaAI Video SEO Engine
+# Wygenerowany: 2026-05-20 | vse-architect-01
+#
+# UWAGA: Sekrety (hasła, klucze API) NIE są tu wpisywane bezpośrednio.
+# Używaj ${NAZWA_ZMIENNEJ} — wartości ładowane z .env lub środowiska.
+
+portal_id: prawy
+display_name: "Prawy.pl"
+active: true
+
+# ---- WordPress ----
+wp_base_url: "${WP_BASE_URL}"
+wp_user: "${WP_USER}"
+wp_app_password: "${WP_APP_PASSWORD}"
+
+# ---- YouTube kanały ----
+channel_ids:
+  - "${CHANNEL_ID}"          # Prawy TV główny
+
+# ---- YouTube OAuth (opis + rozdziały) ----
+yt_oauth:
+  client_id: "${YT_CLIENT_ID}"
+  client_secret: "${YT_CLIENT_SECRET}"
+  refresh_token: "${YT_REFRESH_TOKEN}"
+
+yt_api_key: "${YT_API_KEY}"
+
+# ---- Gemini AI ----
+gemini_api_key: "${GEMINI_API_KEY}"
+gemini_model: "gemini-2.5-flash"
+
+# ---- SEO customization ----
+seo:
+  language: pl
+  chapter_js_class: "prawy-chapter"
+  seek_fn_name: "prawySeek"
+
+# ---- Smart publish delay (minuty) ----
+publish_delay:
+  min: 5
+  max: 37
+
+# ---- Ścieżki danych (relatywne do CWD) ----
+paths:
+  subs_dir: "data/prawy/subs"
+  seo_dir: "data/prawy/seo_results"
+  registry_dir: "data/prawy/registry"
+  cookies_file: "cookies/prawy_cookies.txt"   # yt-dlp na VPS
+
+# ---- Monitor ----
+monitor:
+  interval_seconds: 1800     # 30 min
+  lookback_days: 14          # skanuj ostatnie N dni
+  dry_run: false

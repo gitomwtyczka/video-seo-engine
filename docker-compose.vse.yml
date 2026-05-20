@@ -1,0 +1,67 @@
+# Video SEO Engine — Docker Compose (VPS Production)
+# Deploy on: oracle-crimson (147.224.162.100)
+# Network: crimson_net (shared with Crimson SaaS)
+#
+# Usage:
+#   docker compose -f docker-compose.vse.yml up -d
+#   docker compose -f docker-compose.vse.yml logs -f vse-watch
+#   docker compose -f docker-compose.vse.yml exec vse-watch python -m cli.main watch --help
+
+name: vse
+
+services:
+
+  # ----------------------------------------------------------------
+  # VSE WATCH — continuous YouTube channel monitor (daemon)
+  # MODE A: nowe filmy → WP draft + SEO auto-generate
+  # ----------------------------------------------------------------
+  vse-watch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vse-engine:latest
+    container_name: vse-watch
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    volumes:
+      - ./data:/app/data                    # subs, seo_results, registry per portal
+      - ./profiles:/app/profiles            # YAML portal profiles
+      - ./cookies:/app/cookies:ro           # yt-dlp cookies.txt (read-only)
+      - ./logs:/app/logs
+    command: >
+      python -m cli.main watch
+      --profile prawy
+      --interval 1800
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ----------------------------------------------------------------
+  # VSE API — FastAPI REST layer (Faza 3, opcjonalny)
+  # Uncomment when ready to integrate with Crimson SaaS
+  # ----------------------------------------------------------------
+  # vse-api:
+  #   image: vse-engine:latest
+  #   container_name: vse-api
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env.production
+  #   volumes:
+  #     - ./data:/app/data
+  #     - ./profiles:/app/profiles
+  #     - ./cookies:/app/cookies:ro
+  #     - ./logs:/app/logs
+  #   command: uvicorn api.main:app --host 0.0.0.0 --port 8080
+  #   ports:
+  #     - "127.0.0.1:8080:8080"    # tylko localhost — Nginx proxy przed tym
+  #   networks:
+  #     - crimson_net
+
+networks:
+  default:
+    name: vse_net
+  # crimson_net:             # Uncomment gdy VSE API gotowy
+  #   external: true
