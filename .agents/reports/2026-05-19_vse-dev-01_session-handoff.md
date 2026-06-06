@@ -45,7 +45,7 @@
 
 YT_CLIENT_ID=977981145038-6q9v92oq4oq4plo65mcrnelor5jt3124.apps.googleusercontent.com
 YT_CLIENT_SECRET=<patrz ~/.impresja/secrets/youtube/prawypl5-oauth.env>
-YT_REFRESH_TOKEN=REDACTED_YT_REFRESH_TOKEN
+YT_REFRESH_TOKEN=<REDACTED>
 ```
 
 **GCP Projekt:** `glass-turbine-388620`

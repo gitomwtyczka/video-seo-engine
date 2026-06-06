@@ -43,3 +43,20 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Secrets & runtime
+client_secret.json
+yt_client_secret.json
+yt_oauth_result.json
+oauth_get_token.py
+oauth_server.py
+oauth_setup.py
+update_env.py
+core/generator.py.bak
+core/injector.py.bak
+core/yt_admin.py.bak
+*.bak
+audit_batch_results.json
+audit_matches.json
+batch3_matches.json
+next_batch_matches.json

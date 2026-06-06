@@ -1,0 +1,54 @@
+# profiles/kurier365.yaml
+# Portal: Kurier365.pl — PressAI SaaS tenant
+# Utworzono: 2026-05-20 | vse-strateg-01
+
+portal_id: "kurier365"
+display_name: "Kurier365.pl"
+active: true
+
+# ---- WordPress ----
+wp_base_url: "https://kurier365.pl"
+wp_user: "${WP_KURIER365_USER}"
+wp_app_password: "${WP_KURIER365_APP_PASSWORD}"
+
+# ---- YouTube kanały ----
+# Brak własnego kanału — przetwarzamy zewnętrzne filmy (brak OAuth)
+channel_ids: []
+
+# ---- YouTube OAuth ----
+# BRAK — nie mamy dostępu do tych kanałów
+# Pipeline: VTT fetch → Gemini → WP inject ONLY (bez YT admin)
+yt_oauth:
+  client_id: ""
+  client_secret: ""
+  refresh_token: ""
+
+yt_api_key: "${YT_API_KEY}"
+
+# ---- Gemini AI ----
+gemini_api_key: "${GEMINI_API_KEY}"
+gemini_model: "gemini-2.5-flash"
+
+# ---- SEO customization ----
+seo:
+  language: pl
+  chapter_js_class: "kurier-chapter"
+  seek_fn_name: "kurierSeek"
+
+# ---- Publish delay ----
+publish_delay:
+  min: 5
+  max: 37
+
+# ---- Ścieżki ----
+paths:
+  subs_dir: "data/kurier365/subs"
+  seo_dir: "data/kurier365/seo_results"
+  registry_dir: "data/kurier365/registry"
+  cookies_file: "cookies/kurier365_cookies.txt"
+
+# ---- Monitor ----
+monitor:
+  interval_seconds: 1800
+  lookback_days: 14
+  dry_run: false
