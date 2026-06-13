@@ -1,31 +1,16 @@
 {
-  "callsign": "vse-dev-01",
-  "status": "handoff",
-  "current_task": "Session 2026-05-19 — handoff do Supervisora",
-  "timestamp": "2026-05-19T14:01:00Z",
+  "callsign": "vse-strateg-01",
+  "status": "working",
+  "current_task": "Recon i raport stanu projektu — sesja 2026-06-13",
+  "timestamp": "2026-06-13T18:50:00+02:00",
   "last_completed": [
-    "inject WP#119837 + WP#119800 (RankMath + YT desc)",
-    "inject_video() — zintegrowany YT description update",
-    "OAuth prawypl5@gmail.com — nowy token dla właściciela kanału",
-    "4x WP future posts (119846-119849) dla scheduled YT",
-    "registry pending_seo dla 4 filmów",
-    "vse watch aktywny w tmux (WSL2)"
+    "Recon repo + logi chatów — stan na 2026-06-13"
   ],
   "pending": [
-    "Audit filmów 05.05-19.05.2026 (2 tygodnie)",
-    "VPS deployment monitora",
-    "Batch inject 166 postów backlog"
+    "DISPATCH-TITLES — Title Sync feature (oczekuje na decyzję Usera)",
+    "VPS Deploy (oracle-crimson) — docker-compose.vse.yml gotowy",
+    "Backlog ~144 filmów — batch inject",
+    "Pliki lokalne niepushowane: client_secret.json, oauth_setup.py, registry/2x"
   ],
-  "active_monitor": {
-    "session": "tmux:vse-watch",
-    "channel": "UCoH2G9By4OX3kcLsc8lHgDw",
-    "interval_s": 120,
-    "host": "WSL2/Jagodziak4"
-  },
-  "credentials_update": {
-    "key": "YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN",
-    "account": "prawypl5@gmail.com",
-    "gcp_project": "glass-turbine-388620",
-    "report": ".agents/reports/2026-05-19_vse-dev-01_session-handoff.md"
-  }
+  "note": "run_command działa lokalnie — FILE BRIDGE i Wetty nieużywane"
 }
