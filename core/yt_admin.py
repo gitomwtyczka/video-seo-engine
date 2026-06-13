@@ -163,7 +163,7 @@ def _build_hashtags(seo: dict) -> str:
 
     title = seo.get("seo_title", "") or seo.get("original_title", "")
     for word in title.split():
-        word = word.strip(".,!?-:;()[]\"'«»")
+        word = word.strip(".,!?-:;()[]\\'"«»")
         if (
             len(word) >= 4
             and word[0].isupper()
@@ -178,6 +178,62 @@ def _build_hashtags(seo: dict) -> str:
     return " ".join(tags[:8])
 
 
+def _build_intro_with_bullets(seo: dict) -> str:
+    """Build a rich merytoryczny intro (800-1200 chars) from SEO data.
+
+    Uses article_body stripped of HTML as the primary intro text (first 2 paragraphs),
+    falling back to video_description / lead. Adds 3-5 bullet points from FAQ questions.
+
+    Args:
+        seo: SEO result dict from generator.process_video().
+
+    Returns:
+        Formatted intro string with merytoryczny wstęp + bullet points.
+    """
+    # --- Merytoryczny wstęp: pierwsze 2 paragrafy article_body ---
+    article_body = seo.get("article_body", "")
+    intro_text = ""
+    if article_body:
+        # Extract paragraphs from HTML
+        paragraphs = re.findall(r"<p[^>]*>(.*?)</p>", article_body, re.DOTALL | re.IGNORECASE)
+        if paragraphs:
+            # Take first 2 paragraphs, strip HTML
+            intro_parts = [_strip_html(p) for p in paragraphs[:2]]
+            intro_text = "\n\n".join(p for p in intro_parts if p.strip())
+
+    # Fallback: video_description lub lead
+    if not intro_text:
+        intro_text = _strip_html(
+            seo.get("video_description", "") or seo.get("lead", "")
+        )
+
+    # Trim intro do ~600 znaków, nie ciąj w środku zdania
+    if len(intro_text) > 600:
+        cutoff = intro_text.rfind(".", 400, 600)
+        if cutoff > 0:
+            intro_text = intro_text[: cutoff + 1]
+        else:
+            intro_text = intro_text[:600]
+
+    # --- Bullet points z FAQ (3-5 pytań jako wątki) ---
+    faq_items = seo.get("faq", [])
+    bullets = []
+    for item in faq_items[:5]:
+        q = _strip_html(item.get("question", "")).strip()
+        if q and len(q) < 100:
+            # Skróć pytanie do przystępnego wątku (bez znaku zapytania)
+            bullet = q.rstrip("?")
+            if not bullet.endswith(":"):
+                bullet = bullet.rstrip(".")
+            bullets.append(f"• {bullet}")
+
+    result = intro_text
+    if bullets:
+        result += "\n\nKLUCZOWE WĄTKI:\n" + "\n".join(bullets[:5])
+
+    return result
+
+
 # ============================================================
 # BUILD DESCRIPTION
 # ============================================================
@@ -190,16 +246,22 @@ def build_description(
     """Build enriched YouTube video description from SEO data.
 
     Format:
-        [Merytoryczny wstęp z frazami kluczowymi z artykułu]
+        [Merytoryczny wstęp — 3-4 zdania z keyphrase + konkretne tezy]
 
-        🔗 Pełny artykuł: [wp_url]
+        [KLUCZOWE WĄTKI — 3-5 bullet points z FAQ]
+        • Wątek 1
+        • Wątek 2
+        • Wątek 3
+
+        🔗 Pełny artykuł z transkryptem i analizą:
+        [wp_url]
 
         ⏱️ ROZDZIAŁY:
         0:00 Intro
         5:23 Rozdział 2
         ...
 
-        🔑 TEMATY: keyphrase • FAQ question 1 • FAQ question 2
+        🔑 TEMATY: keyphrase • FAQ q1 • FAQ q2
 
         [Oryginalny opis YouTube — zachowany z linkami]
 
@@ -217,20 +279,14 @@ def build_description(
     """
     parts = []
 
-    # --- Intro (merytoryczny wstęp) ---
-    intro = _strip_html(seo.get("video_description", "") or seo.get("lead", ""))
-    keyphrase = seo.get("focus_keyphrase", "")
+    # --- Merytoryczny wstęp z bullet points (800-1200 znaków) ---
+    intro_block = _build_intro_with_bullets(seo)
+    if intro_block:
+        parts.append(intro_block)
 
-    if keyphrase and intro and keyphrase.lower() not in intro.lower():
-        # Weave keyphrase naturally into intro
-        intro = f"{intro}\n\n🔑 Temat: {keyphrase}"
-
-    if intro:
-        parts.append(intro)
-
-    # --- Link do artykułu ---
+    # --- Link do artykułu (wyeksponowany) ---
     if wp_url:
-        parts.append(f"🔗 Pełny artykuł: {wp_url}")
+        parts.append(f"🔗 Pełny artykuł z transkryptem i analizą:\n{wp_url}")
 
     # --- Rozdziały (REQUIRED for YouTube chapters to work) ---
     chapters = seo.get("chapters", [])
@@ -243,9 +299,10 @@ def build_description(
 
     # --- Tematy / Frazy kluczowe ---
     keywords = []
+    keyphrase = seo.get("focus_keyphrase", "")
     if keyphrase:
         keywords.append(keyphrase)
-    for faq_item in seo.get("faq", [])[:3]:
+    for faq_item in seo.get("faq", [])[: 3]:
         q = _strip_html(faq_item.get("question", ""))
         if q and len(q) < 80:
             keywords.append(q)
@@ -269,7 +326,10 @@ def build_description(
 
     # YouTube limit: 5000 chars
     if len(description) > 4900:
-        logger.warning("Description truncated to 4900 chars for SEO compliance.")
+        logger.warning(
+            "Description truncated to 4900 chars (was %d) for SEO compliance.",
+            len(description),
+        )
         description = description[:4900] + "…"
 
     return description
@@ -439,6 +499,8 @@ def update_video_title_and_description(
         yt_title = yt_title[:100]
 
     new_description = build_description(seo, wp_url, original_description)
+
+    logger.info("YT title+desc update: %s -> %r", video_id, yt_title[:60])
 
     if dry_run:
         logger.info(
