@@ -1,24 +1,15 @@
 {
-  "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-DEV-01-20260613-CLAUDE-YT-TITLES — wszystkie zadania zaimplementowane",
-  "timestamp": "2026-06-13T21:57:00+02:00",
+  "callsign": "vse-strateg-01",
+  "status": "working",
+  "current_task": "VSE Faza 2 — architektura multi-tenant FastAPI + dispatch vse-dev-01",
+  "timestamp": "2026-06-13T23:19:00+02:00",
   "last_completed": [
-    "feat(generator): Claude provider + _call_llm() + yt_title/post_title fallback — commit d827a8e",
-    "feat(deps): anthropic>=0.28.0 — commit a30535260",
-    "feat(yt_admin): richer build_description() + article_body intro + FAQ bullets — commit ec45e736",
-    "feat(cli): LLM_PROVIDER + ANTHROPIC_API_KEY + _resolve_llm_credentials() — commit 15560560",
-    "feat(prompt): yt_title formaty A/B/C/D + CTR params z raportu vse-analyst-01 — commit 15758e9f",
-    "Zadanie 4 (inject_video -> yt_update_ok) — już było zaimplementowane w repo (commit z poprzedniej sesji)",
-    "report: dual-write video-seo-engine + sonic-void inbox"
+    "vse-dev-01: Claude provider + yt_title formaty A/B/C/D — commit 15758e9f",
+    "vse-dev-01: inject_video + yt_update_ok + batch 4 filmów"
   ],
   "pending": [
-    "Test batch: 4 filmy z nowym promptem yt_title + ANTHROPIC_API_KEY z shared.env",
-    "Fix: requirements.txt google-generativeai vs google-genai SDK mismatch",
-    "cmd_watch: LLM_PROVIDER=claude nie obsługiwane (Faza 2+ roadmap)"
-  ],
-  "key_info": {
-    "anthropic_api_key_local": "%USERPROFILE%\.impresja\secrets\shared.env (108 zn, aktywny)",
-    "anthropic_api_key_vps": "/home/ubuntu/crimson-void/backend/.env.production (109 zn, aktywny)"
-  }
+    "VSE Faza 2: FastAPI multi-tenant service na oracle-crimson",
+    "Dispatch vse-dev-01 z pełną specą",
+    "Update README roadmap"
+  ]
 }
