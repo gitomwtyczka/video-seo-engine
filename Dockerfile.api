@@ -1,0 +1,44 @@
+# VSE API — Dockerfile
+# Multi-stage Python 3.11-slim build.
+# Based on crimson-backend pattern (oracle-crimson).
+
+# --- Build stage ---
+FROM python:3.11-slim AS builder
+WORKDIR /app
+
+# Install build deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# --- Runtime stage ---
+FROM python:3.11-slim
+WORKDIR /app
+
+# Runtime system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install yt-dlp binary (faster than pip version for production)
+RUN curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
+
+# Copy installed Python packages from builder
+COPY --from=builder /root/.local /root/.local
+
+# Copy project
+COPY . .
+
+ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+EXPOSE 8085
+
+# 2 workers: safe for 2-core ARM (oracle-crimson)
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8085", "--workers", "2"]
