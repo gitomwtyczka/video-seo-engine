@@ -1,15 +1,18 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "DISPATCH-VSE-DEV-01-20260613-CLAUDE-YT-TITLES — zadania 1-3: Claude provider, yt_title fallback, richer descriptions",
-  "timestamp": "2026-06-13T20:37:00+02:00",
+  "status": "done",
+  "current_task": "DISPATCH-VSE-DEV-01-20260613-CLAUDE-YT-TITLES — zadania 1-3 zaimplementowane",
+  "timestamp": "2026-06-13T20:44:00+02:00",
   "last_completed": [
-    "Odczyt dispatch + wszystkich plików przez GitHub MCP"
+    "feat(generator): Claude provider + _call_llm() + yt_title/post_title fallback — commit d827a8e",
+    "feat(deps): anthropic>=0.28.0 + fix duplikat — commity a30535260, a429d12e",
+    "feat(yt_admin): richer build_description() + article_body intro + FAQ bullets — commit ec45e736",
+    "feat(cli): LLM_PROVIDER + ANTHROPIC_API_KEY + _resolve_llm_credentials() — commit 15560560",
+    "report: dual-write do video-seo-engine/.agents/reports/ + sonic-void inbox"
   ],
   "pending": [
-    "Zadanie 1 — Claude provider w generator.py",
-    "Zadanie 2 — Naprawa yt_title/post_title fallback",
-    "Zadanie 3 — Richer YouTube descriptions w yt_admin.py",
-    "Zadanie 4 — Czeka na raport vse-analyst-01"
+    "Zadanie 4 — Verify YT title update flow w injector — czeka na raport vse-analyst-01",
+    "Fix: requirements.txt google-generativeai vs google-genai SDK mismatch",
+    "cmd_watch: LLM_PROVIDER=claude nie obsługiwane (Faza 2+)"
   ]
 }
