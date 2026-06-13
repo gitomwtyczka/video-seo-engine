@@ -9,9 +9,6 @@ yt-dlp>=2024.1.0
 
 # AI generation
 google-generativeai>=0.7.0
-anthropics>=0.28.0
-
-# Note: use 'anthropic' (not 'anthropics') — anthropics is the org, anthropic is the package
 anthropic>=0.28.0
 
 # Testing
