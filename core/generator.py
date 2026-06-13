@@ -5,8 +5,8 @@ Migration by: vse-architect-01 | DISPATCH-VSE-ARCHITECT-02 | 2026-05-13
 
 Responsibilities:
   - Parse VTT transcript into timestamped segments
-  - Call Gemini API to generate SEO-optimized titles, descriptions, chapters, FAQ
-  - Anchor-match Gemini chapter labels to exact VTT timestamps (fuzzy)
+  - Call LLM (Gemini or Claude) to generate SEO-optimized titles, descriptions, chapters, FAQ
+  - Anchor-match LLM chapter labels to exact VTT timestamps (fuzzy)
   - Return schema-ready dict for injector.py
 
 Schema standards (Google 2026):
@@ -15,10 +15,10 @@ Schema standards (Google 2026):
   - interactionStatistic: WatchAction + userInteractionCount (from YouTube)
   - SeekToAction: added for completeness (not rendered for PL content)
   - Quotation: NOT added (Google does not render; keep if existing)
-  - Model: gemini-2.5-flash
+  - Default model: gemini-2.5-flash | Claude: claude-sonnet-4-5
 
 Dependencies:
-  pip install google-genai python-dotenv
+  pip install google-genai anthropic python-dotenv
 """
 import json
 import logging
@@ -136,7 +136,7 @@ def find_anchor_in_vtt(anchor_text: str, segments: list[tuple[float, str]]) -> i
     via SequenceMatcher. Accepts fuzzy matches with ratio > 0.5.
 
     Args:
-        anchor_text: 8-15 word quote from Gemini output.
+        anchor_text: 8-15 word quote from LLM output.
         segments: List of (start_sec, text) tuples from parse_vtt_full().
 
     Returns:
@@ -165,7 +165,48 @@ def find_anchor_in_vtt(anchor_text: str, segments: list[tuple[float, str]]) -> i
 
 
 # ============================================================
-# GEMINI CALL — prompt v5.3 anchor-based chapters
+# LLM ABSTRACTION — Gemini + Claude
+# ============================================================
+
+def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
+    """Call LLM provider with prompt, return raw text response.
+
+    Supports: gemini (default), claude.
+
+    Args:
+        prompt: Full prompt string to send to the model.
+        api_key: API key for the selected provider.
+        provider: LLM provider name: 'gemini' or 'claude'.
+
+    Returns:
+        Raw text response from the LLM.
+
+    Raises:
+        ValueError: If unsupported provider is specified.
+        Exception: On API errors (re-raised with logging).
+    """
+    if provider == "claude":
+        import anthropic  # type: ignore
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=8192,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text
+    elif provider == "gemini":
+        from google import genai  # type: ignore
+        client = genai.Client(api_key=api_key)
+        return client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        ).text
+    else:
+        raise ValueError(f"Unsupported LLM provider: {provider!r}. Use 'gemini' or 'claude'.")
+
+
+# ============================================================
+# SEO GENERATION — prompt v5.3 anchor-based chapters
 # ============================================================
 
 def generate_seo_v4(
@@ -174,8 +215,9 @@ def generate_seo_v4(
     total_duration: float,
     yt_url: str,
     api_key: str,
+    provider: str = "gemini",
 ) -> dict:
-    """Call Gemini to generate full SEO package for a video.
+    """Call LLM to generate full SEO package for a video.
 
     Generates: focus_keyphrase, post_title, seo_title, yt_title, wp_slug,
     meta_description, lead, article_body, quotes (with anchor_text),
@@ -186,18 +228,16 @@ def generate_seo_v4(
         timestamped_text: VTT text with [MM:SS] markers from parse_vtt_full().
         total_duration: Video duration in seconds.
         yt_url: Full YouTube watch URL.
-        api_key: Gemini API key.
+        api_key: API key for the selected LLM provider.
+        provider: LLM provider: 'gemini' (default) or 'claude'.
 
     Returns:
-        Parsed JSON dict from Gemini response.
+        Parsed JSON dict from LLM response.
 
     Raises:
-        json.JSONDecodeError: If Gemini returns malformed JSON.
-        Exception: On Gemini API errors (re-raised with logging).
+        json.JSONDecodeError: If LLM returns malformed JSON.
+        Exception: On LLM API errors (re-raised with logging).
     """
-    from google import genai  # type: ignore
-
-    client = genai.Client(api_key=api_key)
     text_trimmed = timestamped_text[:80000]
     total_min = int(total_duration // 60)
 
@@ -258,26 +298,27 @@ Rozdzialy musza:
 13. **video_description** — max 200 zn, dla schema.
 14. **tags** — 5-8 tagow lowercase.
 
-Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrase":"...","seo_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}"""
+KRYTYCZNE: Pola post_title, seo_title, yt_title MUSZA byc niepuste.
+yt_title to OSOBNY, INNY tytul niz post_title — angazujacy, YouTubowy.
+NIGDY nie zostawiaj ich pustych — to blokuje aktualizacje na YouTube.
 
-    logger.info("Calling Gemini (gemini-2.5-flash) for: %s", title[:60])
+Odpowiedz TYLKO JSON (bez markdown):
+{{"focus_keyphrase":"...","post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}"""
+
+    logger.info("Calling %s for: %s", provider, title[:60])
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-        text = response.text.strip()
+        text = _call_llm(prompt, api_key, provider)
+        text = text.strip()
         text = re.sub(r"^```json\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
         return json.loads(text)
     except Exception as exc:
-        logger.error("Gemini call failed: %s", exc)
+        logger.error("%s call failed: %s", provider, exc)
         raise
 
 
 # ============================================================
-# FULL PIPELINE — VTT → Gemini → resolved chapters
+# FULL PIPELINE — VTT → LLM → resolved chapters
 # ============================================================
 
 def process_video(
@@ -289,10 +330,11 @@ def process_video(
     api_key: str,
     out_dir: Optional[str] = None,
     sleep_between: int = 0,
+    provider: str = "gemini",
 ) -> dict:
     """Run the full generation pipeline for a single video.
 
-    Parses VTT, calls Gemini, resolves anchor timestamps, saves JSON.
+    Parses VTT, calls LLM (Gemini or Claude), resolves anchor timestamps, saves JSON.
 
     Args:
         youtube_id: YouTube video ID.
@@ -300,18 +342,19 @@ def process_video(
         post_title: WordPress post title.
         yt_url: Full YouTube watch URL.
         vtt_path: Path to the .vtt transcript file.
-        api_key: Gemini API key.
+        api_key: API key for the selected LLM provider.
         out_dir: Directory to save the result JSON. If None, does not save.
-        sleep_between: Seconds to sleep after the Gemini call (rate-limit guard).
+        sleep_between: Seconds to sleep after the LLM call (rate-limit guard).
+        provider: LLM provider: 'gemini' (default) or 'claude'.
 
     Returns:
         SEO result dict with all fields + resolved chapters + duration metadata.
 
     Raises:
         FileNotFoundError: If vtt_path does not exist.
-        json.JSONDecodeError: If Gemini returns malformed JSON.
+        json.JSONDecodeError: If LLM returns malformed JSON.
     """
-    logger.info("Processing video: %s (WP#%s)", youtube_id, wp_id)
+    logger.info("Processing video: %s (WP#%s) via %s", youtube_id, wp_id, provider)
 
     timestamped, segments, duration = parse_vtt_full(vtt_path)
     dur_min = int(duration // 60)
@@ -321,7 +364,23 @@ def process_video(
         len(timestamped), len(segments), dur_min, dur_sec,
     )
 
-    result = generate_seo_v4(post_title, timestamped, duration, yt_url, api_key)
+    result = generate_seo_v4(post_title, timestamped, duration, yt_url, api_key, provider)
+
+    # Fallback: post_title z seo_title jesli puste
+    if not result.get("post_title", "").strip():
+        result["post_title"] = result.get("seo_title", post_title)
+        logger.warning(
+            "post_title missing — fallback to seo_title: %r",
+            result["post_title"][:60],
+        )
+
+    # Fallback: yt_title z post_title jesli puste
+    if not result.get("yt_title", "").strip():
+        result["yt_title"] = result.get("post_title", post_title)[:100]
+        logger.warning(
+            "yt_title missing — fallback to post_title: %r",
+            result["yt_title"][:60],
+        )
 
     # Anchor-match chapters to exact VTT timestamps
     resolved_chapters: list[dict] = []
@@ -358,6 +417,7 @@ def process_video(
     result["total_duration"] = int(duration)
     result["duration_seconds"] = int(duration)
     result["duration_iso"] = format_duration_iso(duration)
+    result["llm_provider"] = provider
 
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
