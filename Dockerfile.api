@@ -18,10 +18,13 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 FROM python:3.11-slim
 WORKDIR /app
 
-# Runtime system deps
+# Runtime system deps + Node.js (required by yt-dlp 2026+ for JS extraction)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
+    xz-utils \
+    && curl -fsSL https://nodejs.org/dist/v22.5.1/node-v22.5.1-linux-arm64.tar.xz \
+        | tar -xJ -C /usr/local --strip-components=1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp binary (faster than pip version for production)
