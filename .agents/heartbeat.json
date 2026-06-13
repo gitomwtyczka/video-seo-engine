@@ -1,18 +1,19 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-analyst-01",
   "status": "done",
-  "current_task": "DISPATCH-VSE-DEV-01-20260613-CLAUDE-YT-TITLES — zadania 1-3 zaimplementowane",
-  "timestamp": "2026-06-13T20:44:00+02:00",
+  "current_task": "DISPATCH-VSE-ANALYST-01-20260613-LLM-TIERS — KOMPLETNY",
+  "timestamp": "2026-06-13T21:23:00+02:00",
   "last_completed": [
-    "feat(generator): Claude provider + _call_llm() + yt_title/post_title fallback — commit d827a8e",
-    "feat(deps): anthropic>=0.28.0 + fix duplikat — commity a30535260, a429d12e",
-    "feat(yt_admin): richer build_description() + article_body intro + FAQ bullets — commit ec45e736",
-    "feat(cli): LLM_PROVIDER + ANTHROPIC_API_KEY + _resolve_llm_credentials() — commit 15560560",
-    "report: dual-write do video-seo-engine/.agents/reports/ + sonic-void inbox"
+    "Tabela tierów LLM (16 zadań pipeline) — commit 6bbf4f46",
+    "Benchmark Gemini 2.5 Flash vs Claude Sonnet 4.6 (in-session, film 0_WCEytlEIQ)",
+    "Architektura hybrydowa + kalkulacja kosztów ($0.042/film)",
+    "Standard tytułów YouTube 2026 dla Prawy TV (4 formaty + instrukcja prompt)",
+    "Nowa struktura build_youtube_description() v2 (5 sekcji, 630 zn)",
+    "Dual-write: video-seo-engine + sonic-void inbox — commity 6bbf4f46, 2a97e400"
   ],
   "pending": [
-    "Zadanie 4 — Verify YT title update flow w injector — czeka na raport vse-analyst-01",
-    "Fix: requirements.txt google-generativeai vs google-genai SDK mismatch",
-    "cmd_watch: LLM_PROVIDER=claude nie obsługiwane (Faza 2+)"
+    "Test batch 4 filmów z nowym pipelinem (vse-dev-01)",
+    "ANTHROPIC_API_KEY → .env + uruchomienie hybrydy (vse-dev-01)",
+    "Weryfikacja Key Moments w Google Search Console (vse-analyst-01, Faza 2)"
   ]
 }
