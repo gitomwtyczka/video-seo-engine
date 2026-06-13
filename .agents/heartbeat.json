@@ -1,16 +1,24 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "VSE Faza 2 — implementacja api/ FastAPI multi-tenant service + Dockerfile + deployment :8085",
-  "timestamp": "2026-06-13T23:27:00+02:00",
+  "status": "done",
+  "current_task": "VSE Faza 2 — FastAPI multi-tenant service WDROŻONY na oracle-crimson :8085",
+  "timestamp": "2026-06-13T23:39:00+02:00",
   "last_completed": [
-    "dispatch odczytany: DISPATCH-VSE-DEV-01-20260613-FAZA2-API.md"
+    "api/ FastAPI struktura (13 plików) — commit d7a86e79",
+    "requirements.txt fix google-genai + fastapi — commit deb1e6da",
+    "Dockerfile.api Node.js 22 LTS fix — commit 9b5cac74",
+    "git clone + .env + docker up na VPS — health OK",
+    "dual-write report — commit 5eb06565 (repo) + 32892da0 (sonic-void)"
   ],
   "pending": [
-    "KROK 1: api/ struktura + models",
-    "KROK 2: pipeline service",
-    "KROK 3-5: routers + main.py",
-    "KROK 6-7: Dockerfile.api + docker-compose.vse.yml",
-    "KROK 8: deployment oracle-crimson :8085"
-  ]
+    "VPS rebuild po git pull (Node.js Dockerfile fix)",
+    "YouTube IP blocking — decyzja stratega: cookies/proxy",
+    "/v1/process test z realnym prawy.pl post_id"
+  ],
+  "key_facts": {
+    "health_endpoint": "http://147.224.162.100:8085/health",
+    "swagger_ui": "http://147.224.162.100:8085/docs",
+    "container": "vse-api (healthy)",
+    "yt_issue": "Oracle Cloud IP flagowany przez YouTube — yt-dlp działa lokalnie"
+  }
 }
