@@ -1,22 +1,15 @@
 {
-  "callsign": "vse-strateg-01",
-  "status": "handoff",
-  "current_task": "Handoff po sesji 2026-06-13 — czeka na raporty agentów",
-  "timestamp": "2026-06-13T20:36:00+02:00",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "DISPATCH-VSE-DEV-01-20260613-CLAUDE-YT-TITLES — zadania 1-3: Claude provider, yt_title fallback, richer descriptions",
+  "timestamp": "2026-06-13T20:37:00+02:00",
   "last_completed": [
-    "Gap audit kategorii prawy-tv — 16/17 postów bez pełnego VSE",
-    "Fetch VTT + Gemini generate + inject WP dla 4 najnowszych postów (WP#121157, 121077, 121049, 121026)",
-    "YouTube OAuth token odnowiony — nowy refresh token w .env",
-    "YouTube descriptions zaktualizowane dla 4 filmów",
-    "DISPATCH-VSE-ANALYST-01-20260613-LLM-TIERS — commit 55ded7c",
-    "DISPATCH-VSE-DEV-01-20260613-CLAUDE-YT-TITLES — commit 423e4ec"
+    "Odczyt dispatch + wszystkich plików przez GitHub MCP"
   ],
   "pending": [
-    "Odbiór raportów od vse-analyst-01 i vse-dev-01 — NOWA SESJA",
-    "12 pozostałych postów z gapu do przetworzenia (NONE: 2026-05-30 → 2026-06-04)",
-    "5 PARTIAL do uzupełnienia (Clip + FAQ)",
-    "VPS Deploy (oracle-crimson) — nadal nierozpoczęty",
-    "Backlog ~144 historycznych filmów"
-  ],
-  "note": "YT_REFRESH_TOKEN odnowiony 2026-06-13. OAuth app: antigravity-mcp-keys, konto prawypl5@gmail.com jako test user."
+    "Zadanie 1 — Claude provider w generator.py",
+    "Zadanie 2 — Naprawa yt_title/post_title fallback",
+    "Zadanie 3 — Richer YouTube descriptions w yt_admin.py",
+    "Zadanie 4 — Czeka na raport vse-analyst-01"
+  ]
 }
