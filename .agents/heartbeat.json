@@ -1,15 +1,23 @@
 {
   "callsign": "vse-strateg-01",
-  "status": "working",
-  "current_task": "VSE Faza 2 — architektura multi-tenant FastAPI + dispatch vse-dev-01",
-  "timestamp": "2026-06-13T23:19:00+02:00",
+  "status": "done",
+  "current_task": "VSE Faza 2 — architektura + dispatch vse-dev-01 — KOMPLETNE",
+  "timestamp": "2026-06-13T23:26:00+02:00",
   "last_completed": [
-    "vse-dev-01: Claude provider + yt_title formaty A/B/C/D — commit 15758e9f",
-    "vse-dev-01: inject_video + yt_update_ok + batch 4 filmów"
+    "recon oracle-crimson (12 kontenery, port :8085 wolny)",
+    "arch: VSE Faza 2 multi-tenant FastAPI design — commit 203597ee",
+    "dispatch: DISPATCH-VSE-DEV-01-20260613-FAZA2-API.md — commit e30cf8b1",
+    "docs: README Faza 2 roadmap update — commit 64d47910",
+    "dual-write report → sonic-void inbox — commit 64bef756"
   ],
   "pending": [
-    "VSE Faza 2: FastAPI multi-tenant service na oracle-crimson",
-    "Dispatch vse-dev-01 z pełną specą",
-    "Update README roadmap"
-  ]
+    "vse-dev-01: implementacja api/ + Dockerfile + deployment :8085"
+  ],
+  "key_decisions": {
+    "vse_port": ":8085",
+    "auth_mvp": "stateless per-request site_config",
+    "llm_default": "claude",
+    "db_mvp": "brak (stateless)",
+    "anthropic_key": "/home/ubuntu/vse-api/.env (osobny plik, nie z crimson-backend)"
+  }
 }
