@@ -1,16 +1,22 @@
 {
   "callsign": "vse-strateg-01",
-  "status": "working",
-  "current_task": "Recon i raport stanu projektu — sesja 2026-06-13",
-  "timestamp": "2026-06-13T18:50:00+02:00",
+  "status": "handoff",
+  "current_task": "Handoff po sesji 2026-06-13 — czeka na raporty agentów",
+  "timestamp": "2026-06-13T20:36:00+02:00",
   "last_completed": [
-    "Recon repo + logi chatów — stan na 2026-06-13"
+    "Gap audit kategorii prawy-tv — 16/17 postów bez pełnego VSE",
+    "Fetch VTT + Gemini generate + inject WP dla 4 najnowszych postów (WP#121157, 121077, 121049, 121026)",
+    "YouTube OAuth token odnowiony — nowy refresh token w .env",
+    "YouTube descriptions zaktualizowane dla 4 filmów",
+    "DISPATCH-VSE-ANALYST-01-20260613-LLM-TIERS — commit 55ded7c",
+    "DISPATCH-VSE-DEV-01-20260613-CLAUDE-YT-TITLES — commit 423e4ec"
   ],
   "pending": [
-    "DISPATCH-TITLES — Title Sync feature (oczekuje na decyzję Usera)",
-    "VPS Deploy (oracle-crimson) — docker-compose.vse.yml gotowy",
-    "Backlog ~144 filmów — batch inject",
-    "Pliki lokalne niepushowane: client_secret.json, oauth_setup.py, registry/2x"
+    "Odbiór raportów od vse-analyst-01 i vse-dev-01 — NOWA SESJA",
+    "12 pozostałych postów z gapu do przetworzenia (NONE: 2026-05-30 → 2026-06-04)",
+    "5 PARTIAL do uzupełnienia (Clip + FAQ)",
+    "VPS Deploy (oracle-crimson) — nadal nierozpoczęty",
+    "Backlog ~144 historycznych filmów"
   ],
-  "note": "run_command działa lokalnie — FILE BRIDGE i Wetty nieużywane"
+  "note": "YT_REFRESH_TOKEN odnowiony 2026-06-13. OAuth app: antigravity-mcp-keys, konto prawypl5@gmail.com jako test user."
 }
