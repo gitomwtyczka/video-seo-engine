@@ -19,7 +19,9 @@ For full options on any subcommand:
   vse <command> --help
 
 Environment variables (or .env file):
-  GEMINI_API_KEY    -- required for generate / watch
+  GEMINI_API_KEY    -- required for generate/watch (when LLM_PROVIDER=gemini)
+  ANTHROPIC_API_KEY -- required for generate (when LLM_PROVIDER=claude)
+  LLM_PROVIDER      -- llm provider: gemini (default) or claude
   WP_USER           -- required for inject / watch
   WP_APP_PASSWORD   -- required for inject / watch
   WP_BASE_URL       -- required for inject / match / sitemap / watch (default: https://prawy.pl)
@@ -64,6 +66,33 @@ def _require_env(name: str) -> str:
     return val
 
 
+def _resolve_llm_credentials() -> tuple[str, str]:
+    """Resolve LLM provider and API key from environment.
+
+    Reads LLM_PROVIDER (default: 'gemini') and the matching API key:
+      - gemini: GEMINI_API_KEY
+      - claude: ANTHROPIC_API_KEY
+
+    Returns:
+        Tuple of (api_key, provider) ready to pass to process_video().
+
+    Raises:
+        SystemExit: If required API key is missing.
+    """
+    provider = os.environ.get("LLM_PROVIDER", "gemini").lower().strip()
+    if provider == "claude":
+        api_key = _require_env("ANTHROPIC_API_KEY")
+    elif provider == "gemini":
+        api_key = _require_env("GEMINI_API_KEY")
+    else:
+        logger.error(
+            "Unknown LLM_PROVIDER=%r. Supported: 'gemini', 'claude'.", provider
+        )
+        sys.exit(1)
+    logger.info("LLM provider: %s", provider)
+    return api_key, provider
+
+
 # ============================================================
 # SUBCOMMAND: fetch
 # ============================================================
@@ -101,11 +130,11 @@ def cmd_sitemap(args: argparse.Namespace) -> None:
 # ============================================================
 
 def cmd_generate(args: argparse.Namespace) -> None:
-    """Generate SEO schema JSON via Gemini for one video or a batch."""
+    """Generate SEO schema JSON via LLM (Gemini or Claude) for one video or a batch."""
     import json
     from core.generator import process_video  # type: ignore
 
-    api_key = _require_env("GEMINI_API_KEY")
+    api_key, provider = _resolve_llm_credentials()
     subs_dir = os.environ.get("SUBS_DIR", "subs")
     seo_dir = os.environ.get("SEO_DIR", "seo_results")
 
@@ -128,10 +157,13 @@ def cmd_generate(args: argparse.Namespace) -> None:
             vtt_path=vtt_path,
             api_key=api_key,
             out_dir=seo_dir,
+            provider=provider,
         )
         print(f"OK: {yt_id} -> {seo_dir}/{yt_id}.json")
         print(f"  focus_keyphrase: {result.get('focus_keyphrase')}")
         print(f"  chapters: {len(result.get('chapters', []))}")
+        print(f"  yt_title: {result.get('yt_title', 'MISSING')}")
+        print(f"  post_title: {result.get('post_title', 'MISSING')}")
 
     elif args.batch:
         # Batch mode -- load matches JSON
@@ -141,7 +173,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
         with open(args.batch, "r", encoding="utf-8") as f:
             matches = json.load(f)
 
-        logger.info("Batch generate: %d videos from %s", len(matches), args.batch)
+        logger.info("Batch generate: %d videos from %s via %s", len(matches), args.batch, provider)
         ok_count = 0
         fail_count = 0
         for i, m in enumerate(matches):
@@ -174,6 +206,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
                     api_key=api_key,
                     out_dir=seo_dir,
                     sleep_between=args.sleep,
+                    provider=provider,
                 )
                 ok_count += 1
             except Exception as exc:
@@ -452,7 +485,7 @@ def main() -> None:
     sitemap_p.set_defaults(func=cmd_sitemap)
 
     # --- generate ---
-    gen_p = subparsers.add_parser("generate", help="Generate SEO schema JSON via Gemini")
+    gen_p = subparsers.add_parser("generate", help="Generate SEO schema JSON via LLM (Gemini/Claude)")
     gen_p.add_argument("--video", metavar="YT_ID", help="Single YouTube video ID")
     gen_p.add_argument("--wp-id", metavar="WP_ID", help="WordPress post ID (single mode)")
     gen_p.add_argument("--title", metavar="TITLE", help="Post title (single mode)")
@@ -461,7 +494,7 @@ def main() -> None:
     gen_p.add_argument("--force", action="store_true",
                         help="Overwrite existing SEO JSON files")
     gen_p.add_argument("--sleep", type=int, default=5,
-                        help="Seconds between Gemini calls in batch mode (default: 5)")
+                        help="Seconds between LLM calls in batch mode (default: 5)")
     gen_p.add_argument("--profile", metavar="PROFILE",
                         default=os.environ.get("PORTAL", "prawy"),
                         help="Portal profile name (default: prawy)")
