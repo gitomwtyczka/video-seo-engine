@@ -1,23 +1,16 @@
 {
-  "callsign": "vse-strateg-01",
-  "status": "done",
-  "current_task": "VSE Faza 2 — architektura + dispatch vse-dev-01 — KOMPLETNE",
-  "timestamp": "2026-06-13T23:26:00+02:00",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "VSE Faza 2 — implementacja api/ FastAPI multi-tenant service + Dockerfile + deployment :8085",
+  "timestamp": "2026-06-13T23:27:00+02:00",
   "last_completed": [
-    "recon oracle-crimson (12 kontenery, port :8085 wolny)",
-    "arch: VSE Faza 2 multi-tenant FastAPI design — commit 203597ee",
-    "dispatch: DISPATCH-VSE-DEV-01-20260613-FAZA2-API.md — commit e30cf8b1",
-    "docs: README Faza 2 roadmap update — commit 64d47910",
-    "dual-write report → sonic-void inbox — commit 64bef756"
+    "dispatch odczytany: DISPATCH-VSE-DEV-01-20260613-FAZA2-API.md"
   ],
   "pending": [
-    "vse-dev-01: implementacja api/ + Dockerfile + deployment :8085"
-  ],
-  "key_decisions": {
-    "vse_port": ":8085",
-    "auth_mvp": "stateless per-request site_config",
-    "llm_default": "claude",
-    "db_mvp": "brak (stateless)",
-    "anthropic_key": "/home/ubuntu/vse-api/.env (osobny plik, nie z crimson-backend)"
-  }
+    "KROK 1: api/ struktura + models",
+    "KROK 2: pipeline service",
+    "KROK 3-5: routers + main.py",
+    "KROK 6-7: Dockerfile.api + docker-compose.vse.yml",
+    "KROK 8: deployment oracle-crimson :8085"
+  ]
 }
