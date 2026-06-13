@@ -206,7 +206,7 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
 
 
 # ============================================================
-# SEO GENERATION — prompt v5.3 anchor-based chapters
+# SEO GENERATION — prompt v5.4 anchor-based chapters + YT title formats
 # ============================================================
 
 def generate_seo_v4(
@@ -281,7 +281,23 @@ Rozdzialy musza:
 1. **focus_keyphrase** — 2-4 slowa, naturalna fraza Google.
 2. **post_title** — max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
 3. **seo_title** — max 60 znakow, dla tagu <title> i RankMath. Z branding pipe: "| Prawy TV". Moze byc krotsza wersja post_title.
-4. **yt_title** — max 100 znakow. Angazujacy tytul YouTube. MUSI zawierac focus_keyphrase. Pytanie lub emocja. NIE moze byc identyczny z post_title. Pisany jak naglowek viralowy.
+4. **yt_title** — KRYTYCZNE ZASADY:
+   - Dlugosc: 40-65 znakow (HARD MAX: 100). Optymalna dlugosc to 50-62 znaki.
+   - Zacznij od tematu glownego lub nazwiska goscia (front-loading dla suggest feed).
+   - MUSI byc INNY niz post_title i seo_title — inne ustawienie slow, inny ton.
+   - NIE dodawaj brandingu ("| prawy.pl", "Prawy TV") — YouTube dodaje kanal automatycznie.
+   - NIE uzywaj ogolnikow: "wazne", "ciekawe", "cos szokujacego".
+   - Wybierz jeden z formatow:
+     A — NAPIECIE:    [Nazwisko/Temat]: [akcja] — [stawka/skutek]
+         przyklad: "Sumlinski: Nie dam sie zamknac ws. Jedwabnego"
+     B — UJAWNIENIE:  [Temat]: [co ujawnia] — [kulisy]
+         przyklad: "Jedwabne: ekshumacja przerwana na rozkaz. Kulisy"
+     C — PYTANIE:     Dlaczego [podmiot] milczy o [temat]?
+         przyklad: "Dlaczego milcza o Jedwabnem? Sumlinski ujawnia"
+     D — POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
+         przyklad: "KULISY Jedwabnego: Sumlinski buduje centrum prawdy"
+   - Cel: widz klika nawet nie znajac goscia z imienia.
+   - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
 5. **wp_slug** — max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj: a->a, e->e, s->s, o->o, etc.), bez stop-words (i, w, z, na, do, ze, sie). Musi zawierac slowa kluczowe z focus_keyphrase. Optymalna dlugosc 40-60 znakow.
 6. **meta_description** — max 155 znakow, z fraza kluczowa.
 7. **lead** — 2-3 zdania, max 300 znakow, z fraza kluczowa.
@@ -293,13 +309,13 @@ Rozdzialy musza:
 10. **chapters** — {ch_range} rozdzialow:
     - "label": tytul (max 60 zn)
     - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow tego fragmentu z transkryptu
-11. **faq** — {faq_range} pytan i odpowiedzi z tresci.
+11. **faq** — {faq_range} pytan i odpowiedzi z tresci. Pytania musza byc naturalne, zorientowane na search intent — tak jak wpisuje je uzytkownik w Google. NIE pytania akademickie/definicyjne.
 12. **youtube_description** — max 500 zn, z hashtagami.
 13. **video_description** — max 200 zn, dla schema.
 14. **tags** — 5-8 tagow lowercase.
 
 KRYTYCZNE: Pola post_title, seo_title, yt_title MUSZA byc niepuste.
-yt_title to OSOBNY, INNY tytul niz post_title — angazujacy, YouTubowy.
+yt_title to OSOBNY, INNY tytul niz post_title — angazujacy, YouTubowy, wg formatow powyzej.
 NIGDY nie zostawiaj ich pustych — to blokuje aktualizacje na YouTube.
 
 Odpowiedz TYLKO JSON (bez markdown):
