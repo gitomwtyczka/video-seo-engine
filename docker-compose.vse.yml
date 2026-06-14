@@ -1,17 +1,19 @@
-# ── VSE Stack: API + PostgreSQL ──
-# Frontend (Next.js) dodawany w Fazie 1 DevOps
+# VSE Stack: PostgreSQL + API + Frontend
 
 services:
 
   vse-postgres:
     image: postgres:16-alpine
     container_name: vse-postgres
+    env_file: .env
     environment:
       POSTGRES_DB: vse
       POSTGRES_USER: vse
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - vse-pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5434:5432"
     restart: unless-stopped
     networks:
       - vse-net
@@ -26,15 +28,33 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: vse-api
-    env_file:
-      - .env
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://vse:${POSTGRES_PASSWORD}@vse-postgres:5432/vse
     ports:
       - "8085:8085"
+    volumes:
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
     depends_on:
       vse-postgres:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vse-net
+
+  vse-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.web
+    container_name: vse-web
+    env_file: .env
+    environment:
+      - NEXTAUTH_URL=https://vse.impresjapr.pl
+      - NEXT_PUBLIC_API_URL=https://vse.impresjapr.pl/api
+      - PORT=3001
+    ports:
+      - "127.0.0.1:3001:3001"
     restart: unless-stopped
     networks:
       - vse-net
