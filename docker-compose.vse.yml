@@ -54,7 +54,7 @@ services:
       - NEXT_PUBLIC_API_URL=https://vse.impresjapr.pl/api
       - PORT=3001
     ports:
-      - "127.0.0.1:3001:3001"
+      - "3001:3001"
     restart: unless-stopped
     networks:
       - vse-net
