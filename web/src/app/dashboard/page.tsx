@@ -1,0 +1,245 @@
+'use client'
+import { useSession, signOut } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+
+interface ProcessResult {
+  post_id?: number
+  video_id?: string
+  schema?: any
+  chapters?: any[]
+  faq?: any[]
+  error?: string
+}
+
+export default function DashboardPage() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
+  const [url, setUrl] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<ProcessResult | null>(null)
+  const [error, setError] = useState('')
+  const [activeTab, setActiveTab] = useState<'schema' | 'chapters' | 'faq'>('schema')
+
+  useEffect(() => {
+    if (status === 'unauthenticated') router.push('/login')
+  }, [status, router])
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-500"></div>
+      </div>
+    )
+  }
+
+  const handleProcess = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!url.trim()) return
+    setLoading(true)
+    setError('')
+    setResult(null)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const res = await fetch(`${apiUrl}/v1/process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+        },
+        body: JSON.stringify({ url: url.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.detail || 'Błąd podczas przetwarzania')
+      } else {
+        setResult(data)
+        setActiveTab('schema')
+      }
+    } catch (err) {
+      setError('Błąd połączenia z serwerem')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      {/* Sidebar */}
+      <div className="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
+        <div className="p-6 border-b border-gray-800">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <span className="font-bold text-white">VSE</span>
+          </div>
+        </div>
+
+        <nav className="flex-1 p-4 space-y-1">
+          <NavItem icon="grid" label="Dashboard" active />
+          <NavItem icon="clock" label="Historia" />
+          <NavItem icon="settings" label="Ustawienia" />
+        </nav>
+
+        <div className="p-4 border-t border-gray-800">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center text-xs font-bold">
+              {session?.user?.email?.[0]?.toUpperCase() || 'U'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-white truncate">{session?.user?.email}</p>
+              <p className="text-xs text-gray-500">Plan Free</p>
+            </div>
+          </div>
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="w-full text-left text-sm text-gray-400 hover:text-white transition-colors py-1"
+          >
+            → Wyloguj się
+          </button>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="ml-64 p-8">
+        <div className="max-w-4xl">
+          <h1 className="text-2xl font-bold text-white mb-2">Video SEO Engine</h1>
+          <p className="text-gray-400 mb-8">Wklej URL YouTube lub ID artykułu WordPress — AI wygeneruje pełny schemat SEO.</p>
+
+          {/* URL Form */}
+          <form onSubmit={handleProcess} className="mb-8">
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=... lub URL artykułu WordPress"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+              />
+              <button
+                type="submit"
+                disabled={loading || !url.trim()}
+                className="px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+              >
+                {loading ? (
+                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span> Processuję...</>
+                ) : (
+                  <>✦ Generuj SEO</>
+                )}
+              </button>
+            </div>
+            {error && (
+              <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+          </form>
+
+          {/* Placeholder info cards */}
+          {!result && !loading && (
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              {[
+                { label: 'Filmy przetworzone', value: '0', sub: 'z 5 darmowych' },
+                { label: 'Benchmark', value: '8/10', sub: 'vs 2-3/10 konkurencja' },
+                { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },
+              ].map((stat) => (
+                <div key={stat.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <p className="text-gray-400 text-sm mb-1">{stat.label}</p>
+                  <p className="text-2xl font-bold text-white">{stat.value}</p>
+                  <p className="text-xs text-gray-500 mt-1">{stat.sub}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Results */}
+          {result && (
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+              {/* Result header */}
+              <div className="p-5 border-b border-gray-800 flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-400">Wynik dla:</p>
+                  <p className="font-medium text-white">{url}</p>
+                </div>
+                <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
+                  ✓ Sukces
+                </span>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex border-b border-gray-800">
+                {(['schema', 'chapters', 'faq'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`px-5 py-3 text-sm font-medium transition-colors ${
+                      activeTab === tab
+                        ? 'text-violet-400 border-b-2 border-violet-500'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {tab === 'schema' ? 'JSON-LD Schema' : tab === 'chapters' ? `Rozdziały (${result.chapters?.length || 0})` : `FAQ (${result.faq?.length || 0})`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab content */}
+              <div className="p-5">
+                {activeTab === 'schema' && (
+                  <pre className="text-xs text-green-400 bg-gray-950 rounded-xl p-4 overflow-auto max-h-96 font-mono">
+                    {JSON.stringify(result.schema, null, 2)}
+                  </pre>
+                )}
+                {activeTab === 'chapters' && (
+                  <div className="space-y-2">
+                    {(result.chapters || []).map((ch: any, i: number) => (
+                      <div key={i} className="flex items-start gap-3 p-3 bg-gray-950 rounded-lg">
+                        <span className="text-violet-400 font-mono text-sm min-w-12">{ch.startOffset}s</span>
+                        <span className="text-white text-sm">{ch.name}</span>
+                      </div>
+                    ))}
+                    {(!result.chapters || result.chapters.length === 0) && (
+                      <p className="text-gray-500 text-sm">Brak rozdziałów</p>
+                    )}
+                  </div>
+                )}
+                {activeTab === 'faq' && (
+                  <div className="space-y-3">
+                    {(result.faq || []).map((item: any, i: number) => (
+                      <div key={i} className="p-4 bg-gray-950 rounded-lg">
+                        <p className="text-white font-medium mb-1">{item.question}</p>
+                        <p className="text-gray-400 text-sm">{item.answer}</p>
+                      </div>
+                    ))}
+                    {(!result.faq || result.faq.length === 0) && (
+                      <p className="text-gray-500 text-sm">Brak FAQ</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NavItem({ icon, label, active }: { icon: string; label: string; active?: boolean }) {
+  const icons: Record<string, JSX.Element> = {
+    grid: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>,
+    clock: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+    settings: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+  }
+  return (
+    <button className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+      active ? 'bg-violet-600/10 text-violet-400' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+    }`}>
+      {icons[icon]}
+      {label}
+    </button>
+  )
+}
