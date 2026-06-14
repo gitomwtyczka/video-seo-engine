@@ -1,31 +1,47 @@
-# VSE API — docker-compose
-# Start: docker compose -f docker-compose.vse.yml up -d --build
-# Stop:  docker compose -f docker-compose.vse.yml down
-
-version: '3.8'
+# ── VSE Stack: API + PostgreSQL ──
+# Frontend (Next.js) dodawany w Fazie 1 DevOps
 
 services:
+
+  vse-postgres:
+    image: postgres:16-alpine
+    container_name: vse-postgres
+    environment:
+      POSTGRES_DB: vse
+      POSTGRES_USER: vse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - vse-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - vse-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   vse-api:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: vse-api
-    ports:
-      - "8085:8085"
     env_file:
       - .env
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://vse:${POSTGRES_PASSWORD}@vse-postgres:5432/vse
+    ports:
+      - "8085:8085"
+    depends_on:
+      vse-postgres:
+        condition: service_healthy
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    networks:
+      - vse-net
+
+volumes:
+  vse-pgdata:
+
+networks:
+  vse-net:
+    driver: bridge
