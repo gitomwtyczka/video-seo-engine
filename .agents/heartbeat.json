@@ -1,23 +1,33 @@
 {
-  "callsign": "vse-strateg-01",
-  "status": "working",
-  "current_task": "Faza 2 — audit stanu po wdrożeniu vse-dev-01, planowanie kolejnych kroków",
-  "timestamp": "2026-06-14T10:30:00+02:00",
+  "callsign": "vse-dev-01",
+  "status": "handoff",
+  "current_task": "Faza 1 deploy kompletny — dokumentacja dispatched do vse-architect-01",
+  "timestamp": "2026-06-14T14:29:00Z",
   "last_completed": [
-    "Odczyt dispatch DISPATCH-VSE-STRATEG-01-20260613-FAZA2",
-    "Audit oracle-crimson — vse-api UP :8085 (healthy)",
-    "README + heartbeat vse-dev-01 przeanalizowane"
+    "FastAPI auth (bcrypt, JWT) — commit 4bd9caf",
+    "Next.js 14 frontend deploy na vse.impresjapr.pl — commit e428988",
+    "Dashboard page z URL input + wyniki SEO — commit e428988",
+    "NextAuth fix (conditional Google, BACKEND_URL) — commit 148ea4e",
+    "Middleware withAuth /login redirect — commit 9488baf",
+    "AGENTS.md GOTCHA section (8 pulapek deploy) — commit 26c8bd7",
+    "Plans table seed SQL (free/starter/pro/agency)",
+    "nginx routing /api/* -> 8085 (strip prefix), /* -> 3001",
+    "Dispatch architecture docs -> .agents/tasks/DISPATCH-VSE-ARCH-01-20260614-DOCS.md"
   ],
   "pending": [
-    "Decyzja: YouTube IP blocking — cookies vs proxy vs lokalny runner",
-    "Aktualizacja README roadmap (checkboxy Fazy 2)",
-    "Dispatch vse-dev-01 — kolejne zadania Fazy 2",
-    "Raport do Supervisora (dual-write)"
+    "Google OAuth — wymaga Client ID/Secret z GCP console",
+    "Dokumentacja architektoniczna — dispatched do vse-architect-01",
+    "Dashboard /v1/process test (Gemini API key w .env na VPS)",
+    "Plans seed w startup API (automatyczny, nie reczny SQL)",
+    "YouTube IP blocking strategy (blocker dla oracle VPS)"
   ],
   "key_facts": {
-    "vse_api": "http://147.224.162.100:8085/health — UP healthy 11h",
-    "blocker": "Oracle Cloud IP flagowany przez YouTube — yt-dlp nie działa na VPS",
-    "disk": "156G/194G (81% — monitorować)",
-    "next_decision": "YouTube IP blocking strategy — strateg musi zdecydować"
+    "frontend": "https://vse.impresjapr.pl — UP, Tailwind CSS OK",
+    "auth": "register + login dziala, NextAuth Credentials provider OK",
+    "api": "http://172.17.0.1:8085 — UP healthy",
+    "db": "vse-postgres UP, plans seeded",
+    "nginx": "crimson-nginx: /api/* strip -> 8085, /* -> 3001",
+    "google_oauth": "disabled (brak credentials)",
+    "blocker_deploy": "brak — wszystko działa"
   }
 }
