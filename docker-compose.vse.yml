@@ -52,9 +52,13 @@ services:
     environment:
       - NEXTAUTH_URL=https://vse.impresjapr.pl
       - NEXT_PUBLIC_API_URL=https://vse.impresjapr.pl/api
+      # Internal Docker URL for server-side NextAuth calls (avoids public nginx roundtrip)
+      - BACKEND_URL=http://vse-api:8085
       - PORT=3001
     ports:
       - "3001:3001"
+    depends_on:
+      - vse-api
     restart: unless-stopped
     networks:
       - vse-net
