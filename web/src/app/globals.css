@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --gradient-brand: linear-gradient(135deg, #3a5eff 0%, #7c3aed 100%);
+  --gradient-dark: linear-gradient(180deg, #0f1117 0%, #151822 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #0f1117;
+  min-height: 100vh;
+}
+
+/* Glow effects */
+.glow-brand {
+  box-shadow: 0 0 40px rgba(58, 94, 255, 0.3);
+}
+
+.glow-sm {
+  box-shadow: 0 0 20px rgba(58, 94, 255, 0.2);
+}
+
+/* Glass morphism */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Premium gradient text */
+.text-gradient {
+  background: linear-gradient(135deg, #3a5eff, #7c3aed, #ec4899);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animated gradient border */
+@keyframes gradient-border {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.border-gradient {
+  background: linear-gradient(90deg, #3a5eff, #7c3aed, #ec4899, #3a5eff);
+  background-size: 300% 300%;
+  animation: gradient-border 4s ease infinite;
+}
+
+/* Smooth transitions */
+.transition-smooth {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0f1117; }
+::-webkit-scrollbar-thumb { background: #323848; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a5eff; }
