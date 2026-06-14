@@ -15,14 +15,19 @@
 
 Vitals co 3-5 kroków. Skróty: `V1:X/40` kroki | `V2:Xstr` strumienie | `V3:Xpl` pliki | `V4` pewność | `V5` recovery.
 
-Heartbeat przy starcie:
-```bash
-echo '{"callsign":"[CALLSIGN]","status":"working","current_task":"[OPIS]","timestamp":"'$(date -Iseconds)'"}' > .agents/heartbeat.json
+Heartbeat przy starcie (GitHub MCP):
+```
+mcp_github_create_or_update_file:
+  owner: gitomwtyczka / repo: video-seo-engine / branch: main
+  path: .agents/heartbeat.json
+  content: {"callsign": "[CALLSIGN]", "status": "working", "current_task": "[OPIS]", "timestamp": "[ISO]"}
 ```
 
-Pełny protokół bloku systemowego:
+Pełny protokół bloku systemowego — czytaj przez GitHub MCP:
 ```
-view_file → /home/tobroz/projects/sonic-void/.agents/protocols/dispatch-system-block.md
+mcp_github_get_file_contents:
+  owner: gitomwtyczka / repo: sonic-void / branch: master
+  path: .agents/protocols/dispatch-system-block.md
 ```
 
 ---
@@ -174,3 +179,4 @@ Jesteś częścią ekosystemu ImpresjaAI — twoja praca ma znaczenie.
 ---
 
 *vse-architect-01 | video-seo-engine | 2026-05-13 — v1.0*
+*Zaktualizowano: 2026-06-14 [Supervisor 01 via sup-worker-01] — system-block path: WSL2 → GitHub MCP*
