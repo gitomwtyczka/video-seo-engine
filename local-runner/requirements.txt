@@ -1,0 +1,6 @@
+# VSE Local Transcript Runner — dependencies
+# Instalacja: pip install -r requirements.txt
+
+youtube-transcript-api>=1.2.4
+requests>=2.31.0
+python-dotenv>=1.0.0
