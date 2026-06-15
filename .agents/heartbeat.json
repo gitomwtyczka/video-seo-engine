@@ -1,20 +1,19 @@
 {
-  "callsign": "vse-strateg-01",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-STRATEG-02-20260615-CORE-PORT wykonany",
-  "timestamp": "2026-06-15T20:55:00Z",
+  "callsign": "vse-dev-04",
+  "status": "working",
+  "current_task": "DISPATCH-VSE-DEV-04-20260615-LOCAL-SERVICE — implementacja Local Transcript Windows Runner",
+  "timestamp": "2026-06-15T22:00:00Z",
   "last_completed": [
-    "core/fetcher.py — API v3 replaces yt-dlp metadata — commit 3b062f3 (2026-06-15)",
-    "api/core/fetcher.py + __init__.py — commits 4149f98, e482d64 (2026-06-15)",
-    "YOUTUBE_API_KEY dodany do VPS .env",
-    "Docker build + restart vse-api — verified",
-    "Test: API v3 metadata OK: title='Syndyk zniszczył moją firmę...' duration=PT17M14S",
-    "Raporty: video-seo-engine + sonic-void/inbox"
+    "Przeczytany POBUDKA, DISPATCH, SECURITY SUPPLEMENT",
+    "Przeczytany pipeline.py, main.py, user.py — wzorce DB i auth"
   ],
   "pending": [
-    "Transcript IP ban — youtube-transcript-api blokowana przez Oracle Cloud — czeka na decyzję Supervisora"
-  ],
-  "blockers": {
-    "transcript_ip_ban": "youtube-transcript-api również blokowana przez YouTube (Oracle Cloud VPS). Metadata OK, transkrypt NIE. Pipeline nie może generować SEO bez transkryptu."
-  }
+    "Krok 1: api/models/job.py — TranscriptJob model",
+    "Krok 2: api/routers/jobs.py — endpointy /v1/jobs/",
+    "Krok 3: pipeline.py — LOCAL_RUNNER_MODE switch",
+    "Krok 4: local-runner/runner.py",
+    "Krok 5: local-runner/install.bat + pliki pomocnicze",
+    "Krok 6: testy security",
+    "Krok 7: commit + deploy + rebuild vse-api"
+  ]
 }
