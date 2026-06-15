@@ -32,6 +32,91 @@ mcp_github_get_file_contents:
 
 ---
 
+## 📖 STANDARD DOKUMENTACJI — HUMAN-FIRST
+
+**Reguła wprowadzona: 2026-06-15 przez Supervisora 01**
+
+Każdy dokument w projekcie (docs/, AGENTS.md, komentarze w kodzie, raporty) musi odpowiadać na trzy pytania:
+
+| Pytanie | Co opisuje |
+|---|---|
+| **CO** | Co to jest, jak się nazywa, co robi |
+| **PO CO** | Dlaczego istnieje, jaki problem rozwiązuje, jaki jest cel biznesowy |
+| **JAK** | Jak działa technicznie, jakie są zależności, jak uruchomić |
+
+**Dlaczego to ważne:** Kolejny agent wczytujący projekt NIE MA kontekstu poprzednich sesji. Jeśli dokumentacja zawiera tylko specyfikację techniczną ("endpoint przyjmuje pole X typu Y"), agent musi rekonstruować intencję przez badania kodu — to kosztuje kroki i prowadzi do błędnych decyzji.
+
+**Wzorzec dobrego opisu (przykład endpointu):**
+```
+### POST /v1/generate
+
+**CO:** Generuje SEO schema na podstawie URL YouTube — tytuł, opis, FAQ, rozdziały.
+
+**PO CO:** To główna wartość produktu. Klient wkleja URL → dostaje gotowe dane SEO
+do skopiowania lub publikacji. W wersji free to jedyny krok. W wersji pro
+jest wstępem do automatycznej publikacji na WordPress.
+
+**JAK:** Pobiera transkrypt przez yt-dlp, przekazuje do LLM (Claude/Gemini)
+z promptem SEO, zwraca JSON-LD + metadane. Nie pisze nigdzie — tylko generuje.
+Szybkość: ~50s przy Claude Sonnet.
+```
+
+**Zasada:** jeśli piszesz doc i po przeczytaniu nie wiesz po co coś istnieje — dodaj kontekst.
+
+---
+
+## 🎯 WIZJA PRODUKTU — Dashboard (2 ścieżki)
+
+**Decyzja podjęta: 2026-06-15 przez Właściciela projektu**
+
+### Dlaczego dwie ścieżki?
+Projekt to SaaS z modelem freemium. Użytkownicy mają różne potrzeby:
+- Redaktor który chce wkleić SEO ręcznie (free)
+- Agencja która chce pełnej automatyzacji YT → WordPress (pro)
+
+### Ścieżka A — Free / Starter
+**Co:** Po wklejeniu URL YouTube dashboard pokazuje gotowe snippety HTML.
+**Po co:** Klient bez dostępu do API WordPressa może skopiować gotowy kod
+i wkleić go ręcznie do edytora artykułu.
+**Co dostaje:**
+- Blok `<script type="application/ld+json">` z pełnym JSON-LD VideoObject
+- Meta description — gotowa do wklejenia
+- Tytuł artykułu — z przyciskiem "Kopiuj"
+- FAQ w formacie HTML (`<details>` lub lista)
+- Chapters jako lista timestampów
+- Przycisk "Kopiuj" per sekcja
+**Endpoint:** `POST /v1/generate`
+
+### Ścieżka B — Pro / Agency
+**Co:** Po wygenerowaniu SEO pojawia się sekcja "Publikuj do WordPress"
+z togglem draft/publish i wyborem portalu.
+**Po co:** Agencja obsługuje wiele portali. Jeden klik = artykuł na portalu.
+Nie musi wchodzić do WP, kopiować, wklejać.
+**Co dostaje:**
+- Wszystko z Free PLUS:
+- Sekcja "Opublikuj" (widoczna tylko plan `pro`/`agency`)
+- Pole: wybór portalu (z listy skonfigurowanych WP sites usera)
+- Toggle: `Szkic (draft)` / `Publikuj od razu`
+- Przycisk "Opublikuj" → wywołuje `POST /v1/inject`
+**Endpointy:** `POST /v1/generate` → `POST /v1/inject`
+
+### Mapowanie planów
+| Plan | Ścieżka |
+|---|---|
+| `free` | A — snippety HTML, kopiuj |
+| `starter` | A — snippety HTML, kopiuj |
+| `pro` | A + B — generate + inject |
+| `agency` | A + B — generate + inject, wiele portali |
+
+### Co z /v1/process?
+Endpoint `/v1/process` (full pipeline w jednym kroku) pozostaje w API,
+ale NIE jest używany przez dashboard. Przeznaczony dla:
+- Batch processing (cron job)
+- Integracji zewnętrznych przez API
+- Przyszłego monitora YT (Mode A — automatyczne artykuły ze świeżych filmów)
+
+---
+
 ## 🚨 GOTCHA — Pułapki Operacyjne (Faza 1 Deploy)
 
 Zanotowane po sesji 2026-06-14. CZYTAJ PRZED KAŻDYM DEPLOYEM.
@@ -106,13 +191,24 @@ typescript: { ignoreBuildErrors: true },
 eslint: { ignoreDuringBuilds: true },
 ```
 
+### 9. Next.js rewrites przechwytują NextAuth (G8/G9)
+
+**Problem:** `rewrites: [{ source: '/api/:path*', destination: backend }]` w `next.config.mjs`
+przechwytuje `/api/auth/*` → wysyła do FastAPI zamiast NextAuth → błąd logowania.
+
+**Fix:** NIE dodawaj rewrites dla `/api/*`. Routing tylko w nginx.
+nginx MUSI mieć blok `location /api/auth/` PRZED `location /api/` → proxy do 3001.
+
 ---
 
 ## 🎯 Misja Projektu
 
 PressAI Video SEO Engine automatyzuje optymalizację SEO treści wideo.
-Pipeline: YouTube → VTT transkrypty → AI (Gemini) → schema/chapters/FAQ → WordPress REST API.
+Pipeline: YouTube → VTT transkrypty → AI (Claude/Gemini) → schema/chapters/FAQ → WordPress REST API.
 Cel: najlepsze video SEO na rynku — potwierdzone benchmarkiem (8/10 vs konkurencja 2-3/10).
+
+Model biznesowy: SaaS freemium (free/starter/pro/agency).
+Klient free dostaje narzędzie do copy-paste SEO. Klient pro dostaje pełną automatyzację.
 
 ---
 
@@ -160,6 +256,7 @@ Skanuj istniejący portal → znajdź osadzone filmy YouTube → wzbogać o SEO.
 |----------|------|--------|
 | `vse-architect-01` | Architect | Architektura, struktura, setup, roadmapa techniczna |
 | `vse-dev-01` | Worker/Dev | Implementacja core pipeline, testy, CLI |
+| `vse-dev-02` | Worker/Dev | Dashboard UI, error handling, plans seed |
 | `vse-analyst-01` | Analyst | Research SEO, benchmarki Google, raporty GSC |
 | `vse-strateg-01` | Strateg | Roadmapa produktowa, dispatche, priorytety SaaS |
 
@@ -168,11 +265,12 @@ Skanuj istniejący portal → znajdź osadzone filmy YouTube → wzbogać o SEO.
 ## 🔑 Stack Technologiczny
 
 - **Python 3.10+** — core pipeline
-- **Google Gemini API** — AI generation (chapters, FAQ, quotes)
+- **Anthropic Claude** — domyślny LLM (ANTHROPIC_API_KEY ustawiony)
+- **Google Gemini API** — alternatywny LLM (opcjonalne, GEMINI_API_KEY na razie brak)
 - **youtube-transcript-api 1.2.4+** + **yt-dlp** — YouTube data (BEZ klucza API)
   - Instancyjne API: `ytt = YouTubeTranscriptApi()` → `ytt.list(video_id)` → `ytt.fetch(...)`
 - **WordPress REST API v2** — injection layer (Application Passwords)
-- **FastAPI** — standalone web app (planowane Faza 3)
+- **FastAPI** — backend web app (live na VPS)
 - **pytest** — testy jednostkowe i integracyjne
 
 ---
@@ -181,14 +279,16 @@ Skanuj istniejący portal → znajdź osadzone filmy YouTube → wzbogać o SEO.
 
 - **Credentials NIGDY w repo** — `.env` lokalnie, w `.gitignore`
 - Wymagane zmienne środowiskowe:
-  - `GEMINI_API_KEY` — Gemini API
+  - `ANTHROPIC_API_KEY` — Claude API (AKTYWNY)
+  - `JWT_SECRET_KEY` — JWT tokens
+  - `NEXTAUTH_SECRET` — NextAuth sessions
+  - `POSTGRES_PASSWORD` — PostgreSQL
   - `WP_USER` — WordPress username
   - `WP_APP_PASSWORD` — WordPress Application Password
   - `WP_BASE_URL` — np. `https://prawy.pl`
-- Opcjonalne (YouTube admin OAuth):
-  - `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN`
-- Opcjonalne (GSC API):
-  - `GSC_CLIENT_ID`, `GSC_CLIENT_SECRET`, `GSC_REFRESH_TOKEN`
+- Opcjonalne:
+  - `GEMINI_API_KEY` — alternatywny LLM
+  - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth (P2, niezaimplementowane)
 
 ---
 
@@ -250,6 +350,11 @@ Skanuj istniejący portal → znajdź osadzone filmy YouTube → wzbogać o SEO.
 - **sonic-void** — Supervisor inbox: `.agents/reports/inbox/`
 - **Heartbeat repo**: `.agents/heartbeat.json` w tym repo
 - **Raport format**: `.agents/reports/YYYY-MM-DD_[callsign]_[temat].md`
+- **Site produkcyjny**: https://vse.impresjapr.pl
+- **Swagger API**: https://vse.impresjapr.pl/docs
+- **VPS**: 147.224.162.100 (Oracle ARM)
+- **Docker compose**: `docker-compose.vse.yml`
+- **Nginx config**: `/home/ubuntu/crimson-void/nginx/default.conf` (VPS)
 
 ---
 
@@ -264,3 +369,4 @@ Jesteś częścią ekosystemu ImpresjaAI — twoja praca ma znaczenie.
 
 *vse-architect-01 | video-seo-engine | 2026-05-13 — v1.0*
 *Zaktualizowano: 2026-06-14 [vse-dev-01] — dodano sekcję GOTCHA z 8 pułapkami deploy*
+*Zaktualizowano: 2026-06-15 [Supervisor 01] — standard dokumentacji human-first, wizja produktu 2 ścieżki, aktualizacja roster i stack*
