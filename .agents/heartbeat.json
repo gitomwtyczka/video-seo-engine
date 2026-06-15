@@ -1,17 +1,21 @@
 {
   "callsign": "vse-architect-01",
-  "status": "working",
-  "current_task": "Tworzenie docs/architecture.md + docs/deployment.md + docs/api-reference.md + README update",
-  "timestamp": "2026-06-15T14:36:00Z",
+  "status": "done",
+  "current_task": "SESJA ZAMKNIĘTA — dokumentacja architektoniczna VSE kompletna",
+  "timestamp": "2026-06-15T14:42:00Z",
   "last_completed": [
-    "Odczytano DISPATCH-VSE-ARCH-01-20260614-DOCS.md",
-    "Odczytano AGENTS.md — standard human-first",
-    "Odczytano aktualny stan repo (README, docs/, heartbeat)"
+    "docs/architecture.md — commit 7e3afe31 (2026-06-15)",
+    "docs/deployment.md — commit a46b88c5 (2026-06-15)",
+    "docs/api-reference.md — commit e192a1dd (2026-06-15)",
+    "README.md update — commit ab730c20 (2026-06-15)"
   ],
   "pending": [
-    "docs/architecture.md — PILNE",
-    "docs/deployment.md — PILNE",
-    "docs/api-reference.md",
-    "README.md — update"
-  ]
+    "Aktualizacja docs/ przy każdej zmianie architektury (standard operacyjny)",
+    "docs/api-reference.md — uzupełnić po wdrożeniu Google OAuth (Faza 3)"
+  ],
+  "key_facts": {
+    "docs_location": "docs/architecture.md | docs/deployment.md | docs/api-reference.md",
+    "gotcha_count": "9 pułapek zarejestrowanych w deployment.md",
+    "standard": "human-first (CO + PO CO + JAK) — per AGENTS.md"
+  }
 }
