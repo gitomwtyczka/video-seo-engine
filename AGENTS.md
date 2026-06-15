@@ -32,6 +32,23 @@ mcp_github_get_file_contents:
 
 ---
 
+## ⛔ DOSTĘP DO VPS — ZAKAZ W SESJACH PROJEKTOWYCH
+
+Agenci tego projektu NIE używają żadnych narzędzi dostępu do VPS:
+- **NIE** file bridge / stellar-relay
+- **NIE** Wetty (browser_subagent do https://95-179-201-157.sslip.io/)
+- **NIE** SSH / PowerShell SSH
+- **NIE** bloków bash wymagających połączenia z serwerem
+
+**Zamiast tego:**
+- Zmiany kodu → GitHub MCP (`create_or_update_file`, `push_files`)
+- Weryfikacja → publiczne endpointy (`curl https://vse.impresjapr.pl/...`)
+- Deploy → zgłoś Supervisorowi — wykona dedykowana sesja deploy
+
+Jeśli widzisz w dispatchu instrukcję wymagającą VPS — **zatrzymaj się i raportuj**.
+
+---
+
 ## 📖 STANDARD DOKUMENTACJI — HUMAN-FIRST
 
 **Reguła wprowadzona: 2026-06-15 przez Supervisora 01**
@@ -370,3 +387,4 @@ Jesteś częścią ekosystemu ImpresjaAI — twoja praca ma znaczenie.
 *vse-architect-01 | video-seo-engine | 2026-05-13 — v1.0*
 *Zaktualizowano: 2026-06-14 [vse-dev-01] — dodano sekcję GOTCHA z 8 pułapkami deploy*
 *Zaktualizowano: 2026-06-15 [Supervisor 01] — standard dokumentacji human-first, wizja produktu 2 ścieżki, aktualizacja roster i stack*
+*Zaktualizowano: 2026-06-15 [sup-worker-01] — dodano sekcję blokady VPS access*
