@@ -43,12 +43,25 @@ class GenerateRequest(BaseModel):
 
 
 class InjectRequest(BaseModel):
-    """Inject pre-generated schema JSON into a WP post."""
+    """Inject pre-generated schema JSON into a WordPress post.
 
-    wp_post_id: int
+    CO: Model wejściowy dla endpointu POST /v1/inject.
+
+    PO CO: Pozwala klientowi wstrzyknąć wygenerowane wcześniej dane SEO
+    do WordPressa bez uruchamiania całego pipeline. W modelu freemium
+    używany przez plan pro/agency w sekcji 'Opublikuj' dashboardu.
+
+    JAK:
+    - Gdy wp_post_id podane → aktualizuje istniejący post (PATCH/POST do /posts/{id}).
+    - Gdy wp_post_id = None → WordPress tworzy nowy post (POST do /posts bez ID).
+      Nowy post zawiera pełną treść + SEO schema, domyślnie jako draft.
+    """
+
+    wp_post_id: Optional[int] = None  # None = utwórz nowy post; int = aktualizuj istniejący
     video_url: str
     schema_data: dict
     site_config: SiteConfig
+    post_status: str = "draft"  # "draft" | "publish" — dla nowych postów
 
 
 class MonitorStartRequest(BaseModel):
