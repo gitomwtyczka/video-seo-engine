@@ -11,6 +11,15 @@
 
 ---
 
+## ⛔ ZAKRES NARZĘDZI TEJ SESJI
+
+Ta sesja: TYLKO GitHub MCP + publiczne endpointy.  
+**Nie używaj:** file bridge, stellar-relay, Wetty, SSH, bash na VPS.  
+Weryfikacja: `curl https://vse.impresjapr.pl/...` lub Swagger `/docs`.  
+Deploy: zgłoś Supervisorowi po sesji.
+
+---
+
 ## KONTEKST — CO I PO CO
 
 **CO:** Skonfigurowanie logowania przez Google dla użytkowników VSE.
@@ -51,27 +60,21 @@ To standard SaaS w 2026 — brak Google login = utrata konwersji.
 
 ### Krok 2 — Dodaj credentials do VPS
 
-```bash
-# Na VPS przez FILE BRIDGE (target: oracle-crimson, execute_command)
-# LUB przez SSH
+[Deploy po sesji — zgłoś Supervisorowi]
 
-# Dodaj do .env
-echo 'GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com' >> /home/ubuntu/video-seo-engine/.env
-echo 'GOOGLE_CLIENT_SECRET=GOCSPX-yyy' >> /home/ubuntu/video-seo-engine/.env
+Przekazanie credentials na VPS (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET)
+wykonuje dedykowana sesja deploy po zakończeniu tej sesji konfiguracyjnej.
+Określ wartości w raporcie — Supervisor przekaże je operatorowi.
 
-# UWAGA: Credentials są tajne — NIE commituj do repo!
-# .env jest w .gitignore
-```
+**UWAGA:** Credentials są tajne — NIE commituj do repo!
+`.env` jest w `.gitignore`
 
 ### Krok 3 — Rebuild frontendu
 
-```bash
-# Next.js ładuje env vars przy BUILD — wymagany pełny rebuild
-cd /home/ubuntu/video-seo-engine
-git fetch origin main && git reset --hard origin/main
-docker compose -f docker-compose.vse.yml build web
-docker compose -f docker-compose.vse.yml up -d --no-deps --force-recreate web
-```
+[Deploy po sesji — zgłoś Supervisorowi]
+
+Next.js ładuje env vars przy BUILD — wymagany pełny rebuild po dodaniu credentials.
+Wykonuje dedykowana sesja deploy.
 
 ### Krok 4 — Weryfikacja
 
@@ -115,3 +118,4 @@ sonic-void:       .agents/reports/inbox/2026-06-15_vse-strateg-01_google-oauth.m
 ---
 
 *Dispatch: Supervisor 01 | 2026-06-15 | video-seo-engine*
+*Zaktualizowano: 2026-06-15 [sup-worker-01] — usunięto bash VPS (deploy przez Supervisora), dodano blokadę narzędzi*
