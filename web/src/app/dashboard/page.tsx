@@ -6,9 +6,9 @@ import { useEffect, useState } from 'react'
 interface ProcessResult {
   post_id?: number
   video_id?: string
-  schema?: any
-  chapters?: any[]
-  faq?: any[]
+  schema?: Record<string, unknown> | null
+  chapters?: Array<{ name?: string; startOffset?: number; endOffset?: number }> | null
+  faq?: Array<{ question?: string; answer?: string }> | null
   error?: string
 }
 
@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'schema' | 'chapters' | 'faq'>('schema')
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login')
@@ -49,19 +50,47 @@ export default function DashboardPage() {
         },
         body: JSON.stringify({ url: url.trim() }),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.detail || 'Błąd podczas przetwarzania')
-      } else {
-        setResult(data)
-        setActiveTab('schema')
+
+      // Guard: res.json() may throw SyntaxError when server returns HTML (e.g. 502 nginx)
+      let data: ProcessResult | null = null
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error(`Serwer zwrócił nieprawidłową odpowiedź (HTTP ${res.status})`)
       }
-    } catch (err) {
-      setError('Błąd połączenia z serwerem')
+
+      if (!res.ok) {
+        const detail = (data as { detail?: string } | null)?.detail
+        throw new Error(detail || `Błąd serwera: HTTP ${res.status}`)
+      }
+
+      // Guard: API may return error field even on 200
+      if (data?.error) {
+        throw new Error(data.error)
+      }
+
+      setResult(data)
+      setActiveTab('schema')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Nieznany błąd połączenia z serwerem'
+      setError(message)
     } finally {
       setLoading(false)
     }
   }
+
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // clipboard API unavailable in some environments — silently ignore
+    }
+  }
+
+  const chapters = result?.chapters ?? []
+  const faq = result?.faq ?? []
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -125,15 +154,19 @@ export default function DashboardPage() {
                 className="px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
               >
                 {loading ? (
-                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span> Processuję...</>
+                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span> Procesuję...</>
                 ) : (
                   <>✦ Generuj SEO</>
                 )}
               </button>
             </div>
             {error && (
-              <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-                {error}
+              <div className="mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2">
+                <span className="text-red-400 mt-0.5 flex-shrink-0">⚠️</span>
+                <div>
+                  <p className="font-medium mb-0.5">Wystąpił błąd</p>
+                  <p className="text-red-300/80">{error}</p>
+                </div>
               </div>
             )}
           </form>
@@ -162,7 +195,7 @@ export default function DashboardPage() {
               <div className="p-5 border-b border-gray-800 flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-400">Wynik dla:</p>
-                  <p className="font-medium text-white">{url}</p>
+                  <p className="font-medium text-white truncate max-w-sm">{url}</p>
                 </div>
                 <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
                   ✓ Sukces
@@ -181,7 +214,7 @@ export default function DashboardPage() {
                         : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    {tab === 'schema' ? 'JSON-LD Schema' : tab === 'chapters' ? `Rozdziały (${result.chapters?.length || 0})` : `FAQ (${result.faq?.length || 0})`}
+                    {tab === 'schema' ? 'JSON-LD Schema' : tab === 'chapters' ? `Rozdziały (${chapters.length})` : `FAQ (${faq.length})`}
                   </button>
                 ))}
               </div>
@@ -189,32 +222,40 @@ export default function DashboardPage() {
               {/* Tab content */}
               <div className="p-5">
                 {activeTab === 'schema' && (
-                  <pre className="text-xs text-green-400 bg-gray-950 rounded-xl p-4 overflow-auto max-h-96 font-mono">
-                    {JSON.stringify(result.schema, null, 2)}
-                  </pre>
+                  <div className="relative">
+                    <button
+                      onClick={() => handleCopy(JSON.stringify(result.schema ?? {}, null, 2))}
+                      className="absolute top-2 right-2 px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors"
+                    >
+                      {copied ? '✓ Skopiowano' : 'Kopiuj'}
+                    </button>
+                    <pre className="text-xs text-green-400 bg-gray-950 rounded-xl p-4 overflow-auto max-h-96 font-mono pr-20">
+                      {JSON.stringify(result.schema ?? {}, null, 2)}
+                    </pre>
+                  </div>
                 )}
                 {activeTab === 'chapters' && (
                   <div className="space-y-2">
-                    {(result.chapters || []).map((ch: any, i: number) => (
+                    {chapters.map((ch, i) => (
                       <div key={i} className="flex items-start gap-3 p-3 bg-gray-950 rounded-lg">
-                        <span className="text-violet-400 font-mono text-sm min-w-12">{ch.startOffset}s</span>
-                        <span className="text-white text-sm">{ch.name}</span>
+                        <span className="text-violet-400 font-mono text-sm min-w-12">{ch.startOffset ?? '?'}s</span>
+                        <span className="text-white text-sm">{ch.name ?? '(bez tytułu)'}</span>
                       </div>
                     ))}
-                    {(!result.chapters || result.chapters.length === 0) && (
+                    {chapters.length === 0 && (
                       <p className="text-gray-500 text-sm">Brak rozdziałów</p>
                     )}
                   </div>
                 )}
                 {activeTab === 'faq' && (
                   <div className="space-y-3">
-                    {(result.faq || []).map((item: any, i: number) => (
+                    {faq.map((item, i) => (
                       <div key={i} className="p-4 bg-gray-950 rounded-lg">
-                        <p className="text-white font-medium mb-1">{item.question}</p>
-                        <p className="text-gray-400 text-sm">{item.answer}</p>
+                        <p className="text-white font-medium mb-1">{item.question ?? '(brak pytania)'}</p>
+                        <p className="text-gray-400 text-sm">{item.answer ?? '(brak odpowiedzi)'}</p>
                       </div>
                     ))}
-                    {(!result.faq || result.faq.length === 0) && (
+                    {faq.length === 0 && (
                       <p className="text-gray-500 text-sm">Brak FAQ</p>
                     )}
                   </div>
