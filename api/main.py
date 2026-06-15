@@ -22,12 +22,13 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from api.routers import generate, inject, monitor, process, sitemap
 from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
 from api.models.response import HealthResponse
-from api.db import engine, Base
+from api.db import engine, Base, AsyncSessionLocal
 
 # Logging setup
 logging.basicConfig(
@@ -74,9 +75,36 @@ async def health() -> HealthResponse:
     )
 
 
+async def _seed_plans() -> None:
+    """Insert default subscription plans on startup if they don't exist.
+
+    Uses ON CONFLICT DO NOTHING so it's safe to run on every startup
+    (idempotent). Required because register endpoint has FK to plans table.
+    """
+    plans = [
+        {"id": "free",    "display_name": "Free",    "monthly_quota": 5,    "wp_sites_limit": 1,   "api_access": False, "price_pln": 0},
+        {"id": "starter", "display_name": "Starter", "monthly_quota": 50,   "wp_sites_limit": 3,   "api_access": True,  "price_pln": 49},
+        {"id": "pro",     "display_name": "Pro",     "monthly_quota": 300,  "wp_sites_limit": 10,  "api_access": True,  "price_pln": 149},
+        {"id": "agency",  "display_name": "Agency",  "monthly_quota": 9999, "wp_sites_limit": 999, "api_access": True,  "price_pln": 499},
+    ]
+    async with AsyncSessionLocal() as db:
+        for plan in plans:
+            await db.execute(
+                text(
+                    "INSERT INTO plans "
+                    "(id, display_name, monthly_quota, wp_sites_limit, api_access, price_pln) "
+                    "VALUES (:id, :display_name, :monthly_quota, :wp_sites_limit, :api_access, :price_pln) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                plan,
+            )
+        await db.commit()
+    logger.info("Plans seeded (4 plans, ON CONFLICT DO NOTHING).")
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
-    """Log startup info, verify env vars, create DB tables if missing."""
+    """Log startup info, verify env vars, create DB tables and seed plans."""
     logger.info("VSE API v2.0.0 starting on port 8085")
 
     # Auto-create tables on startup (safe: CREATE TABLE IF NOT EXISTS)
@@ -88,6 +116,13 @@ async def startup_event() -> None:
         logger.info("Database tables verified/created.")
     except Exception as e:
         logger.warning(f"DB init skipped (no DB configured?): {e}")
+        return
+
+    # Seed default subscription plans (idempotent — ON CONFLICT DO NOTHING)
+    try:
+        await _seed_plans()
+    except Exception as e:
+        logger.error(f"Plans seed failed: {e}")
 
     provider = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
     if provider == "claude" and not os.getenv("ANTHROPIC_API_KEY"):
