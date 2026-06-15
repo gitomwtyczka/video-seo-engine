@@ -1,19 +1,22 @@
 {
   "callsign": "vse-dev-04",
-  "status": "working",
-  "current_task": "DISPATCH-VSE-DEV-04-20260615-LOCAL-SERVICE — implementacja Local Transcript Windows Runner",
-  "timestamp": "2026-06-15T22:00:00Z",
+  "status": "done",
+  "current_task": "DISPATCH-VSE-DEV-04-20260615-LOCAL-SERVICE — ZAKOŃCZONY",
+  "timestamp": "2026-06-15T22:36:00Z",
   "last_completed": [
-    "Przeczytany POBUDKA, DISPATCH, SECURITY SUPPLEMENT",
-    "Przeczytany pipeline.py, main.py, user.py — wzorce DB i auth"
+    "api/models/job.py — TranscriptJob model — commit 7eb5288",
+    "api/routers/jobs.py — /v1/jobs/ endpoints + security — commit b6cf90d",
+    "api/main.py — register jobs router — commit fcffdba",
+    "api/services/pipeline.py — LOCAL_RUNNER_MODE switch — commit fd08803",
+    "local-runner/runner.py — Windows Service polling — commit 4f9acf1",
+    "local-runner/install.bat — NSSM installer — commit 9dbd32e",
+    "tests/test_jobs_security.py — security tests — commit 478f2b0",
+    "VPS: LOCAL_RUNNER_TOKEN + LOCAL_RUNNER_MODE=true dodane do .env",
+    "VPS: vse-api przebudowany i zrestartowany",
+    "Weryfikacja: /v1/jobs/pending 401 zły token, 200 OK dobry",
+    "Raporty dual-write: video-seo-engine + sonic-void inbox"
   ],
   "pending": [
-    "Krok 1: api/models/job.py — TranscriptJob model",
-    "Krok 2: api/routers/jobs.py — endpointy /v1/jobs/",
-    "Krok 3: pipeline.py — LOCAL_RUNNER_MODE switch",
-    "Krok 4: local-runner/runner.py",
-    "Krok 5: local-runner/install.bat + pliki pomocnicze",
-    "Krok 6: testy security",
-    "Krok 7: commit + deploy + rebuild vse-api"
+    "User musi zainstalować NSSM + uruchomić install.bat jako Admin — instrukkcje w local-runner/README.md"
   ]
 }
