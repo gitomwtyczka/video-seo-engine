@@ -1,22 +1,16 @@
 {
-  "callsign": "supervisor-01",
+  "callsign": "vse-dev-02",
   "status": "working",
-  "current_task": "Triage handoff vse-dev-01, przygotowanie dispatchy dla nowej sesji",
-  "timestamp": "2026-06-15T10:46:00Z",
+  "current_task": "P3: plans seed auto startup | P1: dashboard error guard | P4: pipeline diagnostics",
+  "timestamp": "2026-06-15T12:52:00Z",
   "last_completed": [
     "Odczyt handoff 2026-06-14_vse-dev-01_handoff.md",
-    "Triage priorytetów P1-P7"
+    "Odczyt dispatch DISPATCH-VSE-DEV-02-20260615-P1P3P4.md",
+    "Analiza api/main.py + web/src/app/dashboard/page.tsx"
   ],
   "pending": [
-    "DISPATCH do vse-dev-02 — P1 (client-side error), P3 (plans seed auto), P4 (pipeline test)",
-    "DISPATCH do vse-strateg-01 — P7 (YouTube IP blocking), P2 (Google OAuth)",
-    "DISPATCH do vse-architect-01 — P5 (docs, dispatch już w repo)"
-  ],
-  "key_facts": {
-    "site": "https://vse.impresjapr.pl — UP",
-    "auth": "register + login DZIALA, Google OAuth WYLACZONE",
-    "nginx_critical": "/api/auth/* → 3001, /api/* → 8085/, /* → 3001",
-    "gotcha_count": 9,
-    "handoff_source": "2026-06-14_vse-dev-01_handoff.md"
-  }
+    "P3 — plans seed w startup_event api/main.py",
+    "P1 — wzmocnienie error handling dashboard",
+    "P4 — test diagnostyczny pipeline /v1/process"
+  ]
 }
