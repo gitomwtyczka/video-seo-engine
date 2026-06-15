@@ -1,21 +1,22 @@
 {
-  "callsign": "vse-architect-01",
+  "callsign": "vse-dev-03",
   "status": "done",
-  "current_task": "SESJA ZAMKNIĘTA — dokumentacja architektoniczna VSE kompletna",
-  "timestamp": "2026-06-15T14:42:00Z",
+  "current_task": "SESJA ZAMKNIĘTA — Dashboard UI 2-paths",
+  "timestamp": "2026-06-15T12:54:00Z",
   "last_completed": [
-    "docs/architecture.md — commit 7e3afe31 (2026-06-15)",
-    "docs/deployment.md — commit a46b88c5 (2026-06-15)",
-    "docs/api-reference.md — commit e192a1dd (2026-06-15)",
-    "README.md update — commit ab730c20 (2026-06-15)"
+    "feat(dashboard): 5-section results UI + PublishSection — commit 9e479fb (2026-06-15)",
+    "Deploy: docker build vse-web OK (39.7s), kontener Next.js Ready in 74ms",
+    "Weryfikacja: CSRF OK, /dashboard 307 OK",
+    "Raporty dual-write: video-seo-engine/.agents/reports/ + sonic-void inbox"
   ],
   "pending": [
-    "Aktualizacja docs/ przy każdej zmianie architektury (standard operacyjny)",
-    "docs/api-reference.md — uzupełnić po wdrożeniu Google OAuth (Faza 3)"
+    "wp_post_id wymagany w InjectRequest — Faza 3: wyszukiwarka postów WP",
+    "accessToken w NextAuth session — jeśli undefined, plan fallbackuje do Free"
   ],
   "key_facts": {
-    "docs_location": "docs/architecture.md | docs/deployment.md | docs/api-reference.md",
-    "gotcha_count": "9 pułapek zarejestrowanych w deployment.md",
-    "standard": "human-first (CO + PO CO + JAK) — per AGENTS.md"
+    "dashboard": "5 sekcji wynikowych + Kopiuj per sekcja",
+    "publish_section": "Pro/Agency only — WP credentials + /v1/inject",
+    "upsell": "Free user widzi bar Ulepsz plan",
+    "deploy": "SSH + run_command (bez FILE BRIDGE)"
   }
 }
