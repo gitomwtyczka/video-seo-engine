@@ -8,6 +8,10 @@ Endpoints:
   POST /v1/generate           — fetch + generate schema (no WP write)
   POST /v1/process            — full pipeline: fetch + generate + inject
   POST /v1/inject             — inject pre-generated schema to WP
+  POST /v1/jobs/              — create transcript job for Local Runner
+  GET  /v1/jobs/pending       — Local Runner polls pending jobs
+  POST /v1/jobs/{id}/result   — Local Runner submits transcript result
+  GET  /v1/jobs/{id}          — job status polling
   POST /v1/monitor/start      — start background channel monitor
   POST /v1/sitemap            — generate video sitemap XML
   POST /v1/auth/register      — register new user
@@ -27,6 +31,7 @@ from sqlalchemy import text
 from api.routers import generate, inject, monitor, process, sitemap
 from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
+from api.routers.jobs import router as jobs_router
 from api.models.response import HealthResponse
 from api.db import engine, Base, AsyncSessionLocal
 
@@ -63,6 +68,9 @@ for _router in [process.router, generate.router, inject.router,
 # Auth & user management routers
 app.include_router(auth_router)
 app.include_router(users_router)
+
+# Local Transcript Runner router
+app.include_router(jobs_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
@@ -111,9 +119,10 @@ async def startup_event() -> None:
     try:
         # Import models to register them with Base
         from api.models.user import User, Plan, UsageLog, ApiKey  # noqa: F401
+        from api.models.job import TranscriptJob  # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created.")
+        logger.info("Database tables verified/created (incl. transcript_jobs).")
     except Exception as e:
         logger.warning(f"DB init skipped (no DB configured?): {e}")
         return
@@ -130,3 +139,12 @@ async def startup_event() -> None:
     if provider == "gemini" and not os.getenv("GEMINI_API_KEY"):
         logger.warning("GEMINI_API_KEY not set — gemini requests will fail")
     logger.info("Default LLM provider: %s", provider)
+
+    local_runner = os.getenv("LOCAL_RUNNER_MODE", "false").lower()
+    if local_runner == "true":
+        if not os.getenv("LOCAL_RUNNER_TOKEN"):
+            logger.warning("LOCAL_RUNNER_MODE=true but LOCAL_RUNNER_TOKEN not set!")
+        else:
+            logger.info("Local Transcript Runner mode: ENABLED")
+    else:
+        logger.info("Local Transcript Runner mode: DISABLED (direct youtube-transcript-api)")
