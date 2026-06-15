@@ -24,7 +24,6 @@ interface DisplayResult {
 /** Extract chapters list from schema_data (Clip array inside @graph or top-level). */
 function extractChapters(schema: Record<string, unknown> | null | undefined): Array<{ name?: string; startOffset?: number }> {
   if (!schema) return []
-  // Try @graph array
   const graph = schema['@graph']
   if (Array.isArray(graph)) {
     const clips = graph.filter((n: unknown) => (n as Record<string, unknown>)?.['@type'] === 'Clip')
@@ -35,7 +34,6 @@ function extractChapters(schema: Record<string, unknown> | null | undefined): Ar
       }))
     }
   }
-  // Try direct clips key
   const clips = schema['clips']
   if (Array.isArray(clips)) return clips as Array<{ name?: string; startOffset?: number }>
   return []
@@ -61,7 +59,6 @@ function extractFaq(schema: Record<string, unknown> | null | undefined): Array<{
       }
     }
   }
-  // Try direct faq key
   const faq = schema['faq']
   if (Array.isArray(faq)) return faq as Array<{ question?: string; answer?: string }>
   return []
@@ -98,6 +95,7 @@ export default function DashboardPage() {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
       // Use /v1/generate (no WP credentials required — generate-only endpoint)
+      // llm_provider defaults to "claude" — ANTHROPIC_API_KEY is set on VPS
       const res = await fetch(`${apiUrl}/v1/generate`, {
         method: 'POST',
         headers: {
@@ -105,8 +103,8 @@ export default function DashboardPage() {
           ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
         },
         body: JSON.stringify({
-          video_url: url.trim(),    // API field is video_url (not url)
-          llm_provider: 'gemini',   // use gemini — GEMINI_API_KEY is set on VPS
+          video_url: url.trim(),   // API field is video_url (not url)
+          llm_provider: 'claude',  // ANTHROPIC_API_KEY is set; GEMINI_API_KEY is not
           lang: 'pl',
         }),
       })
@@ -127,8 +125,6 @@ export default function DashboardPage() {
       }
 
       if (!data) throw new Error('Pusta odpowiedź serwera')
-
-      // API may return status=error even on HTTP 200 (RuntimeError path)
       if (data.error) throw new Error(data.error)
 
       const schema = data.schema_data ?? null
