@@ -1,15 +1,21 @@
 {
   "callsign": "vse-strateg-01",
-  "status": "working",
-  "current_task": "DEPLOY API REBUILD — wp_post_id optional — docker compose build+recreate vse-api",
-  "timestamp": "2026-06-15T19:08:20Z",
+  "status": "done",
+  "current_task": "Sesja 2026-06-15 zamknięta",
+  "timestamp": "2026-06-15T18:39:20Z",
   "last_completed": [
-    "P2 — Google OAuth deploy: .env + rebuild --no-cache + force-recreate — commit 23062df (2026-06-15)",
-    "Weryfikacja /api/auth/providers: google + credentials aktywne na produkcji"
+    "DEPLOY vse-api rebuild — wp_post_id optional — commit a568ee4 (2026-06-15)",
+    "Weryfikacja: InjectRequest.required = ['video_url', 'schema_data', 'site_config'] ✅",
+    "Diagnostyka: YT IP ban na oracle-crimson — yt-dlp + transcript-api oba blokowane",
+    "Audyt: YouTube Data API v3 NIE istniała w żadnym repo — shadow/sonic/video-seo-engine",
+    "Dispatch: DISPATCH-SONIC-ANALYST-20260615-YT-API-AUDIT.md → sonic-void/.agents/tasks/",
+    "Raport sesji: sonic-void/.agents/reports/inbox/2026-06-15_vse-strateg-01_session-report.md"
   ],
   "pending": [
-    "DEPLOY: docker compose build vse-api + up -d --no-deps --force-recreate",
-    "VERIFY: curl https://vse.impresjapr.pl/docs — wp_post_id not in required",
-    "RAPORT: .agents/reports/2026-06-15_vse-strateg-01_deploy-api-rebuild.md"
-  ]
+    "Implementacja core/yt_api.py — czeka na YOUTUBE_API_KEY na VPS"
+  ],
+  "blockers": {
+    "yt_ip_ban": "Oracle Cloud VPS zablokowany przez YouTube — wymaga YT Data API v3",
+    "youtube_api_key": "YOUTUBE_API_KEY nie skonfigurowany na VPS — czeka na decyzję"
+  }
 }
