@@ -1,17 +1,17 @@
 {
-  "callsign": "vse-dev-03",
+  "callsign": "vse-architect-01",
   "status": "working",
-  "current_task": "Dashboard UI — 2 ścieżki: Sekcja wyników (Free/Pro) + Sekcja publikacji (Pro/Agency only)",
-  "timestamp": "2026-06-15T14:35:00Z",
+  "current_task": "Tworzenie docs/architecture.md + docs/deployment.md + docs/api-reference.md + README update",
+  "timestamp": "2026-06-15T14:36:00Z",
   "last_completed": [
-    "Przeczytano dispatch DASHBOARD-UI",
-    "Przeczytano AGENTS.md, handoff vse-dev-01, raport vse-dev-02",
-    "Przeanalizowano aktualny dashboard/page.tsx"
+    "Odczytano DISPATCH-VSE-ARCH-01-20260614-DOCS.md",
+    "Odczytano AGENTS.md — standard human-first",
+    "Odczytano aktualny stan repo (README, docs/, heartbeat)"
   ],
   "pending": [
-    "Rebuild dashboard/page.tsx — sekcje wynikowe per pole",
-    "Przyciski Kopiuj per sekcja z feedbackiem",
-    "Ścieżka B — PublishSection (pro/agency only)",
-    "Deploy przez FILE BRIDGE"
+    "docs/architecture.md — PILNE",
+    "docs/deployment.md — PILNE",
+    "docs/api-reference.md",
+    "README.md — update"
   ]
 }
