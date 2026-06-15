@@ -2,181 +2,205 @@
 
 > **Automated video content optimization pipeline** — from YouTube channel to SEO-ready WordPress article in minutes.
 
-[![Status](https://img.shields.io/badge/status-active%20pipeline-brightgreen)](https://prawy.pl)
+[![Status](https://img.shields.io/badge/status-active%20pipeline-brightgreen)](https://vse.impresjapr.pl)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License](https://img.shields.io/badge/license-proprietary-red)](LICENSE)
 
+**CO:** VSE to SaaS freemium do automatycznego generowania SEO dla treści wideo. Pipeline: YouTube URL → transkrypt VTT → AI (Claude/Gemini) → schema VideoObject/FAQ/chapters → WordPress REST API.
+
+**PO CO:** Klienci free dostają gotowe fragmenty HTML do wklejenia. Klienci pro dostają pełną automatyzację. Benchmark: prawy.pl 8/10 vs TVP Info 3/10 (schema.org, Google 2026).
+
 ---
 
-## 🎯 What It Does
+## 📚 Dokumentacja
 
-PressAI Video SEO Engine automatically transforms YouTube video content into fully optimized WordPress articles with structured data markup. The pipeline covers two core workflows:
+| Dokument | Zawartość |
+|---|---|
+| **[docs/architecture.md](docs/architecture.md)** | Architektura VPS, docker, nginx, auth flow, pipeline, schemat DB |
+| **[docs/deployment.md](docs/deployment.md)** | Runbook deploy + **9 krytycznych GOTCHA** (czytaj przed każdym deployem) |
+| **[docs/api-reference.md](docs/api-reference.md)** | Wszystkie endpointy z przykładami request/response |
+| **[AGENTS.md](AGENTS.md)** | Reguły workspace dla agentów AI |
 
-- **Channel Monitor (MODE A)** — watches a YouTube channel; when a new video appears, automatically creates a draft WordPress post with full SEO markup
-- **Portal Scanner (MODE B)** — scans an existing WordPress portal, finds all embedded YouTube videos, and enriches them with VideoObject schema, chapters, FAQ, and video sitemap entries
+> ⚠️ **PRZED pierwszym deployem:** Przeczytaj `docs/deployment.md` — sekcja GOTCHA zawiera 9 pułapek, każda z nich kosztowała sesję debugowania.
 
-**Live performance benchmark (prawy.pl, May 2026):**
+---
+
+## 🎯 Co to robi
+
+Dwie ścieżki operacyjne:
+
+- **Channel Monitor (MODE A)** — obserwuje kanał YouTube; nowy film = automatyczny draft na WordPress
+- **Portal Scanner (MODE B)** — skanuje istniejący portal WP, znajduje osadzone filmy i wzbogaca je o schema, chapters, FAQ, sitemap
+
+**Live benchmark (prawy.pl, maj 2026):**
 - Score: **8/10** vs TVP Info **3/10**, wPolityce **2/10**
-- 6 posts fully processed, **213+ in queue**
+- 6 postów przetworzonych, **213+ w kolejce**
 
 ---
 
-## ✨ Key Features
+## ✨ Kluczowe funkcje
 
-- **VideoObject Schema (JSON-LD)** — full 2026 Google specification compliance (duration, interactionStatistic, viewCount, embedUrl)
-- **AI-generated chapters** — Gemini/Claude API creates timestamped `Clip` entries from transcript
-- **AI-generated FAQ** — `FAQPage` schema from transcript content
-- **VTT transcript fetching** — no YouTube API key required (`youtube-transcript-api` + `yt-dlp`)
-- **Video Sitemap generation** — supplementary XML covering all portal videos (beyond RankMath's auto-detection)
-- **WordPress REST API injection** — atomic, safe post updates with rollback capability
-- **Multi-tenant API** — single VSE service handles multiple portals (Phase 2) ✅ LIVE
-- **Hybrid fetch mode** — local runner pushes transcript data to cloud API (Phase 2B, VPS IP workaround)
+- **VideoObject Schema (JSON-LD)** — pełna zgodność ze specyfikacją Google 2026
+- **AI-generated chapters** — Claude/Gemini tworzy timestampowane wpisy `Clip` z transkryptu
+- **AI-generated FAQ** — `FAQPage` schema z treści transkryptu
+- **VTT transcript fetching** — bez klucza YouTube API (`youtube-transcript-api` + `yt-dlp`)
+- **Video Sitemap generation** — XML dla Google (uzupełnienie auto-detekcji RankMath)
+- **WordPress REST API injection** — atomowe aktualizacje postów z rollback
+- **Multi-tenant API** — jeden serwis VSE obsługuje wiele portali ✅ LIVE
 
 ---
 
-## 🏗️ Architecture
+## 🚀 Quick Start (lokalny dev)
 
-### Standard Mode (Opcja A — cookies)
-```
-YouTube Channel / Portal
-        │
-        ▼
-  [fetcher.py]  ←── yt-dlp + cookies.txt (IP unblock)
-  VTT + metadata JSON
-        │
-        ▼
-  [generator.py] ←── Claude/Gemini → VideoObject + Clip + FAQ
-        │
-        ▼
-  [injector.py]  ←── WordPress REST API
-        │
-        ▼
-  [vse-api :8085] ←── FastAPI multi-tenant (oracle-crimson)
-```
+```bash
+# 1. Zainstaluj zależności
+pip install -r requirements.txt
 
-### Hybrid Mode (Opcja C — SaaS-ready)
-```
-Klient lokalny
-  [fetcher.py]  ←── yt-dlp bez blokady IP
-        │  POST /v1/generate (raw_transcript + raw_metadata)
-        ▼
-  [vse-api :8085] ←── generuje schema (AI) + inject do WP
+# 2. Skonfiguruj credentials
+cp .env.example .env
+# Edytuj .env — wymagane: ANTHROPIC_API_KEY, WP_USER, WP_APP_PASSWORD, WP_BASE_URL
+
+# 3. CLI — podstawowy przepływ
+python -m cli.main fetch --video https://youtube.com/watch?v=VIDEO_ID
+python -m cli.main generate --video VIDEO_ID
+python -m cli.main inject --post-id WP_POST_ID --video VIDEO_ID
+
+# 4. Generowanie sitemap
+python -m cli.main sitemap --output video-sitemap.xml
 ```
 
-### Distribution Layers
+## 🐳 Quick Start (Docker — pełny stack)
 
-| Layer | Description | Status |
-|-------|-------------|--------|
-| **Standalone CLI** | Direct Python CLI for power-users & agencies | ✅ Active |
-| **VSE API (FastAPI)** | Multi-tenant REST service on oracle-crimson :8085 | ✅ Phase 2A Live |
-| **Hybrid Runner** | Local fetch → cloud generate/inject | 🟡 Phase 2B |
-| **SaaS Module** | Integration with press.impresjapr.pl via REST API | 🔵 Planned |
-| **WordPress Plugin** | `pressai-video-seo` freemium plugin | 🔵 Planned |
+```bash
+# Wymagania: Docker + .env z wartościami produkcyjnymi
+cp .env.api.example .env
+
+# Uruchom stack (postgres + api + web)
+docker-compose -f docker-compose.vse.yml up -d
+
+# Sprawdź czy działa
+curl http://localhost:8085/health
+# → {"status":"ok","version":"2.0.0","llm_default":"claude"}
+
+# Frontend
+open http://localhost:3001
+```
+
+**Pełny runbook produkcyjny:** [docs/deployment.md](docs/deployment.md)
+
+---
+
+## 🏗️ Architektura
+
+```
+INTERNET → Cloudflare DNS → vse.impresjapr.pl
+                                    │
+                             crimson-nginx (VPS)
+                              ├── /api/auth/* → Next.js :3001
+                              ├── /api/*      → FastAPI :8085
+                              └── /*          → Next.js :3001
+
+docker-compose.vse.yml:
+  vse-postgres  (PostgreSQL 16, port 5434)
+  vse-api       (FastAPI, port 8085)
+  vse-web       (Next.js 14, port 3001)
+```
+
+Szczełowy opis z diagramami: [docs/architecture.md](docs/architecture.md)
+
+### Pipeline SEO
+
+```
+URL YouTube → [fetcher] → VTT + metadata
+            → [generator] Claude/Gemini → VideoObject + FAQ + chapters (~50s)
+            → [injector] WordPress REST API → published post
+```
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Component | Technology |
+| Komponent | Technologia |
 |-----------|------------|
 | Core pipeline | Python 3.10+ |
-| AI generation | Google Gemini API + Claude (Anthropic) |
+| AI generation | Claude (Anthropic) — aktywny / Gemini — opcjonalny |
 | YouTube data | `youtube-transcript-api` 1.2.4+ + `yt-dlp` |
 | WordPress | REST API v2 (Application Passwords) |
 | Schema | JSON-LD, Schema.org VideoObject / Clip / FAQPage |
-| Sitemap | Custom XML (Google Video Sitemap 1.1) |
-| Web API | FastAPI + uvicorn (Phase 2) |
+| Backend API | FastAPI + uvicorn |
+| Frontend | Next.js 14 + Tailwind CSS v3 + NextAuth v4 |
+| Baza danych | PostgreSQL 16 |
+| Infrastructure | Oracle ARM VPS + Docker + nginx |
 
 ---
 
-## 🚀 Quick Start
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure credentials
-cp .env.example .env
-# Edit .env with your credentials
-
-# Fetch video data
-python -m cli.main fetch --video https://youtube.com/watch?v=VIDEO_ID
-
-# Generate SEO schema
-python -m cli.main generate --video VIDEO_ID
-
-# Inject to WordPress
-python -m cli.main inject --post-id WP_POST_ID --video VIDEO_ID
-
-# Generate video sitemap
-python -m cli.main sitemap --output video-sitemap.xml
-
-# [Phase 2] VSE API — already running on oracle-crimson
-curl http://147.224.162.100:8085/health
-# → {"status":"ok","version":"2.0.0","llm_default":"claude"}
-```
-
----
-
-## 📁 Project Structure
+## 📁 Struktura projektu
 
 ```
 video-seo-engine/
-├── api/                    # [Phase 2] FastAPI multi-tenant service ✅
-│   ├── main.py             # FastAPI app entry
+├── api/                    # FastAPI multi-tenant service ✅
+│   ├── main.py             # Entry point, lifespan (auto-seed plans)
+│   ├── auth.py             # bcrypt + JWT (NIE passlib!)
+│   ├── db.py               # SQLAlchemy async
 │   ├── routers/            # /v1/process, /v1/generate, /v1/inject, ...
-│   ├── models/             # Pydantic request/response schemas
+│   ├── models/             # Pydantic + SQLAlchemy models
 │   └── services/           # Pipeline orchestration
 ├── core/
-│   ├── fetcher.py          # YouTube data: transcripts + metadata (no API key)
-│   ├── matcher.py          # Match WP posts to YouTube IDs
+│   ├── fetcher.py          # YouTube: transcripts + metadata (bez API key)
+│   ├── matcher.py          # Match WP posts ↔ YouTube IDs
 │   ├── generator.py        # AI schema generation (VideoObject, Clip, FAQ)
 │   ├── injector.py         # WordPress REST API injection
-│   ├── sitemap.py          # Video sitemap XML generation
-│   ├── monitor.py          # Channel Monitor [Phase 2]
-│   └── yt_admin.py         # YouTube admin ops [Phase 2]
+│   ├── sitemap.py          # Video sitemap XML
+│   ├── monitor.py          # Channel Monitor [Faza 2]
+│   └── yt_admin.py         # YouTube admin ops [Faza 2]
+├── web/                    # Next.js 14 frontend
+│   ├── src/app/
+│   │   ├── page.tsx        # Landing page
+│   │   ├── dashboard/      # Dashboard (2 ścieżki: Free/Pro)
+│   │   ├── login/          # Logowanie
+│   │   └── register/       # Rejestracja
+│   ├── Dockerfile.web
+│   └── next.config.mjs     # MUSI być .mjs (nie .ts!)
 ├── cli/
-│   └── main.py             # Unified CLI entry point
-├── cookies/                # [Phase 2B] YouTube cookies (gitignored)
-├── Dockerfile.api          # [Phase 2] Docker build for VSE API
-├── docker-compose.vse.yml  # [Phase 2] Standalone compose
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── USAGE.md
-│   ├── YOUTUBE_COOKIES.md  # [Phase 2B] IP unblock guide
-│   └── CHANGELOG.md
-├── .agents/                # Agent workspace (heartbeat, tasks, reports)
-├── .env.example            # Credential template (CLI)
-├── .env.api.example        # [Phase 2] Credential template (API)
-├── requirements.txt
-└── README.md
+│   └── main.py             # CLI entry point
+├── docs/                   # ⭐ Dokumentacja — START TUTAJ
+│   ├── architecture.md     # Architektura systemu
+│   ├── deployment.md       # Runbook deploy + GOTCHA
+│   └── api-reference.md    # API dokumentacja
+├── .agents/                # Agent workspace
+├── docker-compose.vse.yml  # Stack VSE
+├── Dockerfile.api          # FastAPI build
+├── .env.example            # Template credentials (CLI)
+├── .env.api.example        # Template credentials (API/Docker)
+└── requirements.txt
 ```
 
 ---
 
-## 🔐 Security
+## 🔐 Bezpieczeństwo
 
-- **Credentials NEVER in repo** — `.env` is gitignored
-- WordPress access via Application Passwords (not master password)
-- YouTube data fetched without API key (public data only)
-- Optional OAuth2 for YouTube admin operations (update descriptions, chapters)
-- Multi-tenant: credentials passed per-request via HTTPS (stateless, no DB storage on MVP)
-- `cookies/` directory gitignored — never commit YouTube cookies
+- **Credentials NIGDY w repo** — `.env` w `.gitignore`
+- WordPress dostęp przez Application Passwords (nie master password)
+- YouTube data pobierane bez API key (dane publiczne)
+- OAuth2 opcjonalnie dla operacji admin YouTube
+- Multi-tenant: credentials per-request przez HTTPS (stateless)
+- `cookies/` katalog w gitignore — nie commituj cookies YouTube
 
 ---
 
-## 📊 Current Status
+## 📊 Aktualny Status
 
-| Metric | Value |
-|--------|-------|
+| Metryka | Wartość |
+|---------|-------|
 | Pipeline version | v5.4 |
-| VSE API version | v2.0.0 ✅ |
+| VSE API | v2.0.0 ✅ LIVE |
+| Site produkcyjny | https://vse.impresjapr.pl |
+| Swagger UI | https://vse.impresjapr.pl/docs |
+| Dashboard | ✅ Działa (2 ścieżki: Free/Pro) |
 | Live posts (prawy.pl) | 6 |
-| Queue (archive) | 213+ |
+| Kolejka archiwum | 213+ |
 | Schema compliance | 8/10 (Google 2026) |
-| Active portals | prawy.pl |
-| LLM providers | Gemini + Claude (Sonnet) |
-| API endpoint | http://147.224.162.100:8085 |
+| LLM | Claude Sonnet (~50s/wideo) |
 
 ---
 
@@ -184,39 +208,33 @@ video-seo-engine/
 
 ### ✅ Faza 1 — CLI Pipeline (DONE)
 - [x] Core pipeline v5.4 (VideoObject + Clip + FAQ + interactionStatistic)
-- [x] VTT fetching without API key
+- [x] VTT fetching bez API key
 - [x] Video sitemap generation
 - [x] Claude (Anthropic) LLM provider
-- [x] yt_title formats A/B/C/D (CTR optimization)
 - [x] inject_video + YouTube description update (OAuth)
 - [x] RankMath integration
 
 ### ✅ Faza 2A — VSE API Service (DONE)
-- [x] FastAPI app structure (api/ module) — commit d7a86e79
-- [x] Pydantic models — ProcessRequest/Response, SiteConfig
-- [x] POST /v1/process — full pipeline endpoint
-- [x] POST /v1/generate — schema-only endpoint
-- [x] POST /v1/inject — inject-only endpoint
-- [x] GET /health — health check ✅ v2.0.0
-- [x] Dockerfile.api + docker-compose.vse.yml
-- [x] Deployment oracle-crimson :8085 — **LIVE & healthy**
+- [x] FastAPI app (api/ moduł)
+- [x] PostgreSQL + plans seed (auto przy starcie)
+- [x] Auth: register, login, JWT
+- [x] POST /v1/generate — **OPERACYJNY**
+- [x] POST /v1/inject, /v1/process, /v1/monitor/start
+- [x] Next.js 14 dashboard (2 ścieżki: Free/Pro)
+- [x] Deployment oracle-crimson — **LIVE**
 
 ### 🟡 Faza 2B — YouTube Unblock + E2E (IN PROGRESS)
-- [ ] cookies.txt strategy — fetcher.py + docker volume [Opcja A]
-- [ ] docs/YOUTUBE_COOKIES.md — instrukcja dla Usera
-- [ ] raw_transcript/raw_metadata w ProcessRequest [Opcja C — hybrid mode]
-- [ ] End-to-end test /v1/generate z realnym video
-- [ ] End-to-end test /v1/process z realnym prawy.pl post_id
-- [ ] POST /v1/monitor/start — Channel Monitor background task
-- [ ] POST /v1/sitemap — weryfikacja end-to-end
+- [ ] cookies.txt strategy — fetcher.py + docker volume
+- [ ] End-to-end test z realnym video PrawyTV
+- [ ] POST /v1/monitor/start — testy E2E
+- [ ] deno JS runtime w api/Dockerfile (eliminuje WARNING yt-dlp)
 
 ### 🔵 Faza 3 — SaaS & Plugin (PLANNED)
-- [ ] SaaS auth (API key per-site, crimson-backend integration)
-- [ ] nginx proxy route for vse-api
+- [ ] Google OAuth (GOOGLE_CLIENT_ID/SECRET gotowe w config)
 - [ ] press.impresjapr.pl integration
 - [ ] WordPress plugin (pressai-video-seo) freemium
 - [ ] Billing / usage tracking
 
 ---
 
-*Part of the [ImpresjaAI](https://impresjapr.pl) ecosystem — PressAI platform.*
+*Część ekosystemu [ImpresjaAI](https://impresjapr.pl) — platforma PressAI.*
