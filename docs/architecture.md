@@ -28,9 +28,17 @@ VPS Oracle ARM (147.224.162.100)
             ├── vse-postgres  : PostgreSQL 16 (port 5434 localhost)
             ├── vse-api       : FastAPI (port 8085, 0.0.0.0)
             └── vse-web       : Next.js 14 (port 3001, 0.0.0.0)
+
+LOKALNY PC UŻYTKOWNIKA
+    └── VSELocalRunner (Windows Service)
+            ├── Polling: GET /v1/jobs/pending (co 10s)
+            ├── youtube-transcript-api (lokalne IP — YouTube OK)
+            └── POST /v1/jobs/{id}/result → transkrypt do API
 ```
 
 **Dlaczego ten układ?** VSE współdzieli VPS z crimson-void (inny projekt). Nginx od crimson-void pełni rolę globalnego proxy — obsługuje SSL termination i routing po domenach. VSE nie ma własnego nginx — dociera do niego przez `172.17.0.1` (bridge host IP widoczny z sieci dockera crimson-void).
+
+**Dlaczego Local Runner?** Oracle Cloud IPs są blokowane przez YouTube dla requestów transkryptów (IP ban data center). Local Runner pobiera transkrypty z IP domowego/biurowego użytkownika i przekazuje do API. Wzorzec: GitHub Actions self-hosted runner.
 
 ---
 
@@ -124,6 +132,7 @@ api/
 ├── models/
 │   ├── user.py          # SQLAlchemy model: User (UUID PK, email, hashed_password, plan_id, ...)
 │   ├── plan.py          # SQLAlchemy model: Plan (id string, display_name, monthly_quota, ...)
+│   ├── job.py           # SQLAlchemy model: TranscriptJob (dla Local Runner)
 │   ├── request.py       # Pydantic: ProcessRequest, GenerateRequest, InjectRequest
 │   └── response.py      # Pydantic: ProcessResponse, GenerateResponse, ErrorResponse
 ├── routers/
@@ -132,10 +141,12 @@ api/
 │   ├── process.py       # POST /v1/process (full pipeline)
 │   ├── generate.py      # POST /v1/generate (tylko generowanie SEO)
 │   ├── inject.py        # POST /v1/inject (tylko publikacja do WP)
+│   ├── jobs.py          # GET /v1/jobs/pending, POST /v1/jobs/{id}/result (Local Runner)
 │   ├── monitor.py       # POST /v1/monitor/start (YouTube Channel Monitor)
 │   └── sitemap.py       # GET /v1/sitemap
 └── services/
     └── pipeline.py      # Orkiestracja: fetch → generate → inject
+                         # LOCAL_RUNNER_MODE: deleguje fetch do TranscriptJob queue
 ```
 
 ### Jak działa lifespan?
@@ -190,12 +201,24 @@ USER wkleja URL YouTube
    POST /api/process lub /api/generate
          │
          ▼
-    ┌────────────┐
-    │  fetcher   │  → youtube-transcript-api + yt-dlp
-    │            │    Pobiera: VTT transkrypt, metadata (tytuł, opis,
-    │            │    viewCount, uploadDate, duration, thumbnails)
-    │            │    ⚠️ Wymaga: yt-dlp na PATH w kontenerze api
-    └─────┬──────┘
+    ┌─────────────────────────────────────────────┐
+    │  fetcher                                     │
+    │  (LOCAL_RUNNER_MODE=true → via job queue)    │
+    │                                             │
+    │  ┌─ LOCAL_RUNNER_MODE=false (direct) ──────┐│
+    │  │  youtube-transcript-api + yt-dlp        ││
+    │  │  ⚠️ Zablokowane z Oracle Cloud IPs!     ││
+    │  └──────────────────────────────────────────┘│
+    │                                             │
+    │  ┌─ LOCAL_RUNNER_MODE=true (via queue) ────┐│
+    │  │  1. Utwórz TranscriptJob (status=pending)││
+    │  │  2. Poll job co 2s max 120s             ││
+    │  │  3. VSELocalRunner (Windows Service)    ││
+    │  │     pobiera transkrypt lokalnie (OK IP) ││
+    │  │  4. Runner: POST /v1/jobs/{id}/result   ││
+    │  │  5. status=fetched → pobierz transcript ││
+    │  └──────────────────────────────────────────┘│
+    └─────────────┬───────────────────────────────┘
           │ transcript + metadata JSON
           ▼
     ┌────────────┐
@@ -260,9 +283,23 @@ ON CONFLICT (id) DO NOTHING;
 | `is_admin` | BOOLEAN | Uprawnienia admin |
 | `created_at` | TIMESTAMP | Data rejestracji |
 
+### Tabela: `transcript_jobs` *(dodana w Faza 3)*
+
+| Kolumna | Typ | Opis |
+|---|---|---|
+| `id` | UUID PK | Auto-generated |
+| `video_url` | VARCHAR | YouTube URL do pobrania |
+| `status` | VARCHAR | `pending` / `fetched` / `processing` / `done` / `failed` |
+| `transcript` | TEXT | NULL do czasu zwrotu przez Local Runner |
+| `error` | TEXT | NULL jeśli OK |
+| `created_at` | TIMESTAMP | Data utworzenia jobu |
+| `updated_at` | TIMESTAMP | Data ostatniej aktualizacji |
+| `user_id` | UUID FK | Kto zlecił |
+
+**Po co ta tabela?** Kolejka komunikacji między VPS API a Local Runner. API tworzy job (pending), Local Runner pobiera transkrypt lokalnie i zwraca wynik (fetched). Bez tej tabeli Oracle Cloud IP ban blokuje cały pipeline.
+
 ### Tabele w trakcie implementacji
 
-- `jobs` — historia requestów pipeline (do weryfikacji w `api/models/`)
 - `sites` — skonfigurowane portale WP per user (dla pro/agency)
 
 ---
@@ -290,14 +327,14 @@ web/src/
 │   └── api/
 │       └── auth/
 │           └── [...nextauth]/
-│               └── route.ts     # NextAuth handler — credentials provider
+│               └── route.ts     # NextAuth handler — credentials + Google OAuth
 └── middleware.ts                # Ochrona /dashboard/* — redirect do /login jeśli brak session
 ```
 
 **Stack frontendu:**
 - **Next.js 14** z App Router (nie Pages Router)
 - **Tailwind CSS v3** — wymaga `web/postcss.config.js` (bez niego CSS się nie kompiluje)
-- **NextAuth v4** — email+password, opcjonalnie Google OAuth
+- **NextAuth v4** — email+password + Google OAuth (aktywny od 2026-06-15)
 - **`next.config.mjs`** — NIE `.ts` (Next.js 14 nie obsługuje `.ts` konfiguracji)
 
 ---
@@ -314,12 +351,14 @@ web/src/
 | `NEXTAUTH_URL` | ✅ | `https://vse.impresjapr.pl` |
 | `POSTGRES_PASSWORD` | ✅ | Hasło PostgreSQL |
 | `DATABASE_URL` | ✅ | `postgresql+asyncpg://user:pass@vse-postgres:5432/vse` |
+| `LOCAL_RUNNER_MODE` | ✅ | `true` gdy Local Runner aktywny (Oracle IP ban workaround) |
+| `LOCAL_RUNNER_TOKEN` | ✅ gdy LOCAL | Bearer token dla Local Runner (min. 32 znaki) |
 | `WP_USER` | Dla inject | WordPress username |
 | `WP_APP_PASSWORD` | Dla inject | WordPress Application Password |
 | `WP_BASE_URL` | Dla inject | np. `https://prawy.pl` |
 | `GEMINI_API_KEY` | Opcjonalna | Alternatywny LLM |
-| `GOOGLE_CLIENT_ID` | P2 (OAuth) | Google OAuth (niezaimplementowane) |
-| `GOOGLE_CLIENT_SECRET` | P2 (OAuth) | Google OAuth (niezaimplementowane) |
+| `GOOGLE_CLIENT_ID` | ✅ | Google OAuth (aktywny od 2026-06-15) |
+| `GOOGLE_CLIENT_SECRET` | ✅ | Google OAuth (aktywny od 2026-06-15) |
 
 ---
 
@@ -336,6 +375,8 @@ web/src/
 | `api/main.py` | FastAPI entry, lifespan (auto-seed plans) |
 | `api/auth.py` | bcrypt + JWT (NIE passlib) |
 | `api/db.py` | SQLAlchemy async session |
+| `local-runner/runner.py` | Local Transcript Runner — polling + youtube-transcript-api |
+| `local-runner/install.bat` | Instalator Windows Service (NSSM) |
 
 ---
 
@@ -346,6 +387,7 @@ web/src/
 **CO:** Daemon monitoruje nowe filmy na kanale YT i automatycznie tworzy artykuły.
 **PO CO:** Agencje chcą zero-touch — film się pojawia, artykuł na portalu sam się tworzy.
 **JAK:** `POST /v1/monitor/start` → background task polling kanał co X minut → przy nowym filmie wywołuje wewnętrznie `/v1/process`.
+**Zależność:** Wymaga działającego Local Runner (transkrypty przez lokalny PC).
 **Status:** Zaimplementowany w `core/monitor.py`, endpoint w `api/routers/monitor.py`. Wymaga testów E2E.
 
 ### MODE B — Portal Scanner (pull)
@@ -357,7 +399,43 @@ web/src/
 
 ---
 
-## 12. Linki operacyjne
+## 12. Local Transcript Runner (Windows Service) *(Faza 3)*
+
+**CO:** Mały program w Python działający jako Windows Service na lokalnym PC użytkownika. Polling API VSE po joby do wykonania, pobieranie transkryptów z YouTube lokalnie (IP domowe = nie zablokowane), odsyłanie wyników do API.
+
+**PO CO:** Oracle Cloud IPs są banowane przez YouTube dla requestów transkryptów. Bez tego Local Runnera pipeline VSE nie może pobrać transkryptu — a bez transkryptu generator (Claude) nie ma danych wejściowych.
+
+**JAK działa:**
+```
+[Windows Service — VSELocalRunner]
+  startuje z Windows (SCM)
+  │
+  └── co 10 sekund:
+        GET https://vse.impresjapr.pl/v1/jobs/pending
+        │   Bearer: LOCAL_RUNNER_TOKEN
+        │
+        └── dla każdego pending job:
+              youtube-transcript-api.fetch(video_id)  ← lokalny IP, YouTube OK
+              POST /v1/jobs/{id}/result {transcript, status: "fetched"}
+```
+
+**Lokalizacja w repo:** `local-runner/`
+
+| Plik | Rola |
+|---|---|
+| `local-runner/runner.py` | Logika pollingu i fetchowania |
+| `local-runner/.env.example` | `LOCAL_RUNNER_TOKEN=...` |
+| `local-runner/install.bat` | Autoinstalacja (wymaga NSSM + Python) |
+| `local-runner/uninstall.bat` | Deinstalacja |
+| `local-runner/requirements.txt` | `youtube-transcript-api`, `requests`, `python-dotenv` |
+
+**Warunek działania:** PC musi być włączony gdy pipeline jest wywoływany.
+**Service name:** `VSELocalRunner` (widoczny w `services.msc`).
+**Log:** `C:\ProgramData\VSELocalRunner\runner.log`.
+
+---
+
+## 13. Linki operacyjne
 
 | Zasób | URL / Ścieżka |
 |---|---|
@@ -371,5 +449,6 @@ web/src/
 
 ---
 
-*vse-architect-01 | video-seo-engine | 2026-06-15 — v1.0*
+*vse-architect-01 | video-seo-engine | 2026-06-15 — v1.0*  
+*Zaktualizowano: 2026-06-15 [Supervisor 01] — dodano sekcje Local Runner (12), transcript_jobs DB, LOCAL_RUNNER_MODE, zaktualizowano pipeline diagram (6)*  
 *Aktualizuj ten plik przy każdej zmianie architektury (jako część commitu).*
