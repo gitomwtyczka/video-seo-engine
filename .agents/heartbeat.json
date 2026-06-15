@@ -1,16 +1,25 @@
 {
   "callsign": "vse-dev-02",
-  "status": "working",
-  "current_task": "P3: plans seed auto startup | P1: dashboard error guard | P4: pipeline diagnostics",
-  "timestamp": "2026-06-15T12:52:00Z",
+  "status": "done",
+  "current_task": "SESJA ZAMKNIĘTA — P3+P1+P4 wykonane",
+  "timestamp": "2026-06-15T12:08:00Z",
   "last_completed": [
-    "Odczyt handoff 2026-06-14_vse-dev-01_handoff.md",
-    "Odczyt dispatch DISPATCH-VSE-DEV-02-20260615-P1P3P4.md",
-    "Analiza api/main.py + web/src/app/dashboard/page.tsx"
+    "P3 — plans seed startup — commit d5d6b8c (2026-06-15)",
+    "P1 — dashboard fix /v1/generate + video_url + claude — commity 605f195, 4b76a56, ffe490b (2026-06-15)",
+    "P4 — pipeline zweryfikowany: yt-dlp OK, /v1/generate 200 + schema JSON-LD + chapters + FAQ (2026-06-15)",
+    "P7 ZAMKNIĘTY — YouTube IP blocking nie występuje na VPS",
+    "Raporty dual-write: video-seo-engine/.agents/reports/ + sonic-void inbox"
   ],
   "pending": [
-    "P3 — plans seed w startup_event api/main.py",
-    "P1 — wzmocnienie error handling dashboard",
-    "P4 — test diagnostyczny pipeline /v1/process"
-  ]
+    "deno JS runtime w api/Dockerfile (eliminuje WARNING yt-dlp)",
+    "GEMINI_API_KEY w .env VPS (opcjonalne)",
+    "Test z realnym URL PrawyTV"
+  ],
+  "key_facts": {
+    "pipeline_status": "OPERACYJNY — /v1/generate dziala z Claude",
+    "dashboard": "DZIALA — brak Application Error, endpoint poprawny",
+    "plans_seed": "AUTOMATYCZNY — ON CONFLICT DO NOTHING w startup",
+    "yt_dlp": "2026.06.09, IP nie zablokowany",
+    "processing_time": "~50s per video"
+  }
 }
