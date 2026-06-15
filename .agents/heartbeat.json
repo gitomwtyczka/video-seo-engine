@@ -1,22 +1,23 @@
 {
-  "callsign": "vse-dev-03",
+  "callsign": "vse-dev-04",
   "status": "done",
-  "current_task": "SESJA ZAMKNIĘTA — Dashboard UI 2-paths",
-  "timestamp": "2026-06-15T12:54:00Z",
+  "current_task": "SESJA ZAMKNIĘTA — /v1/inject contract: wp_post_id optional",
+  "timestamp": "2026-06-15T18:42:00Z",
   "last_completed": [
-    "feat(dashboard): 5-section results UI + PublishSection — commit 9e479fb (2026-06-15)",
-    "Deploy: docker build vse-web OK (39.7s), kontener Next.js Ready in 74ms",
-    "Weryfikacja: CSRF OK, /dashboard 307 OK",
-    "Raporty dual-write: video-seo-engine/.agents/reports/ + sonic-void inbox"
+    "feat(api): InjectRequest.wp_post_id Optional[int]=None — commit 95c77bd (2026-06-15)",
+    "feat(api): InjectResponse.wp_post_id Optional + created + post_url fields — commit 3243548 (2026-06-15)",
+    "feat(pipeline): _create_wp_post() + run_inject() create-or-update branching — commit ff7fc6b (2026-06-15)",
+    "feat(router): /v1/inject expose post_status, log mode create/update — commit 3ce3877 (2026-06-15)"
   ],
   "pending": [
-    "wp_post_id wymagany w InjectRequest — Faza 3: wyszukiwarka postów WP",
-    "accessToken w NextAuth session — jeśli undefined, plan fallbackuje do Free"
+    "Deploy na VPS — wymaga dedykowanej sesji deploy (per AGENTS.md)",
+    "Testy integracyjne /v1/inject bez wp_post_id"
   ],
   "key_facts": {
-    "dashboard": "5 sekcji wynikowych + Kopiuj per sekcja",
-    "publish_section": "Pro/Agency only — WP credentials + /v1/inject",
-    "upsell": "Free user widzi bar Ulepsz plan",
-    "deploy": "SSH + run_command (bez FILE BRIDGE)"
+    "inject_contract": "wp_post_id=None → tworzy nowy post; wp_post_id=int → aktualizuje",
+    "new_field": "InjectRequest.post_status ('draft'|'publish', default 'draft')",
+    "response_new_fields": "created: bool, post_url: Optional[str]",
+    "core_injector": "BEZ ZMIAN — nowa logika w _create_wp_post() w pipeline.py",
+    "wp_create_endpoint": "POST /wp/v2/posts (bez ID w URL) — WP nadaje nowy ID"
   }
 }
