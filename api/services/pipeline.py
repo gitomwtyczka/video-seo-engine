@@ -9,18 +9,28 @@ Pipeline for POST /v1/process:
   2. Match:  core.matcher (if wp_post_id not provided)
   3. Generate: core.generator.process_video → SEO schema dict
   4. Inject: core.injector.inject_video → WP REST patch
+
+Local Runner Mode (LOCAL_RUNNER_MODE=true):
+  Zamiast pobierać transkrypt bezpośrednio na VPS (zablokowane przez
+  YouTube dla Oracle Cloud IP), pipeline tworzy job w tabeli transcript_jobs
+  i czeka na wynik od Local Runner’a (Windows Service na PC Usera).
 """
 import asyncio
 import logging
 import os
 import tempfile
 import time
+import uuid
 from typing import Optional
 
 import requests
 from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
+
+# Timeout pollowania na transkrypt od Local Runner’a
+LOCAL_RUNNER_POLL_INTERVAL = 2    # sekund między check’ami
+LOCAL_RUNNER_POLL_TIMEOUT = 120  # max sekund czekania
 
 
 def _extract_video_id(url: str) -> str:
@@ -40,6 +50,114 @@ def _extract_video_id(url: str) -> str:
     if _re.match(r'^[a-zA-Z0-9_-]{11}$', url):
         return url
     raise ValueError(f"Cannot extract video ID from: {url}")
+
+
+async def _create_transcript_job(video_url: str) -> str:
+    """Tworzy job transkrypcji w DB i zwraca jego ID.
+
+    CO: Wewnętrzna funkcja wywoływana przez pipeline w trybie LOCAL_RUNNER_MODE.
+
+    PO CO: Zamiast bezpośrednio pobierać transkrypt (co kończy się ban-em
+    z Oracle Cloud IP), tworzy zadanie w kolejce — Local Runner pobierze
+    transkrypt z normalnego IP i odesłe przez /v1/jobs/{id}/result.
+
+    JAK: Bezpośrednio przez ORM (bez HTTP roundtrip do localhost).
+
+    Args:
+        video_url: YouTube URL który wymaga transkryptu.
+
+    Returns:
+        job_id jako string UUID.
+    """
+    from api.db import AsyncSessionLocal
+    from api.models.job import TranscriptJob
+
+    async with AsyncSessionLocal() as db:
+        job = TranscriptJob(video_url=video_url, status="pending")
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        job_id = str(job.id)
+        logger.info("[pipeline] Created transcript job %s for %s", job_id, video_url)
+        return job_id
+
+
+async def _wait_for_transcript(job_id: str) -> str:
+    """Polluje DB na transkrypt z job’a Local Runner’a.
+
+    CO: Async polling pętla czekająca na status 'fetched' lub 'failed'.
+
+    PO CO: Pipeline musi poczekać aż Local Runner pobierze transkrypt
+    lokalnie i odesłe wynik. Poll co LOCAL_RUNNER_POLL_INTERVAL sekund,
+    max LOCAL_RUNNER_POLL_TIMEOUT sekund.
+
+    Args:
+        job_id: UUID job’u jako string.
+
+    Returns:
+        Tekst transkryptu (sanitized, z /v1/jobs/{id}/result).
+
+    Raises:
+        RuntimeError: Jeśli timeout lub runner zgłosił failure.
+    """
+    from api.db import AsyncSessionLocal
+    from api.models.job import TranscriptJob
+
+    deadline = time.time() + LOCAL_RUNNER_POLL_TIMEOUT
+    job_uuid = uuid.UUID(job_id)
+
+    while time.time() < deadline:
+        async with AsyncSessionLocal() as db:
+            job = await db.get(TranscriptJob, job_uuid)
+            if not job:
+                raise RuntimeError(f"Job {job_id} disappeared from DB")
+
+            if job.status == "fetched" and job.transcript:
+                logger.info(
+                    "[pipeline] Job %s fetched: %d chars",
+                    job_id, len(job.transcript),
+                )
+                return job.transcript
+
+            if job.status == "failed":
+                raise RuntimeError(
+                    f"Local Runner failed for job {job_id}: {job.error}"
+                )
+
+            logger.debug(
+                "[pipeline] Job %s still %s — waiting...", job_id, job.status
+            )
+
+        await asyncio.sleep(LOCAL_RUNNER_POLL_INTERVAL)
+
+    raise RuntimeError(
+        f"Local Runner timeout: job {job_id} not fetched within "
+        f"{LOCAL_RUNNER_POLL_TIMEOUT}s. Check if VSELocalRunner service is running."
+    )
+
+
+async def _fetch_transcript_local_runner(video_url: str) -> str:
+    """Pełny flow pobrania transkryptu przez Local Runner.
+
+    CO: Orkiestracja: utwórz job → czekaj → zwróć transkrypt.
+
+    PO CO: Wywoływana przez run_generate() gdy LOCAL_RUNNER_MODE=true.
+    Enkapsuluje cały mechanizm kolejkowania — run_generate nie wie
+    czy pobiera transkrypt bezpośrednio czy przez runnera.
+
+    Args:
+        video_url: YouTube URL.
+
+    Returns:
+        Tekst transkryptu.
+    """
+    job_id = await _create_transcript_job(video_url)
+    logger.info(
+        "[pipeline] LOCAL_RUNNER_MODE: job %s created, waiting for runner...",
+        job_id,
+    )
+    transcript = await _wait_for_transcript(job_id)
+    return transcript
 
 
 async def run_generate(video_url: str, llm_provider: str, lang: str,
@@ -77,15 +195,40 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
     else:
         raise ValueError(f"Unsupported LLM provider: {llm_provider!r}")
 
+    local_runner_mode = os.environ.get("LOCAL_RUNNER_MODE", "false").lower() == "true"
+
     with tempfile.TemporaryDirectory() as tmp_dir:
-        # 1. Fetch metadata + transcript (sync → thread)
+        # 1. Fetch metadata + transcript
         meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang)
         if not meta or meta.get("error"):
             raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
 
-        vtt_path = meta.get("vtt_path")
-        if not vtt_path:
-            raise RuntimeError(f"No transcript available for {video_id}")
+        if local_runner_mode:
+            # LOCAL_RUNNER_MODE: transkrypt pobierany przez Windows Service na PC Usera
+            # Oracle Cloud VPS ma zbanowane IP przez YouTube dla youtube-transcript-api
+            logger.info(
+                "[generate] LOCAL_RUNNER_MODE=true — delegating transcript to Local Runner"
+            )
+            try:
+                transcript_text = await _fetch_transcript_local_runner(
+                    f"https://www.youtube.com/watch?v={video_id}"
+                )
+            except RuntimeError as e:
+                raise RuntimeError(f"Local Runner transcript failed: {e}") from e
+
+            # Zapisz transkrypt do pliku tymczasowego (core.generator oczekuje ścieżki)
+            import pathlib
+            vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.txt")
+            pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
+            meta["vtt_path"] = vtt_path
+        else:
+            # Standard mode: bezpośrednio youtube-transcript-api (może być zablokowane na VPS)
+            vtt_path = meta.get("vtt_path")
+            if not vtt_path:
+                raise RuntimeError(
+                    f"No transcript available for {video_id}. "
+                    "Hint: set LOCAL_RUNNER_MODE=true and run VSELocalRunner on local PC."
+                )
 
         post_title = post_title_override or meta.get("title", video_id)
         yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
