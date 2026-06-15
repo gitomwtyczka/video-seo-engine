@@ -1,36 +1,31 @@
 #!/usr/bin/env python3
-"""YouTube Data Worker — universal CLI for fetching transcripts, metadata & stats.
+"""VSE Core Fetcher — YouTube metadata + transcript fetching.
 
 Migrated from: shadow-perihelion/scripts/youtube-worker/youtube_fetch.py
-Migration date: 2026-05-13
-Author: youtube-worker 01 | shadow-perihelion
-Migrated by: vse-architect-01
+Original migration date: 2026-05-13 (vse-architect-01)
+Key update: 2026-06-15 (vse-strateg-01) — fetch_metadata_ytdlp() → fetch_metadata_api_v3()
 
-Usage:
-  python -m core.fetcher --video <URL_or_ID>
-  python -m core.fetcher --channel <CHANNEL_ID> [--limit N]
-  python -m core.fetcher --playlist <PLAYLIST_ID> [--limit N]
-  python -m core.fetcher --batch <file.txt>
+Context: Oracle Cloud VPS IP is banned by YouTube — yt-dlp metadata fails.
+Fix: YouTube Data API v3 via googleapis.com (NOT blocked on Oracle Cloud).
+GCP project: glass-turbine-388620 (Simple API Key AIzaSyAlexKzu4-Wu2Wupck5p7qJuyPme9bh1lo)
 
-Output:
-  output/<video_id>.json   — metadata
-  output/<video_id>.pl.vtt — transcript (VTT format, compatible with video-seo pipeline)
+Dependencies (in requirements.txt):
+  youtube-transcript-api>=1.2.4
+  yt-dlp>=2024.1.0  (transcript fallback only — metadata disabled on VPS)
 
-Dependencies:
-  pip install youtube-transcript-api yt-dlp
+Environment variables:
+  YOUTUBE_API_KEY  — Required on VPS. Falls back to yt-dlp locally if not set.
 """
-import argparse
 import json
 import logging
 import os
 import re
-import sys
 import subprocess
-import time
+import urllib.request
 from datetime import datetime
-from pathlib import Path
+from typing import Optional, Tuple
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # youtube-transcript-api v1.2.4+ uses instance-based API
 try:
@@ -39,6 +34,7 @@ try:
     HAS_TRANSCRIPT_API = True
 except ImportError:
     HAS_TRANSCRIPT_API = False
+    logger.warning("youtube-transcript-api not installed — transcript fetching unavailable")
 
 
 # ---------------------------------------------------------------------------
@@ -79,20 +75,59 @@ def iso_duration(seconds: int) -> str:
     return parts
 
 
+def parse_iso8601_duration(duration_str: str) -> int:
+    """Parse ISO 8601 duration string (PT#H#M#S) to seconds.
+
+    Used for YouTube Data API v3 contentDetails.duration field.
+    """
+    if not duration_str:
+        return 0
+    pattern = r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?'
+    m = re.match(pattern, duration_str)
+    if not m:
+        return 0
+    h = int(m.group(1) or 0)
+    mins = int(m.group(2) or 0)
+    s = int(m.group(3) or 0)
+    return h * 3600 + mins * 60 + s
+
+
+def format_published_date(raw: str) -> str:
+    """Convert yt-dlp upload_date (YYYYMMDD) or API publishedAt to ISO 8601."""
+    if not raw:
+        return ""
+    try:
+        if 'T' in raw:
+            return raw
+        if len(raw) == 8 and raw.isdigit():
+            return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}T00:00:00Z"
+        return raw
+    except Exception:
+        return raw
+
+
+def log(msg: str, quiet: bool = False) -> None:
+    """Legacy helper — kept for backward compat with old CLI callers."""
+    if not quiet:
+        logger.info(msg)
+
+
 # ---------------------------------------------------------------------------
 # Transcript fetching — youtube-transcript-api v1.2.4+ (instance API)
 # ---------------------------------------------------------------------------
 
-def fetch_transcript_api(video_id: str, lang: str = "pl") -> tuple:
+def fetch_transcript_api(video_id: str, lang: str = "pl") -> Tuple[Optional[str], Optional[str]]:
     """Fetch transcript via youtube-transcript-api v1.2.4+.
 
     Returns (vtt_text, language_used) or (None, None) on failure.
+    Priority: manual in target lang > auto in target lang > manual any > auto any.
     """
     if not HAS_TRANSCRIPT_API:
         return None, None
     try:
         ytt = YouTubeTranscriptApi()
         formatter = WebVTTFormatter()
+
         transcript_list = ytt.list(video_id)
 
         manual_match = None
@@ -114,6 +149,7 @@ def fetch_transcript_api(video_id: str, lang: str = "pl") -> tuple:
         lang_used = lang
         if manual_match:
             entries = ytt.fetch(video_id, languages=[lang])
+            lang_used = lang
         elif auto_match:
             entries = ytt.fetch(video_id, languages=[lang])
             lang_used = f"{lang}-auto"
@@ -124,24 +160,34 @@ def fetch_transcript_api(video_id: str, lang: str = "pl") -> tuple:
             entries = ytt.fetch(video_id, languages=[any_auto.language_code])
             lang_used = f"{any_auto.language_code}-auto"
         else:
+            logger.warning("[fetcher] No transcripts found for %s", video_id)
             return None, None
 
         vtt_text = formatter.format_transcript(entries)
+        logger.info("[fetcher] transcript-api OK: %s lang=%s", video_id, lang_used)
         return vtt_text, lang_used
     except Exception as e:
-        log.warning("transcript-api error for %s: %s", video_id, e)
+        logger.warning("[fetcher] transcript-api error for %s: %s", video_id, e)
         return None, None
 
 
-def fetch_transcript_ytdlp(video_id: str, lang: str = "pl", output_dir: str = ".") -> tuple:
-    """Fallback: fetch subtitles via yt-dlp. Returns (vtt_text, language_used)."""
+def fetch_transcript_ytdlp(
+    video_id: str, lang: str = "pl", output_dir: str = "."
+) -> Tuple[Optional[str], Optional[str]]:
+    """Fallback: fetch subtitles via yt-dlp. Returns (vtt_text, language_used).
+
+    WARNING: May fail on Oracle Cloud VPS due to YouTube IP ban.
+    """
     url = f"https://www.youtube.com/watch?v={video_id}"
     vtt_path = os.path.join(output_dir, f"{video_id}.{lang}.vtt")
     try:
         cmd = [
-            "yt-dlp", "--skip-download",
-            "--write-auto-sub", "--write-sub",
-            "--sub-lang", lang, "--sub-format", "vtt",
+            "yt-dlp",
+            "--skip-download",
+            "--write-auto-sub",
+            "--write-sub",
+            "--sub-lang", lang,
+            "--sub-format", "vtt",
             "--output", os.path.join(output_dir, f"{video_id}.%(ext)s"),
             url
         ]
@@ -150,16 +196,82 @@ def fetch_transcript_ytdlp(video_id: str, lang: str = "pl", output_dir: str = ".
             with open(vtt_path, 'r', encoding='utf-8') as f:
                 return f.read(), lang
     except Exception as e:
-        log.warning("yt-dlp subtitle error for %s: %s", video_id, e)
+        logger.warning("[fetcher] yt-dlp subtitle error for %s: %s", video_id, e)
     return None, None
 
 
 # ---------------------------------------------------------------------------
-# Metadata fetching (yt-dlp — no API key needed)
+# Metadata fetching — YouTube Data API v3 (PRIMARY on VPS)
+# ---------------------------------------------------------------------------
+
+def fetch_metadata_api_v3(video_id: str, api_key: str) -> dict:
+    """Fetch video metadata via YouTube Data API v3.
+
+    Uses googleapis.com — NOT blocked on Oracle Cloud VPS.
+    GCP project: glass-turbine-388620 (Simple API Key, public data only).
+
+    Returns metadata dict or {} on failure.
+    """
+    url = (
+        f"https://www.googleapis.com/youtube/v3/videos"
+        f"?id={video_id}&key={api_key}"
+        f"&part=snippet,contentDetails,statistics"
+    )
+    try:
+        req = urllib.request.Request(url)  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            data = json.loads(resp.read())
+
+        if not data.get("items"):
+            logger.warning("[fetcher] API v3: no items for video_id=%s", video_id)
+            return {}
+
+        item = data["items"][0]
+        snippet = item["snippet"]
+        duration_iso_str = item["contentDetails"]["duration"]
+        thumbnails = snippet.get("thumbnails", {})
+        thumb = (
+            thumbnails.get("maxres")
+            or thumbnails.get("standard")
+            or thumbnails.get("high", {})
+        ).get("url", "")
+
+        meta = {
+            "video_id": video_id,
+            "title": snippet.get("title", ""),
+            "description": snippet.get("description", ""),
+            "published_at": snippet.get("publishedAt", ""),
+            "duration_seconds": parse_iso8601_duration(duration_iso_str),
+            "duration_iso": duration_iso_str,
+            "view_count": int(item["statistics"].get("viewCount", 0)),
+            "like_count": int(item["statistics"].get("likeCount", 0)),
+            "comment_count": int(item["statistics"].get("commentCount", 0)),
+            "thumbnail_url": thumb,
+            "channel_id": snippet.get("channelId", ""),
+            "channel_title": snippet.get("channelTitle", ""),
+            "tags": snippet.get("tags", []),
+            "webpage_url": f"https://www.youtube.com/watch?v={video_id}",
+        }
+        logger.info(
+            "[fetcher] API v3 OK: %s title=%r duration=%s views=%s",
+            video_id, meta["title"][:50], duration_iso_str, meta["view_count"],
+        )
+        return meta
+    except Exception as e:
+        logger.error("[fetcher] API v3 error for %s: %s", video_id, e)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Metadata fallback — yt-dlp (LOCAL ONLY — fails on VPS)
 # ---------------------------------------------------------------------------
 
 def fetch_metadata_ytdlp(video_id: str) -> dict:
-    """Fetch video metadata via yt-dlp --dump-json."""
+    """Fetch video metadata via yt-dlp --dump-json.
+
+    WARNING: Fails on Oracle Cloud VPS (YouTube IP ban). Use only locally
+    or as last-resort when YOUTUBE_API_KEY is not set.
+    """
     url = f"https://www.youtube.com/watch?v={video_id}"
     try:
         result = subprocess.run(
@@ -167,14 +279,17 @@ def fetch_metadata_ytdlp(video_id: str) -> dict:
             capture_output=True, text=True, timeout=30
         )
         if result.returncode != 0:
-            log.warning("yt-dlp metadata error for %s: %s", video_id, result.stderr[:200])
+            logger.warning(
+                "[fetcher] yt-dlp metadata error for %s: %s",
+                video_id, result.stderr[:200]
+            )
             return {}
         data = json.loads(result.stdout)
         return {
             "video_id": video_id,
             "title": data.get("title", ""),
             "description": data.get("description", ""),
-            "published_at": data.get("upload_date", ""),
+            "published_at": format_published_date(data.get("upload_date", "")),
             "duration_seconds": data.get("duration", 0),
             "duration_iso": iso_duration(int(data.get("duration", 0))),
             "view_count": data.get("view_count", 0),
@@ -187,171 +302,84 @@ def fetch_metadata_ytdlp(video_id: str) -> dict:
             "tags": data.get("tags", []),
         }
     except json.JSONDecodeError:
-        log.error("yt-dlp returned invalid JSON for %s", video_id)
+        logger.error("[fetcher] yt-dlp returned invalid JSON for %s", video_id)
         return {}
     except FileNotFoundError:
-        log.error("yt-dlp not found. Install: pip install yt-dlp")
+        logger.error("[fetcher] yt-dlp not found — install: pip install yt-dlp")
         return {}
     except Exception as e:
-        log.error("yt-dlp error for %s: %s", video_id, e)
+        logger.error("[fetcher] yt-dlp error for %s: %s", video_id, e)
         return {}
 
 
-def format_published_date(raw: str) -> str:
-    """Convert yt-dlp upload_date (YYYYMMDD) to ISO 8601."""
-    if not raw:
-        return ""
-    try:
-        if len(raw) == 8 and raw.isdigit():
-            return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}T00:00:00Z"
-        return raw
-    except Exception:
-        return raw
-
-
 # ---------------------------------------------------------------------------
-# Channel / Playlist listing
-# ---------------------------------------------------------------------------
-
-def fetch_channel_videos(channel_id: str, limit: int = 0) -> list:
-    """List videos from a YouTube channel via yt-dlp."""
-    url = f"https://www.youtube.com/channel/{channel_id}/videos"
-    return _fetch_video_list(url, limit)
-
-
-def fetch_playlist_videos(playlist_id: str, limit: int = 0) -> list:
-    """List videos from a playlist via yt-dlp."""
-    url = f"https://www.youtube.com/playlist?list={playlist_id}"
-    return _fetch_video_list(url, limit)
-
-
-def _fetch_video_list(url: str, limit: int = 0) -> list:
-    """Internal: extract flat video list from URL."""
-    cmd = ["yt-dlp", "--flat-playlist", "--dump-json", url]
-    if limit > 0:
-        cmd.extend(["--playlist-end", str(limit)])
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        videos = []
-        for line in result.stdout.strip().split('\n'):
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-                videos.append({
-                    "video_id": entry.get("id", ""),
-                    "title": entry.get("title", ""),
-                    "url": entry.get("url", ""),
-                    "duration": entry.get("duration", 0),
-                    "duration_iso": iso_duration(int(entry.get("duration", 0) or 0)),
-                })
-            except json.JSONDecodeError:
-                continue
-        return videos
-    except Exception as e:
-        log.error("Error listing videos from %s: %s", url, e)
-        return []
-
-
-# ---------------------------------------------------------------------------
-# Single video processing
+# Main entry point — called by pipeline.py
 # ---------------------------------------------------------------------------
 
 def process_video(video_id: str, output_dir: str, lang: str = "pl") -> dict:
-    """Fetch metadata + transcript for a single video. Returns metadata dict."""
-    log.info("Processing %s...", video_id)
+    """Fetch metadata + transcript for one video. Returns metadata dict.
 
-    meta = fetch_metadata_ytdlp(video_id)
-    if not meta:
-        meta = {"video_id": video_id, "error": "metadata_fetch_failed"}
+    Called by api/services/pipeline.py as:
+        from core.fetcher import process_video as fetch_video
+        meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang)
+
+    Strategy:
+      1. Metadata: YOUTUBE_API_KEY → API v3 (VPS-safe). Fallback: yt-dlp (local only).
+      2. Transcript: youtube-transcript-api → yt-dlp VTT.
+      3. Save VTT to output_dir/<video_id>.<lang>.vtt.
+
+    Returns:
+        dict with keys: video_id, title, description, published_at,
+        duration_seconds, duration_iso, view_count, thumbnail_url,
+        vtt_path, vtt_language, fetched_at.
+        On failure: {"video_id": video_id, "error": "..."}.
+    """
+    logger.info("[fetcher] Processing %s (lang=%s)", video_id, lang)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1. Metadata: API v3 first (VPS-safe), yt-dlp as local fallback
+    api_key = os.environ.get("YOUTUBE_API_KEY", "")
+    if api_key:
+        meta = fetch_metadata_api_v3(video_id, api_key)
     else:
-        meta["published_at"] = format_published_date(meta.get("published_at", ""))
+        logger.warning(
+            "[fetcher] YOUTUBE_API_KEY not set — falling back to yt-dlp "
+            "(will fail on Oracle Cloud VPS)"
+        )
+        meta = fetch_metadata_ytdlp(video_id)
 
+    if not meta:
+        logger.error("[fetcher] metadata_fetch_failed for %s", video_id)
+        return {"video_id": video_id, "error": "metadata_fetch_failed"}
+
+    # 2. Transcript: transcript-api first, yt-dlp as fallback
     vtt_text, lang_used = fetch_transcript_api(video_id, lang)
     if not vtt_text:
-        log.info("transcript-api failed for %s, trying yt-dlp fallback...", video_id)
+        logger.info("[fetcher] transcript-api failed for %s, trying yt-dlp fallback...", video_id)
         vtt_text, lang_used = fetch_transcript_ytdlp(video_id, lang, output_dir)
 
+    # 3. Save VTT
     if vtt_text:
-        vtt_filename = f"{video_id}.{lang}.vtt"
-        vtt_path = os.path.join(output_dir, vtt_filename)
+        vtt_path = os.path.join(output_dir, f"{video_id}.{lang}.vtt")
         with open(vtt_path, 'w', encoding='utf-8') as f:
             f.write(vtt_text)
-        log.info("VTT saved: %s (%d chars)", vtt_filename, len(vtt_text))
+        logger.info("[fetcher] VTT saved: %s (%d chars)", vtt_path, len(vtt_text))
         meta["vtt_path"] = vtt_path
         meta["vtt_language"] = lang_used or lang
     else:
-        log.warning("No transcript available for %s", video_id)
+        logger.warning("[fetcher] No transcript available for %s", video_id)
         meta["vtt_path"] = None
         meta["vtt_language"] = None
 
     meta["fetched_at"] = datetime.utcnow().isoformat() + "Z"
+
+    # 4. Save JSON metadata (legacy compat with CLI callers)
     json_path = os.path.join(output_dir, f"{video_id}.json")
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
-    log.info("JSON saved: %s.json", video_id)
+    try:
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        logger.info("[fetcher] JSON saved: %s.json", video_id)
+    except Exception as e:
+        logger.warning("[fetcher] Could not save JSON for %s: %s", video_id, e)
 
     return meta
-
-
-# ---------------------------------------------------------------------------
-# CLI (when used as module entrypoint)
-# ---------------------------------------------------------------------------
-
-def main():
-    """CLI entrypoint for direct invocation."""
-    logging.basicConfig(level=logging.INFO, format="[yt-worker] %(message)s")
-    parser = argparse.ArgumentParser(description="YouTube Data Worker")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--video', help='Video URL or ID')
-    group.add_argument('--channel', help='Channel ID')
-    group.add_argument('--playlist', help='Playlist ID')
-    group.add_argument('--batch', help='File with video URLs/IDs (one per line)')
-
-    parser.add_argument('--output-dir', default='./output')
-    parser.add_argument('--lang', default='pl')
-    parser.add_argument('--limit', type=int, default=0)
-    parser.add_argument('--fetch-all', action='store_true')
-
-    args = parser.parse_args()
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    if args.video:
-        vid = extract_video_id(args.video)
-        meta = process_video(vid, args.output_dir, args.lang)
-        print(json.dumps(meta, ensure_ascii=False, indent=2))
-    elif args.channel:
-        videos = fetch_channel_videos(args.channel, args.limit)
-        log.info("Found %d videos", len(videos))
-        if args.fetch_all:
-            for i, v in enumerate(videos, 1):
-                if v.get("video_id"):
-                    log.info("[%d/%d] %s", i, len(videos), v["video_id"])
-                    process_video(v["video_id"], args.output_dir, args.lang)
-                    time.sleep(1)
-    elif args.playlist:
-        videos = fetch_playlist_videos(args.playlist, args.limit)
-        log.info("Found %d videos", len(videos))
-        if args.fetch_all:
-            for i, v in enumerate(videos, 1):
-                if v.get("video_id"):
-                    process_video(v["video_id"], args.output_dir, args.lang)
-                    time.sleep(1)
-    elif args.batch:
-        if not os.path.exists(args.batch):
-            log.error("Batch file not found: %s", args.batch)
-            sys.exit(1)
-        with open(args.batch) as f:
-            lines = [l.strip() for l in f if l.strip() and not l.startswith('#')]
-        for i, line in enumerate(lines, 1):
-            try:
-                vid = extract_video_id(line)
-                log.info("[%d/%d] %s", i, len(lines), vid)
-                process_video(vid, args.output_dir, args.lang)
-                time.sleep(1)
-            except ValueError as e:
-                log.warning("[%d/%d] SKIP: %s", i, len(lines), e)
-
-
-if __name__ == "__main__":
-    main()
