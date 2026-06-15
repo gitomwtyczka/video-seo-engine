@@ -7,6 +7,15 @@
 
 ---
 
+## ⛔ ZAKRES NARZĘDZI TEJ SESJI
+
+Ta sesja: TYLKO GitHub MCP + publiczne endpointy.  
+**Nie używaj:** file bridge, stellar-relay, Wetty, SSH, bash na VPS.  
+Weryfikacja: `curl https://vse.impresjapr.pl/...` lub Swagger `/docs`.  
+Deploy: zgłoś Supervisorowi po sesji.
+
+---
+
 ## Cel
 
 Utworzyć i utrzymywać żyjącą dokumentację architektoniczną projektu VSE w GitHub.
@@ -151,4 +160,5 @@ Dodać sekcję:
 
 ---
 
-*Dispatch: vse-dev-01 | 2026-06-14*
+*Dispatch: vse-dev-01 | 2026-06-14*  
+*Zaktualizowano: 2026-06-15 [sup-worker-01] — dodano sekcję blokady VPS access*
