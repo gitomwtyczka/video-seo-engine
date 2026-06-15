@@ -1,0 +1,14 @@
+# Pliki ktore NIE powinny trafia do repozytorium
+# (security requirement: SUPPLEMENT-VSE-DEV-04-20260615-SECURITY)
+
+# Credentials — NIGDY nie commituj!
+.env
+
+# Logs
+*.log
+__pycache__/
+*.pyc
+*.pyo
+
+# NSSM binary (duzy plik binarny — pobierz ze https://nssm.cc/download)
+nssm.exe
