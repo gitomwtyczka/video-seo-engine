@@ -1,21 +1,20 @@
 {
   "callsign": "vse-strateg-01",
-  "status": "done",
-  "current_task": "Sesja 2026-06-15 zamknięta",
-  "timestamp": "2026-06-15T18:39:20Z",
+  "status": "working",
+  "current_task": "Dispatch DISPATCH-VSE-STRATEG-02-20260615-CORE-PORT.md — weryfikacja i potwierdzenie",
+  "timestamp": "2026-06-15T20:45:22Z",
   "last_completed": [
     "DEPLOY vse-api rebuild — wp_post_id optional — commit a568ee4 (2026-06-15)",
-    "Weryfikacja: InjectRequest.required = ['video_url', 'schema_data', 'site_config'] ✅",
-    "Diagnostyka: YT IP ban na oracle-crimson — yt-dlp + transcript-api oba blokowane",
-    "Audyt: YouTube Data API v3 NIE istniała w żadnym repo — shadow/sonic/video-seo-engine",
-    "Dispatch: DISPATCH-SONIC-ANALYST-20260615-YT-API-AUDIT.md → sonic-void/.agents/tasks/",
-    "Raport sesji: sonic-void/.agents/reports/inbox/2026-06-15_vse-strateg-01_session-report.md"
+    "Diagnostyka: YT IP ban na oracle-crimson — yt-dlp + transcript-api blokowane",
+    "Audyt: YouTube Data API v3 NIE istniała w żadnym repo — błędny wniosek",
+    "Dispatch: DISPATCH-VSE-STRATEG-02-20260615-CORE-PORT.md → potwierdzono obecność w repo"
   ],
   "pending": [
-    "Implementacja core/yt_api.py — czeka na YOUTUBE_API_KEY na VPS"
+    "Implementacja core/fetcher.py — port z shadow-perihelion (DISPATCH-VSE-STRATEG-02)",
+    "YOUTUBE_API_KEY konfiguracja na VPS oracle-crimson"
   ],
   "blockers": {
     "yt_ip_ban": "Oracle Cloud VPS zablokowany przez YouTube — wymaga YT Data API v3",
-    "youtube_api_key": "YOUTUBE_API_KEY nie skonfigurowany na VPS — czeka na decyzję"
+    "youtube_api_key": "YOUTUBE_API_KEY musi być dodany do .env na VPS"
   }
 }
