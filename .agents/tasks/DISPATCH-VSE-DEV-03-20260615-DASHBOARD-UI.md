@@ -8,6 +8,15 @@
 
 ---
 
+## ⛔ ZAKRES NARZĘDZI TEJ SESJI
+
+Ta sesja: TYLKO GitHub MCP + publiczne endpointy.  
+**Nie używaj:** file bridge, stellar-relay, Wetty, SSH, bash na VPS.  
+Weryfikacja: `curl https://vse.impresjapr.pl/...` lub Swagger `/docs`.  
+Deploy: zgłoś Supervisorowi po sesji.
+
+---
+
 ## KONTEKST — CO I PO CO
 
 **CO:** Przebudowa dashboardu z surowego JSON-output na dwie pełnoprawne ścieżki UX.
@@ -191,13 +200,10 @@ w formularzu ręcznie. Profile management (zapisane portale) to Faza 3.
 
 ---
 
-## SPRAWDź PRZED PISANIEM KODU
+## SPRAWDŹ PRZED PISANIEM KODU
 
 ```bash
-# Jak wygląda aktualny dashboard
-curl https://vse.impresjapr.pl/dashboard  # podejrzyj w przeglądarce
-
-# Jak wygląda schema_data z generate
+# Jak wygląda aktualne schema_data z generate (publiczny endpoint)
 curl -X POST https://vse.impresjapr.pl/api/v1/generate \
   -H 'Content-Type: application/json' \
   -d '{"video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "llm_provider": "claude", "lang": "pl"}'
@@ -213,23 +219,16 @@ nięco różnić od nazw w tym dispatchu. Swagger i live API są źródłem praw
 
 ## DEPLOY WORKFLOW
 
-```bash
-# Kod commituj do repo (GitHub MCP lub lokalnie + push)
-# Na VPS przez FILE BRIDGE:
-cd /home/ubuntu/video-seo-engine
-git fetch origin main && git reset --hard origin/main
-docker compose -f docker-compose.vse.yml build web
-docker compose -f docker-compose.vse.yml up -d --no-deps --force-recreate web
+[Deploy po sesji — zgłoś Supervisorowi]
 
-# Weryfikacja:
-curl https://vse.impresjapr.pl/api/auth/csrf  # musi zwrócić csrfToken
-```
+Kod commituj przez GitHub MCP (`create_or_update_file` / `push_files`).
+Supervisor zleci oddzielną sesję deploy na VPS.
 
 ---
 
 ## STANDARD DOKUMENTACJI (obowiązkowy)
 
-Każdy komponent ktory tworzysz musi mieć komentarz:
+Każdy komponent który tworzysz musi mieć komentarz:
 ```typescript
 /**
  * CO: [nazwa] — [co robi]
@@ -251,3 +250,4 @@ sonic-void:       .agents/reports/inbox/2026-06-15_vse-dev-03_dashboard-ui.md
 ---
 
 *Dispatch: Supervisor 01 | 2026-06-15 | video-seo-engine*
+*Zaktualizowano: 2026-06-15 [sup-worker-01] — usunięto sekcje bash VPS, dodano blokadę narzędzi*
