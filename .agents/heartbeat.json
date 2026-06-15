@@ -1,32 +1,22 @@
 {
-  "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "HANDOFF — sesja zamknięta",
-  "timestamp": "2026-06-14T15:04:00Z",
+  "callsign": "supervisor-01",
+  "status": "working",
+  "current_task": "Triage handoff vse-dev-01, przygotowanie dispatchy dla nowej sesji",
+  "timestamp": "2026-06-15T10:46:00Z",
   "last_completed": [
-    "Deploy frontend + auth na vse.impresjapr.pl — commit bee9507",
-    "Fix: passlib → bcrypt bezpośrednio — commit 4bd9caf",
-    "Fix: NextAuth rewrites blokowalły /api/auth/* — commit bee9507",
-    "Fix: nginx /api/auth/ → Next.js (G9)",
-    "Fix: NextAuth conditional GoogleProvider (G8)",
-    "Seed plans table (free/starter/pro/agency)",
-    "Dashboard page MVP z URL input",
-    "9 GOTCHA udokumentowanych w AGENTS.md",
-    "Handoff: .agents/handoff/2026-06-14_vse-dev-01_handoff.md"
+    "Odczyt handoff 2026-06-14_vse-dev-01_handoff.md",
+    "Triage priorytetów P1-P7"
   ],
   "pending": [
-    "P1: client-side error dashboard po wklejeniu YT URL",
-    "P2: Google OAuth (brak credentials)",
-    "P3: plans seed automatyczny w startup API",
-    "P4: pipeline /v1/process end-to-end test",
-    "P5: dokumentacja arch (dispatched do vse-architect-01)",
-    "P7: YouTube IP blocking na Oracle VPS"
+    "DISPATCH do vse-dev-02 — P1 (client-side error), P3 (plans seed auto), P4 (pipeline test)",
+    "DISPATCH do vse-strateg-01 — P7 (YouTube IP blocking), P2 (Google OAuth)",
+    "DISPATCH do vse-architect-01 — P5 (docs, dispatch już w repo)"
   ],
   "key_facts": {
     "site": "https://vse.impresjapr.pl — UP",
     "auth": "register + login DZIALA, Google OAuth WYLACZONE",
     "nginx_critical": "/api/auth/* → 3001, /api/* → 8085/, /* → 3001",
     "gotcha_count": 9,
-    "handoff_path": ".agents/handoff/2026-06-14_vse-dev-01_handoff.md"
+    "handoff_source": "2026-06-14_vse-dev-01_handoff.md"
   }
 }
