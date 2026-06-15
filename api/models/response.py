@@ -40,13 +40,23 @@ class GenerateResponse(BaseModel):
 
 
 class InjectResponse(BaseModel):
-    """Response from the inject-only endpoint."""
+    """Response from the inject-only endpoint.
+
+    CO: Model odpowiedzi dla POST /v1/inject.
+
+    PO CO: Informuje klienta o wyniku operacji wstrzykiwania SEO.
+    wp_post_id jest Optional — gdy tworzono nowy post, zwraca ID nadane przez WP;
+    gdy aktualizowano istniejący, zwraca to samo ID co w requeście.
+    created: True gdy WP utworzył nowy post (wp_post_id był None w requeście).
+    """
 
     status: str
-    wp_post_id: int
+    wp_post_id: Optional[int] = None  # None tylko przy błędzie tworzenia posta
     video_id: str
     rankmath_ok: bool = False
     youtube_updated: bool = False
+    created: bool = False  # True = nowy post został utworzony; False = aktualizacja
+    post_url: Optional[str] = None  # URL nowego/zaktualizowanego posta (gdy dostępny)
     error: Optional[str] = None
 
 
