@@ -221,7 +221,7 @@ nginx (port 80/443 na VPS)
 ### URL Conventions — podsumowanie
 
 | Kontekst | URL | Do czego trafia |
-|----------|-----|-----------------|
+|----------|-----|----------------|
 | Przeglądarka → API | `https://vse.impresjapr.pl/api/v1/generate` | nginx strip `/api` → `vse-api:8085/v1/generate` |
 | Przeglądarka → Auth | `https://vse.impresjapr.pl/api/auth/session` | nginx → `vse-web:3001/api/auth/session` (NextAuth) |
 | Server-side (SSR/NextAuth) → API | `http://vse-api:8085/v1/users/me` | Bezpośrednio Docker network — omija nginx |
@@ -268,16 +268,27 @@ fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/generate`, ...)
 10. Middleware.ts sprawdza: token istnieje → redirect na /dashboard
 ```
 
-### 5B. Google OAuth
+### 5B. Google OAuth — Token Exchange Flow
 
 ```
 1. Użytkownik klika "Zaloguj przez Google"
 2. NextAuth redirect → Google OAuth consent
 3. Google callback → NextAuth GoogleProvider
-4. account.provider === 'google' w jwt callback
-5. Uwaga: plan/is_admin dla Google OAuth pobierany przy następnym odświeżeniu (5 min)
-6. Backend: GET /v1/auth/google → redirect → GET /v1/auth/google/callback
-   (Google OAuth działa przez FastAPI, nie tylko NextAuth)
+4. account.provider === 'google' w jwt callback (account != null tylko przy pierwszym logowaniu)
+5. NextAuth: account.id_token (Google JWT) dostępny w jwt callback
+6. jwt callback → POST http://vse-api:8085/v1/auth/google/token-exchange
+   Body: { id_token: account.id_token }
+7. FastAPI: weryfikuje id_token przez Google tokeninfo API (https://oauth2.googleapis.com/tokeninfo)
+   Sprawdza: aud === GOOGLE_CLIENT_ID (security), upsertuje usera
+8. FastAPI zwraca: { access_token, refresh_token, token_type }
+9. jwt callback: token.accessToken = nasz backend JWT
+10. jwt callback: fetchUserProfile(accessToken) → GET /v1/users/me → plan + is_admin
+11. JWT token rozszerzony: { plan, is_admin, planFetchedAt } — natychmiastowo przy logowaniu
+12. Fallback (jeśli token-exchange nie działa): planFetchedAt=0 → wymusza refresh
+    przy następnym żądaniu (max ~60s czekania zamiast 5 min)
+
+NOTA: Stary stan §5B ("plan pobierany przy następnym odświeżeniu (5 min)") jest NAPRAWIONY
+od commitu 8f80403 (api) i 9fed9db (web) — 2026-06-16 [vse-dev-08]
 ```
 
 ### 5C. Plan refresh (każde 5 minut)
@@ -286,9 +297,10 @@ fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/generate`, ...)
 // W jwt callback:
 const now = Math.floor(Date.now() / 1000)
 const lastPlanFetch = token.planFetchedAt ?? 0
-if (token.accessToken && !user && (now - lastPlanFetch > 300)) {
+if (token.accessToken && !user && !account && (now - lastPlanFetch > 300)) {
   // fetchUserProfile() → GET /v1/users/me
   // Aktualizuje token.plan i token.is_admin
+  // Warunek !account zapobiega podwójnemu fetch przy pierwszym logowaniu Google
 }
 ```
 
@@ -345,7 +357,7 @@ DATABASE_URL=postgresql+asyncpg://vse:${POSTGRES_PASSWORD}@vse-postgres:5432/vse
 ### Quota domyślne (seed przy starcie):
 
 | plan_id | monthly_quota | wp_sites_limit | api_access | price_pln |
-|---------|--------------|----------------|------------|----------|
+|---------|--------------|----------------|------------|-----------|
 | `free` | 5 | 1 | False | 0 |
 | `starter` | 50 | 3 | True | 4900 |
 | `pro` | 300 | 10 | True | 14900 |
@@ -520,6 +532,22 @@ DATABASE_URL=postgresql+asyncpg://vse:${POSTGRES_PASSWORD}@vse-postgres:5432/vse
 }
 ```
 
+### POST /v1/auth/google/token-exchange
+**Request:**
+```json
+{ "id_token": "<Google id_token from NextAuth account.id_token>" }
+```
+**Response:**
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "bearer"
+}
+```
+> Używany wewnętrznie przez NextAuth jwt callback. Weryfikuje Google id_token przez
+> Google tokeninfo API i zwraca nasz backend JWT. Nie ekspozowany publicznie.
+
 ### GET /v1/jobs/pending (Local Runner)
 **Wymaga:** `Authorization: Bearer <LOCAL_RUNNER_TOKEN>`
 ```json
@@ -550,6 +578,7 @@ DATABASE_URL=postgresql+asyncpg://vse:${POSTGRES_PASSWORD}@vse-postgres:5432/vse
 | POST | `/v1/auth/register` | Brak | Rejestracja nowego użytkownika |
 | POST | `/v1/auth/login` | Brak | Login → JWT pair |
 | POST | `/v1/auth/refresh` | Brak | Refresh access token |
+| POST | `/v1/auth/google/token-exchange` | Brak | Wymiana Google id_token → JWT VSE (NextAuth internal) |
 | GET | `/v1/auth/google` | Brak | Redirect do Google OAuth |
 | GET | `/v1/auth/google/callback` | Brak | Google OAuth callback |
 | GET | `/v1/users/me` | JWT | Profil + plan + użycie |
@@ -796,6 +825,20 @@ typescript: { ignoreBuildErrors: true },
 eslint: { ignoreDuringBuilds: true },
 ```
 
+### G11 — Google OAuth: plan=free przy pierwszym logowaniu
+```
+# BUG (naprawiony 2026-06-16 [vse-dev-08]):
+# NextAuth GoogleProvider NIE dostarcza naszego backend JWT do jwt callback.
+# account.id_token (Google JWT) ≠ nasz JWT.
+# Bez token.accessToken warunek plan-refresh jest zawsze false → plan='free'.
+#
+# FIX: token-exchange flow (§5B):
+# jwt callback → POST /v1/auth/google/token-exchange { id_token }
+# → dostaje nasz JWT → fetchUserProfile() → plan + is_admin natychmiast
+#
+# Commits: 8f80403 (api/routers/auth.py) + 9fed9db (web/...route.ts)
+```
+
 ---
 
 ## 13. Pipeline Diagram — jak działa /v1/generate
@@ -852,3 +895,4 @@ Zwraca GenerateResponse { status, video_id, processing_time_s, schema_data }
 ---
 
 *vse-architect-01 | video-seo-engine | 2026-06-16 — v1.0 — initial architecture audit*
+*Zaktualizowano: 2026-06-16 [vse-dev-08] — §5B Google OAuth Token Exchange flow, §8 token-exchange endpoint, G11 gotcha*
