@@ -45,6 +45,9 @@ interface ChapterItem {
   name?: string
   startOffset?: number
   endOffset?: number
+  // Backend format (generator.py output)
+  label?: string
+  time?: number
 }
 
 interface FaqItem {
@@ -82,7 +85,15 @@ type TabKey = 'schema' | 'article' | 'chapters'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Extract Clip chapters from JSON-LD @graph or top-level chapters array. */
+/**
+ * Extract Clip chapters from JSON-LD @graph or top-level chapters array.
+ *
+ * CO: Normalizuje format rozdziałów do ChapterItem[].
+ * PO CO: Backend (generator.py) zwraca chapters jako {time, label, matched, anchor_text}.
+ *        Frontend oczekiwał {startOffset, name, endOffset} — powodowało "(bez tytułu)" i "?".
+ * JAK: Sprawdza @graph (JSON-LD Clip), następnie normalizes top-level chapters
+ *      mapując label→name i time→startOffset.
+ */
 function extractChapters(schema: SchemaData | null | undefined): ChapterItem[] {
   if (!schema) return []
   const graph = schema['@graph']
@@ -97,7 +108,14 @@ function extractChapters(schema: SchemaData | null | undefined): ChapterItem[] {
         endOffset: c.endOffset as number | undefined,
       }))
   }
-  if (Array.isArray(schema.chapters)) return schema.chapters
+  if (Array.isArray(schema.chapters)) {
+    // Normalize backend format {time, label} → frontend format {startOffset, name}
+    return schema.chapters.map((c: ChapterItem) => ({
+      name: c.name ?? c.label,
+      startOffset: c.startOffset ?? c.time,
+      endOffset: c.endOffset,
+    }))
+  }
   return []
 }
 
@@ -133,7 +151,7 @@ function secToTimestamp(sec?: number): string {
 /** Build copyable chapters text: "MM:SS — Tytuł" per line. */
 function chaptersToText(chapters: ChapterItem[]): string {
   return chapters
-    .map((c) => `${secToTimestamp(c.startOffset)} — ${c.name ?? '(bez tytułu)'}`)
+    .map((c) => `${secToTimestamp(c.startOffset ?? c.time)} — ${c.name ?? c.label ?? '(bez tytułu)'}`)
     .join('\n')
 }
 
@@ -1091,9 +1109,9 @@ export default function DashboardInner() {
                             className="flex items-center gap-4 py-2.5 px-3 rounded-lg hover:bg-gray-800/50 transition-colors group"
                           >
                             <span className="text-violet-400 font-mono text-sm w-14 flex-shrink-0 bg-violet-500/10 px-2 py-1 rounded text-center">
-                              {secToTimestamp(ch.startOffset)}
+                              {secToTimestamp(ch.startOffset ?? ch.time)}
                             </span>
-                            <span className="text-gray-200 text-sm flex-1">{ch.name ?? '(bez tytułu)'}</span>
+                            <span className="text-gray-200 text-sm flex-1">{ch.name ?? ch.label ?? '(bez tytułu)'}</span>
                             {ch.endOffset != null && ch.startOffset != null && (
                               <span className="text-xs text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {Math.round(ch.endOffset - ch.startOffset)}s
@@ -1116,57 +1134,18 @@ export default function DashboardInner() {
                     <div className="mt-2">
                       <ResultSection
                         title="Format YouTube (do opisu wideo)"
-                        copyText={chapters.map((c) => `${secToTimestamp(c.startOffset)} ${c.name ?? ''}`).join('\n')}
+                        copyText={chapters.map((c) => `${secToTimestamp(c.startOffset ?? c.time)} ${c.name ?? c.label ?? ''}`).join('\n')}
                         copyId="chapters_yt"
                         copiedKey={copiedKey}
                         onCopy={handleCopy}
                         badge="Wklej do opisu YT"
                       >
                         <pre className="text-sm text-gray-300 font-mono leading-relaxed">
-                          {chapters.map((c) => `${secToTimestamp(c.startOffset)} ${c.name ?? ''}`).join('\n')}
+                          {chapters.map((c) => `${secToTimestamp(c.startOffset ?? c.time)} ${c.name ?? c.label ?? ''}`).join('\n')}
                         </pre>
                       </ResultSection>
                     </div>
                   )}
-                </div>
-              )}
-
-              {/* ── Action buttons row ─────────────────────────────── */}
-              <div className="flex items-center gap-3 mt-6 pt-6 border-t border-gray-800">
-                <CopyButton
-                  text={schemaToScriptTag(schema)}
-                  id="action_schema"
-                  copiedKey={copiedKey}
-                  onCopy={handleCopy}
-                  label="📋 Kopiuj JSON-LD"
-                />
-                <CopyButton
-                  text={articleToText(schema, faq)}
-                  id="action_article"
-                  copiedKey={copiedKey}
-                  onCopy={handleCopy}
-                  label="📋 Kopiuj artykuł"
-                />
-                {isPro && (
-                  <button
-                    onClick={() => setShowInjectModal(true)}
-                    className="px-4 py-1.5 text-xs rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-medium hover:opacity-90 transition-all"
-                  >
-                    🚀 Wyślij do portalu
-                  </button>
-                )}
-              </div>
-
-              {/* Upsell dla free — widoczny gdy nie jest pro */}
-              {!isPro && (
-                <div className="mt-4 p-4 bg-gray-900/50 border border-gray-800 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-300">Automatyczna publikacja na WordPress</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Dostępna w planie Pro i Agency</p>
-                  </div>
-                  <span className="px-3 py-1.5 text-xs bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-lg">
-                    Ulepsz plan →
-                  </span>
                 </div>
               )}
             </div>
@@ -1186,31 +1165,23 @@ export default function DashboardInner() {
   )
 }
 
-// ─── NavItem ──────────────────────────────────────────────────────────────────
+// ─── NavItem helper ────────────────────────────────────────────────────────────
 
-/**
- * CO: NavItem — element nawigacji w sidebarze z routingiem
- * PO CO: Spójna wizualnie nawigacja z aktywnym stanem i prawdziwymi linkami.
- * JAK: Next.js Link z ikoną SVG i labelem, highlight gdy active=true.
- */
-function NavItem({ icon, label, href, active }: { icon: string; label: string; href: string; active?: boolean }) {
-  const icons: Record<string, React.ReactNode> = {
-    grid: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-      </svg>
-    ),
-    clock: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    settings: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ),
+function NavItem({
+  icon,
+  label,
+  href,
+  active,
+}: {
+  icon: string
+  label: string
+  href: string
+  active?: boolean
+}) {
+  const iconPath: Record<string, string> = {
+    grid: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
+    clock: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+    settings: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
   }
   return (
     <Link
@@ -1221,97 +1192,50 @@ function NavItem({ icon, label, href, active }: { icon: string; label: string; h
           : 'text-gray-400 hover:text-white hover:bg-gray-800'
       }`}
     >
-      {icons[icon]}
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={iconPath[icon] ?? ''} />
+      </svg>
       {label}
     </Link>
   )
 }
 
-// ─── WpQuickPanel ─────────────────────────────────────────────────────────────
+// ─── WpQuickPanel ────────────────────────────────────────────────────────────
 
-/**
- * CO: WpQuickPanel — stały panel konfiguracji WordPress na dashboardzie
- * PO CO: Użytkownik widzi panel WP OD RAZU po zalogowaniu — nie musi generować
- *        schema żeby zobaczyć sekcję publikacji. Credentials zapamiętane w localStorage.
- * JAK: Collapsible panel z formularzem WP credentials. Pokazuje status połączenia.
- */
 function WpQuickPanel() {
-  const [expanded, setExpanded] = useState(false)
-  const creds = loadWpCredentials()
-  const hasCredentials = creds.wpUser && creds.wpPassword && creds.wpUrl !== 'https://'
-
+  /**
+   * CO: Panel integracji WordPress — skrócony widok na pustym stanie dashboardu
+   * PO CO: Zachęca użytkownika do skonfigurowania portalu WP zanim zacznie generować.
+   * JAK: Statyczny informacyjny panel, link do ustawień.
+   */
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-8">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-800/30 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-sm">
-            🔗
-          </div>
-          <div className="text-left">
-            <p className="text-sm font-medium text-white">Integracja WordPress</p>
-            <p className="text-xs text-gray-500">
-              {hasCredentials ? `Skonfigurowano: ${creds.wpUrl}` : 'Skonfiguruj portal do publikacji'}
-            </p>
-          </div>
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-base">🔗</div>
+        <div>
+          <p className="text-sm font-medium text-white">Integracja WordPress</p>
+          <p className="text-xs text-gray-500">Skonfiguruj portal do automatycznej publikacji</p>
         </div>
-        <div className="flex items-center gap-2">
-          {hasCredentials && (
-            <span className="px-2 py-0.5 text-xs bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
-              ✓ Połączono
-            </span>
-          )}
-          <svg
-            className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-      </button>
-      {expanded && (
-        <div className="px-5 pb-5 border-t border-gray-800">
-          <p className="text-xs text-gray-400 mt-3 mb-3">
-            Dane logowania będą użyte przy publikacji artykułu. Zapamiętywane w przeglądarce (localStorage).
-          </p>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">URL portalu WordPress</label>
-              <input
-                type="text"
-                defaultValue={creds.wpUrl}
-                onBlur={(e) => saveWpCredentials({ ...loadWpCredentials(), wpUrl: e.target.value })}
-                placeholder="https://twojportal.pl"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Użytkownik WP</label>
-                <input
-                  type="text"
-                  defaultValue={creds.wpUser}
-                  onBlur={(e) => saveWpCredentials({ ...loadWpCredentials(), wpUser: e.target.value })}
-                  placeholder="admin"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Application Password</label>
-                <input
-                  type="password"
-                  defaultValue={creds.wpPassword}
-                  onBlur={(e) => saveWpCredentials({ ...loadWpCredentials(), wpPassword: e.target.value })}
-                  placeholder="xxxx xxxx xxxx xxxx"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-                />
-              </div>
-            </div>
+        <Link
+          href="/ustawienia"
+          className="ml-auto text-xs text-violet-400 hover:text-violet-300 transition-colors"
+        >
+          Konfiguruj →
+        </Link>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { icon: '📋', label: 'Kopiuj HTML', desc: 'Schemat gotowy do wklejenia' },
+          { icon: '🚀', label: 'Auto-publish', desc: 'Plan Pro/Agency' },
+          { icon: '📊', label: 'SEO Schema', desc: 'VideoObject + Clip + FAQ' },
+        ].map((item) => (
+          <div key={item.label} className="bg-gray-800/50 rounded-lg p-3 text-center">
+            <div className="text-xl mb-1">{item.icon}</div>
+            <p className="text-xs font-medium text-white">{item.label}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{item.desc}</p>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   )
 }
