@@ -1,12 +1,11 @@
 {
-  "callsign": "arch-scale-01",
-  "status": "done",
-  "current_task": "Analiza skalowalności VSE — 9 obszarów, 1000 concurrent users",
-  "timestamp": "2026-06-16T18:11:00Z",
-  "last_completed": [
-    "docs/ANALYSIS_scalability.md — commit fc628c7 (2026-06-16)",
-    "sonic-void inbox: .agents/reports/inbox/2026-06-16_arch-scale-01_skalowanie-vse.md",
-    "dual-write: .agents/reports/2026-06-16_arch-scale-01_skalowanie-vse.md"
-  ],
-  "pending": []
+  "callsign": "arch-senior-01",
+  "status": "working",
+  "current_task": "Synteza 4 raportów analitycznych → docs/ARCHITECTURE_decisions.md",
+  "timestamp": "2026-06-16T18:20:00Z",
+  "last_completed": [],
+  "pending": [
+    "docs/ARCHITECTURE_decisions.md — synteza ADR",
+    "dual-write reports do sonic-void inbox"
+  ]
 }
