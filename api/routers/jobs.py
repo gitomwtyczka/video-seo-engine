@@ -242,6 +242,27 @@ class JobResponse(BaseModel):
         from_attributes = True
 
 
+class FullJobResponse(BaseModel):
+    """Pełna odpowiedź z job'u — zawiera schema_data dla historii.
+
+    CO: Rozszerzony model odpowiedzi zwracający wygenerowane dane SEO.
+    PO CO: Strona /historia po kliknięciu 'Otwórz wyniki' ładuje pełne
+    dane z tego endpointu i wyświetla je na dashboardzie.
+    """
+    id: str
+    video_url: str
+    video_id: Optional[str] = None
+    status: str
+    error: Optional[str] = None
+    has_vtt: bool = False
+    schema_data: Optional[dict] = None
+    created_at: str
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class HistoryJobResponse(BaseModel):
     """Rozszerzony response dla historii — zawiera tytuł z YT URL.
 
@@ -255,6 +276,8 @@ class HistoryJobResponse(BaseModel):
     status: str
     error: Optional[str] = None
     has_vtt: bool = False
+    has_schema: bool = False
+    post_title: Optional[str] = None
     created_at: str
     updated_at: Optional[str] = None
 
@@ -413,24 +436,26 @@ async def complete_job(
     return {"status": job.status}
 
 
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get("/{job_id}", response_model=FullJobResponse)
 async def get_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(_get_db),
-) -> JobResponse:
-    """Pobiera status i dane zadania transkrypcji.
+) -> FullJobResponse:
+    """Pobiera pełne dane zadania transkrypcji (w tym schema_data).
 
-    CO: Endpoint do pollingu statusu przez frontend lub pipeline.
-    PO CO: Frontend pokazuje użytkownikowi postęp, pipeline czeka na 'fetched'.
+    CO: Endpoint do pollingu statusu i pobierania wyników.
+    PO CO: Strona /historia używa tego endpointu do załadowania
+    wygenerowanego contentu (artykuł, rozdziay, FAQ, schema JSON-LD)
+    po kliknięciu 'Otwórz wyniki'.
     Auth: Brak (dostęp publiczny w obrębie VPS — ID to UUID v4 = nieprzewidywalne).
 
     Returns:
-        JobResponse z aktualnym statusem.
+        FullJobResponse z aktualnym statusem i schema_data (jeśli dostępne).
     """
     job = await db.get(TranscriptJob, job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
-    return _job_to_response(job)
+    return _job_to_full_response(job)
 
 
 # ---------------------------------------------------------------------------
@@ -464,10 +489,31 @@ def _job_to_response(job: TranscriptJob) -> JobResponse:
     )
 
 
+def _job_to_full_response(job: TranscriptJob) -> FullJobResponse:
+    """Konwertuje ORM model na pełny response z schema_data."""
+    video_id = _extract_video_id_from_url(job.video_url) if job.video_url else None
+    has_vtt = bool(job.transcript and job.transcript.startswith("__VTT__"))
+    return FullJobResponse(
+        id=str(job.id),
+        video_url=job.video_url,
+        video_id=video_id,
+        status=job.status,
+        error=job.error,
+        has_vtt=has_vtt,
+        schema_data=job.schema_data,
+        created_at=job.created_at.isoformat() if job.created_at else "",
+        updated_at=job.updated_at.isoformat() if job.updated_at else None,
+    )
+
+
 def _job_to_history_response(job: TranscriptJob) -> HistoryJobResponse:
     """Konwertuje ORM model na rozszerzony response dla historii."""
     video_id = _extract_video_id_from_url(job.video_url) if job.video_url else None
     has_vtt = bool(job.transcript and job.transcript.startswith("__VTT__"))
+    has_schema = job.schema_data is not None
+    post_title = None
+    if has_schema and isinstance(job.schema_data, dict):
+        post_title = job.schema_data.get("post_title")
     return HistoryJobResponse(
         id=str(job.id),
         video_url=job.video_url,
@@ -475,6 +521,8 @@ def _job_to_history_response(job: TranscriptJob) -> HistoryJobResponse:
         status=job.status,
         error=job.error,
         has_vtt=has_vtt,
+        has_schema=has_schema,
+        post_title=post_title,
         created_at=job.created_at.isoformat() if job.created_at else "",
         updated_at=job.updated_at.isoformat() if job.updated_at else None,
     )
