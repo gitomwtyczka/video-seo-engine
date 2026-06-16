@@ -52,17 +52,62 @@ providers.push(
   })
 )
 
+/**
+ * Fetch user profile from FastAPI backend to get plan + is_admin.
+ * Called in jwt callback after login and on token refresh.
+ * Uses internal BACKEND_URL (Docker network) for server-side fetching.
+ */
+async function fetchUserProfile(accessToken: string): Promise<{ plan_id: string; is_admin: boolean } | null> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/users/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return {
+      plan_id: data.plan?.id ?? 'free',
+      is_admin: data.is_admin ?? false,
+    }
+  } catch (err) {
+    console.error('[NextAuth] fetchUserProfile error:', err)
+    return null
+  }
+}
+
 export const authOptions = {
   providers,
   callbacks: {
     async jwt({ token, user, account }: any) {
+      // On initial sign-in: store tokens from authorize()
       if (user) {
         token.accessToken = user.accessToken
         token.refreshToken = user.refreshToken
         token.email = user.email
+        // Fetch plan + is_admin immediately after login
+        if (user.accessToken) {
+          const profile = await fetchUserProfile(user.accessToken)
+          if (profile) {
+            token.plan = profile.plan_id
+            token.is_admin = profile.is_admin
+          }
+        }
       }
       if (account?.provider === 'google') {
         token.provider = 'google'
+        // For Google OAuth, plan is fetched from backend on first login
+        // accessToken here is Google token, not our JWT — plan fetched separately
+      }
+      // Refresh plan on every request if we have our own accessToken
+      // but only refresh every 5 minutes to avoid excessive API calls
+      const now = Math.floor(Date.now() / 1000)
+      const lastPlanFetch = (token.planFetchedAt as number) ?? 0
+      if (token.accessToken && !user && (now - lastPlanFetch > 300)) {
+        const profile = await fetchUserProfile(token.accessToken as string)
+        if (profile) {
+          token.plan = profile.plan_id
+          token.is_admin = profile.is_admin
+          token.planFetchedAt = now
+        }
       }
       return token
     },
@@ -70,6 +115,9 @@ export const authOptions = {
       session.accessToken = token.accessToken
       session.user = session.user || {}
       session.user.email = token.email
+      // Expose plan and is_admin to client — used by dashboard + middleware
+      session.user.plan = token.plan ?? 'free'
+      session.user.is_admin = token.is_admin ?? false
       return session
     },
   },
