@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from api.db import get_db
 from api.auth import get_current_admin
@@ -95,10 +96,15 @@ async def list_users(
     """
     CO: Zwraca paginowaną listę wszystkich użytkowników z ich planami i statystykami.
     PO CO: Admin może zobaczyć kto jest w systemie i jaki ma plan — bez SQL.
-    JAK: SELECT users + JOIN plans, zlicza usage_logs bieżącego miesiąca.
+    JAK: SELECT users + eager load plans (selectinload), zlicza usage_logs bieżącego miesiąca.
+         selectinload wymagany — bez niego async SQLAlchemy rzuca MissingGreenlet przy u.plan.
     """
     result = await db.execute(
-        select(User).offset(skip).limit(limit).order_by(User.created_at.desc())
+        select(User)
+        .options(selectinload(User.plan))  # eager load — fixes MissingGreenlet
+        .offset(skip)
+        .limit(limit)
+        .order_by(User.created_at.desc())
     )
     users = result.scalars().all()
 
@@ -135,14 +141,18 @@ async def get_user(
     """
     CO: Szczegóły konkretnego użytkownika.
     PO CO: Deep dive na konkretne konto — debug, weryfikacja planu.
-    JAK: SELECT users WHERE id = user_id.
+    JAK: SELECT users WHERE id = user_id + selectinload(User.plan).
     """
     try:
         uid = uuid.UUID(user_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user ID format")
 
-    result = await db.execute(select(User).where(User.id == uid))
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.plan))  # eager load — fixes MissingGreenlet
+        .where(User.id == uid)
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -175,6 +185,7 @@ async def change_user_plan(
     PO CO: Jedyna operacja zapisu w panelu admin. Zastępuje ręczny SQL.
            Przykład: tobroz@gmail.com free → agency (jedna akcja w UI).
     JAK: Weryfikuje że plan_id istnieje w tabeli plans, potem UPDATE users SET plan_id.
+         selectinload dodany prewencyjnie na wypadek odwołania do user.plan po commit.
     """
     try:
         uid = uuid.UUID(user_id)
@@ -189,7 +200,11 @@ async def change_user_plan(
             detail=f"Invalid plan_id. Must be one of: {valid_plans}"
         )
 
-    result = await db.execute(select(User).where(User.id == uid))
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.plan))  # eager load — fixes MissingGreenlet
+        .where(User.id == uid)
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -217,6 +232,7 @@ async def get_admin_stats(
     CO: Statystyki systemu — liczba userów, podział planów, generacje.
     PO CO: Dashboard overview dla admina — quick health check produktu.
     JAK: Aggregate queries na users + usage_logs.
+         Nie odwołuje się do User.plan — selectinload nie potrzebny.
     """
     # Total users
     total_result = await db.execute(select(func.count(User.id)))
