@@ -70,6 +70,7 @@ class User(Base):
 
     usage_logs = relationship("UsageLog", back_populates="user")
     api_keys = relationship("ApiKey", back_populates="user")
+    portals = relationship("WpPortal", back_populates="user", cascade="all, delete-orphan")
 
 
 class UsageLog(Base):
