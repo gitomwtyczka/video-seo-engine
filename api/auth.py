@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from api.db import get_db
 from api.models.user import User
@@ -59,7 +60,12 @@ async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> User:
-    """FastAPI dependency: validate Bearer token and return the current User."""
+    """FastAPI dependency: validate Bearer token and return the current User.
+
+    Uses selectinload(User.plan) to eagerly load the Plan relationship.
+    This is REQUIRED for async SQLAlchemy — lazy loading raises MissingGreenlet.
+    Without this, any access to user.plan (e.g. in /v1/users/me) crashes with 500.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or missing authentication credentials",
@@ -76,7 +82,11 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.plan))
+        .where(User.id == user_id)
+    )
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise credentials_exception
