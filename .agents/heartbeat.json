@@ -1,12 +1,16 @@
 {
   "callsign": "vse-dev-10",
-  "status": "working",
-  "current_task": "Historia UX + VTT Timestamps fix",
-  "timestamp": "2026-06-16T20:49:00Z",
-  "last_completed": [],
-  "pending": [
-    "ETAP 1: Historia — link Otwórz wyniki + dashboard ?job_id",
-    "ETAP 2: VTT Timestamps — diagnoza + fix",
-    "ETAP 3: Deploy + weryfikacja"
-  ]
+  "status": "done",
+  "current_task": "Historia UX + Schema Persistence — DONE",
+  "timestamp": "2026-06-16T19:17:00Z",
+  "last_completed": [
+    "Schema persistence (JSONB) — commit 085a7bf",
+    "Generate router: save schema to DB — commit 44b281e",
+    "Jobs API: FullJobResponse + has_schema — commit 976566b",
+    "Historia page: Otwórz wyniki link — commit a798705",
+    "Dashboard: useJobLoader + Suspense + ?job_id — commits f61621a, a300a87, cf04eab",
+    "SQL migration: ALTER TABLE transcript_jobs ADD COLUMN schema_data JSONB",
+    "Deploy: oba kontenery rebuilt i UP"
+  ],
+  "pending": []
 }
