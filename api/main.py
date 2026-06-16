@@ -19,6 +19,10 @@ Endpoints:
   POST /v1/auth/refresh       — refresh access token
   GET  /v1/auth/google        — Google OAuth redirect
   GET  /v1/users/me           — current user profile + usage
+  GET  /v1/admin/users        — [ADMIN] list all users
+  GET  /v1/admin/users/{id}   — [ADMIN] user details
+  PATCH /v1/admin/users/{id}/plan — [ADMIN] change user plan
+  GET  /v1/admin/stats        — [ADMIN] system statistics
   GET  /docs                  — Swagger UI
 """
 import logging
@@ -32,6 +36,7 @@ from api.routers import generate, inject, monitor, process, sitemap
 from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
 from api.routers.jobs import router as jobs_router
+from api.routers.admin import router as admin_router
 from api.models.response import HealthResponse
 from api.db import engine, Base, AsyncSessionLocal
 
@@ -71,6 +76,9 @@ app.include_router(users_router)
 
 # Local Transcript Runner router
 app.include_router(jobs_router)
+
+# Admin panel router (requires is_admin=True)
+app.include_router(admin_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
