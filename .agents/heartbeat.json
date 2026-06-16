@@ -1,17 +1,14 @@
 {
-  "callsign": "vse-dev-05",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-DEV-05-20260616-NOT-FOUND-FIX — ZAKOŃCZONY",
-  "timestamp": "2026-06-16T12:47:00Z",
+  "callsign": "vse-architect-01",
+  "status": "working",
+  "current_task": "ARCHITECTURE.md — kompletny audyt architektury projektu",
+  "timestamp": "2026-06-16T17:23:00Z",
   "last_completed": [
-    "diagnoza nginx/default.conf crimson-void — poprawny",
-    "root cause: frontend /api/v1/* zamiast /v1/* — commit 2cb7889",
-    "web/src/app/dashboard/page.tsx — naprawa URL (3 miejsca) — commit 2cb7889",
-    "deploy: git pull + docker compose --build vse-web — Started",
-    "health: vse.impresjapr.pl/health → 200 OK",
-    "plan upgrade: tobroz@gmail.com free → agency — SQL UPDATE",
-    "raport: video-seo-engine/.agents/reports/2026-06-16_vse-dev-05_not-found-fix.md",
-    "raport: sonic-void/.agents/reports/inbox/2026-06-16_vse-dev-05_not-found-fix.md"
+    "Poprzednia sesja: vse-dev-05 — nginx not-found fix — commit 2cb7889"
   ],
-  "pending": []
+  "pending": [
+    "Audyt: repo tree, docker-compose, api/, web/src/, local-runner/",
+    "Stworzenie ARCHITECTURE.md",
+    "Raport do sonic-void inbox"
+  ]
 }
