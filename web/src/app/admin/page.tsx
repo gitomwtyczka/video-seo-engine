@@ -4,9 +4,11 @@
  * PO CO: Admin może zmieniać plany użytkowników bez SQL na VPS.
  *        Wcześniej zmiana planu (np. tobroz@gmail.com → agency) wymagała ręcznego SQL.
  *        Panel eliminuje tę potrzebę — dostęp przez UI bez wiedzy DevOps.
+ *        Sekcja "Ustawienia systemu" pozwala włączyć/wyłączyć tryb debug bez SSH na VPS.
  * JAK: Wywołuje GET /v1/admin/users → tabela użytkowników.
  *      PATCH /v1/admin/users/{id}/plan → modal ze zmianą planu.
  *      GET /v1/admin/stats → statystyki systemu.
+ *      GET/POST /v1/admin/debug-mode → przełącznik trybu debug.
  *      Chroniony przez middleware.ts: requires is_admin=true lub plan=agency.
  */
 import { useSession, signOut } from 'next-auth/react'
@@ -71,7 +73,7 @@ function PlanBadge({ plan }: { plan: string }) {
   )
 }
 
-// ─── Change Plan Modal ─────────────────────────────────────────────────────────
+// ─── Change Plan Modal ────────────────────────────────────────────────────────
 
 function ChangePlanModal({
   user,
@@ -201,12 +203,103 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
   )
 }
 
-// ─── Main Admin Page ───────────────────────────────────────────────────────────
+// ─── Debug Mode Toggle ────────────────────────────────────────────────────────
+
+function DebugModeToggle({ accessToken }: { accessToken: string }) {
+  /**
+   * CO: Przełącznik trybu debug w panelu admina.
+   * PO CO: Admin może włączyć/wyłączyć verbose logging bez SSH na VPS.
+   *        Gdy ON: docker logs vse-api pokazuje każdy request + pełne stack traces.
+   * JAK: GET /v1/admin/debug-mode przy mount, POST przy toggle.
+   */
+  const [enabled, setEnabled] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState('')
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+  const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+
+  useEffect(() => {
+    const fetch_ = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/v1/admin/debug-mode`, { headers: { Authorization: `Bearer ${accessToken}` } })
+        if (res.ok) {
+          const data = await res.json()
+          setEnabled(data.enabled)
+        }
+      } catch { /* silent */ }
+      finally { setLoading(false) }
+    }
+    if (accessToken) fetch_()
+  }, [accessToken]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleToggle = async () => {
+    setSaving(true)
+    setFeedback('')
+    const newValue = !enabled
+    try {
+      const res = await fetch(`${apiUrl}/v1/admin/debug-mode`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ enabled: newValue }),
+      })
+      if (res.ok) {
+        setEnabled(newValue)
+        setFeedback(newValue ? '✓ Tryb debug włączony' : '✓ Tryb debug wyłączony')
+        setTimeout(() => setFeedback(''), 2500)
+      } else {
+        setFeedback('⚠ Błąd zapisu')
+      }
+    } catch {
+      setFeedback('⚠ Błąd połączenia')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm font-medium text-white">Tryb debug</p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {enabled
+            ? 'WŁĄCZONY — verbose logging aktywny (docker logs vse-api)'
+            : 'Wyłączony — tylko błędy 5xx logowane'
+          }
+        </p>
+        {feedback && (
+          <p className={`text-xs mt-1 ${feedback.startsWith('✓') ? 'text-emerald-400' : 'text-red-400'}`}>
+            {feedback}
+          </p>
+        )}
+      </div>
+      <button
+        id="debug-mode-toggle"
+        onClick={handleToggle}
+        disabled={loading || saving}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+          enabled ? 'bg-violet-600' : 'bg-gray-700'
+        }`}
+        aria-label={enabled ? 'Wyłącz tryb debug' : 'Włącz tryb debug'}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            enabled ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+    </div>
+  )
+}
+
+// ─── Main Admin Page ────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
   /**
    * CO: AdminPage — panel zarządzania użytkownikami na /admin
    * PO CO: Operacyjny panel do zmiany planów bez SQL. Jeden klik = zmiana subskrypcji.
+   *        Sekcja "Ustawienia systemu" daje kontrolę nad trybem debug bez SSH.
    * JAK: Session z NextAuth, Bearer token do /v1/admin/*. Lista + modal edycji.
    */
   const { data: session, status } = useSession()
@@ -413,6 +506,14 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* System Settings */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
+          <h2 className="text-sm font-semibold text-gray-300 mb-4 uppercase tracking-wide">Ustawienia systemu</h2>
+          <div className="space-y-4">
+            {accessToken && <DebugModeToggle accessToken={accessToken} />}
+          </div>
+        </div>
 
         {/* Error state */}
         {error && (
