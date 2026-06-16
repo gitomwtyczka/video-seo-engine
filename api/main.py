@@ -23,6 +23,8 @@ Endpoints:
   GET  /v1/admin/users/{id}   — [ADMIN] user details
   PATCH /v1/admin/users/{id}/plan — [ADMIN] change user plan
   GET  /v1/admin/stats        — [ADMIN] system statistics
+  GET  /v1/admin/debug-mode   — [ADMIN] get debug mode state
+  POST /v1/admin/debug-mode   — [ADMIN] set debug mode on/off
   GET  /docs                  — Swagger UI
 """
 import logging
@@ -38,6 +40,7 @@ from api.routers.users import router as users_router
 from api.routers.jobs import router as jobs_router
 from api.routers.admin import router as admin_router
 from api.models.response import HealthResponse
+from api.middleware.error_logging import ErrorLoggingMiddleware
 from api.db import engine, Base, AsyncSessionLocal
 
 # Logging setup
@@ -56,6 +59,11 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Error logging middleware — logs all 5xx with full stack trace
+# CO: Przechwytuje wyjątki i odpowiedzi 500+, loguje do stdout (docker logs).
+# PO CO: Diagnostyka błędów bez SSH na VPS. W trybie debug loguje każdy request.
+app.add_middleware(ErrorLoggingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -128,9 +136,10 @@ async def startup_event() -> None:
         # Import models to register them with Base
         from api.models.user import User, Plan, UsageLog, ApiKey  # noqa: F401
         from api.models.job import TranscriptJob  # noqa: F401
+        from api.models.app_settings import AppSettings  # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created (incl. transcript_jobs).")
+        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings).")
     except Exception as e:
         logger.warning(f"DB init skipped (no DB configured?): {e}")
         return
