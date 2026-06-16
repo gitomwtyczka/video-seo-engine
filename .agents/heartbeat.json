@@ -1,19 +1,12 @@
 {
-  "callsign": "vse-dev-04",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-DEV-04-20260615-LOCAL-SERVICE — ZAKOŃCZONY",
-  "timestamp": "2026-06-16T11:03:00Z",
-  "last_completed": [
-    "api/models/job.py — TranscriptJob model — commit 7eb5288",
-    "api/routers/jobs.py — /v1/jobs/ endpoints + security — commit b6cf90d",
-    "api/services/pipeline.py — LOCAL_RUNNER_MODE switch — commit fd08803",
-    "local-runner/runner.py — polling logic — commit 4f9acf1",
-    "local-runner/service.py — pywin32 + Task Scheduler — commit dc3709f",
-    "tests/test_jobs_security.py — 14 testów security — commit 478f2b0",
-    "crimson-void/nginx/default.conf — location /v1/ block — commit 9fb1f85",
-    "E2E verified: runner pobrał 85553 chars transkrypt z YouTube lokalnie",
-    "Task Scheduler VSELocalRunner: Running, polluje co 10s",
-    "API /v1/jobs/pending: 200 OK przez HTTPS"
-  ],
-  "pending": []
+  "callsign": "vse-dev-05",
+  "status": "working",
+  "current_task": "DISPATCH-VSE-DEV-05-20260616-NOT-FOUND-FIX — diagnoza nginx + naprawa 404/502",
+  "timestamp": "2026-06-16T12:22:00Z",
+  "last_completed": [],
+  "pending": [
+    "diagnoza nginx/default.conf z crimson-void",
+    "analiza endpointow z 404/502",
+    "naprawa konfiguracji"
+  ]
 }
