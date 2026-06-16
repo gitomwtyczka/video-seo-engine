@@ -1,13 +1,12 @@
 {
-  "callsign": "vse-architect-01",
-  "status": "done",
-  "current_task": "ARCHITECTURE.md — ZAKOŃCZONY",
-  "timestamp": "2026-06-16T17:28:00Z",
-  "last_completed": [
-    "Audyt repo: root tree, docker-compose, api/, web/src/, core/, local-runner/",
-    "Audyt: NextAuth route.ts, middleware.ts, models (user.py, job.py, request.py, response.py)",
-    "ARCHITECTURE.md — commit 90b21fe — 2026-06-16",
-    "14 sekcji: stack, foldery, Docker, URL routing, auth flow, DB schema, API shapes, Local Runner, deploy, gotchas"
-  ],
-  "pending": []
+  "callsign": "vse-dev-08",
+  "status": "working",
+  "current_task": "Fix Google OAuth plan=free — dodanie token-exchange endpoint + jwt callback fix",
+  "timestamp": "2026-06-16T17:44:00Z",
+  "last_completed": [],
+  "pending": [
+    "POST /v1/auth/google/token-exchange — nowy endpoint w api/routers/auth.py",
+    "jwt callback — Google flow w route.ts",
+    "raport do sonic-void inbox"
+  ]
 }
