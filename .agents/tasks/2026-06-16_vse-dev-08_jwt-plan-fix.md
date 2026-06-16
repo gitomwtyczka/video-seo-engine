@@ -22,8 +22,8 @@ Po zalogowaniu przez Google sidebar VSE pokazuje prawidłowy plan z bazy danych 
 ## Problem
 
 Użytkownik `tobroz@gmail.com` ma w bazie PostgreSQL:
-- `plan = 'agency'`
-- `is_admin = true`
+- `is_admin = true` (potwierdzony SQL UPDATE)
+- Plan powinien być `agency`
 
 Ale po zalogowaniu przez Google OAuth sidebar pokazuje:
 - **"Free"** zamiast **"Agency"**
@@ -31,44 +31,70 @@ Ale po zalogowaniu przez Google OAuth sidebar pokazuje:
 
 Screenshot potwierdza: https://vse.impresjapr.pl/dashboard — sidebar: "Free", "0/5".
 
-**Poprzednia próba naprawy (Supervisor 02):** commity `8f80403`, `9fed9db`, `719e61e` — nie rozwiązały problemu.
+---
+
+## ⚠️ KRYTYCZNY KONTEKST — Poprzednia nieudana próba (dev-07)
+
+Dev-07 próbował to naprawiać (commity `8f80403`, `9fed9db`, `719e61e`). Fix był koncepcyjnie poprawny:
+
+```typescript
+// jwt callback — po zalogowaniu woła GET /v1/users/me i zapisuje:
+token.plan = profile.plan_id
+token.is_admin = profile.is_admin
+
+// session callback:
+session.user.plan = token.plan ?? 'free'
+session.user.is_admin = token.is_admin ?? false
+```
+
+**ALE fix nie zadziałał.** Dev-07 zidentyfikował prawdopodobną przyczynę zanim sesja się skończyła:
+
+### Trzy podejrzenia do zweryfikowania (ZACZYNAJ OD TYCH):
+
+**A) Nazwa kolumny w DB nie zgadza się z tym co czyta NextAuth:**
+- SQL mówił `SET plan = 'agency'` — ale model może mieć kolumnę `plan_id`
+- NextAuth callback czyta `profile.plan_id` — ale backend może zwracać pole `plan`
+- **Sprawdź model User w `api/models/user.py`** — jak się naprawdę nazywa kolumna?
+
+**B) Nazwa kontenera DB jest inna niż założono:**
+- Dev-07 próbował `docker exec vse-db` → **"No such container: vse-db"**
+- W taśce Supervisor 02 jest `vse-postgres` — ale to też może być błędne
+- **Pierwsza komenda: `docker ps --format '{{.Names}}'`** — ustal prawdziwą nazwę
+
+**C) Build nie wciągnął zmian dev-07:**
+- Commity poszły do repo, ale `docker compose up --build` mógł nie przebudować
+- **Sprawdź czy `route.ts` na VPS ma fix** — grep `plan_id` lub `is_admin` w kontenerze
 
 ---
 
-## Kontekst techniczny
+## Kolejność diagnostyczna
 
-- Auth: NextAuth.js z Google OAuth provider
-- Config: `web/src/app/api/auth/[...nextauth]/route.ts`
-- Backend: FastAPI (Python), PostgreSQL
-- DB container: `vse-postgres`, user: `vse`
-
-**Prawdopodobna przyczyna:** NextAuth JWT/session callback nie pobiera `plan` z bazy danych po logowaniu, albo frontend czyta plan z innego źródła niż sesja.
+```
+1. docker ps --format '{{.Names}}'           ← ustal nazwy kontenerów
+2. docker exec [DB_CONTAINER] psql -U [USER] -d [DB] -c \
+   "SELECT email, * FROM users WHERE email='tobroz@gmail.com';"  ← WSZYSTKIE kolumny
+3. Przeczytaj api/models/user.py (GitHub MCP)  ← nazwa kolumny plan vs plan_id
+4. Przeczytaj route.ts (GitHub MCP)            ← co jest w jwt callback TERAZ
+5. Przeczytaj sidebar component (GitHub MCP)   ← skąd czyta plan
+6. Napraw pełen łańcuch: DB kolumna → backend response → JWT callback → session → frontend
+7. Deploy + verify
+```
 
 ---
 
-## Co zbadać (kolejność diagnostyczna)
+## SSH — wzorzec dla PowerShell
 
-1. **Sprawdź DB** — czy `plan` naprawdę = 'agency':
-   ```
-   ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 \
-     "docker exec vse-postgres psql -U vse -c \"SELECT email, plan, is_admin FROM users WHERE email='tobroz@gmail.com'\""
-   ```
+**Proste komendy** (bez cudzysłowów, zmiennych):
+```powershell
+ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker ps --format '{{.Names}}'"
+```
 
-2. **Sprawdź JWT callback w route.ts** — czy `plan` jest dodawany do tokenu JWT
-
-3. **Sprawdź session callback** — czy `plan` z tokenu trafia do `session.user`
-
-4. **Sprawdź frontend** — skąd sidebar czyta plan (session? osobny API call? hardcoded?)
-
-5. **Napraw** — zapewnij że pełen łańcuch działa: DB → JWT callback → session callback → frontend
-
-6. **Deploy** — po naprawie:
-   ```
-   ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 \
-     "cd /opt/vse && git pull origin main && docker compose -f docker-compose.vse.yml up -d --build vse-web"
-   ```
-
-7. **Weryfikacja** — potwierdź że po re-login plan = Agency
+**Złożone komendy** (SQL, zmienne, zagnieżdżone cudzysłowy) → write_to_file + scp + ssh:
+```powershell
+# 1. Napisz skrypt lokalnie
+# 2. scp -i ~/.ssh/oracle-crimson.key script.py ubuntu@147.224.162.100:/tmp/
+# 3. ssh ... "python3 /tmp/script.py"
+```
 
 ---
 
@@ -76,7 +102,6 @@ Screenshot potwierdza: https://vse.impresjapr.pl/dashboard — sidebar: "Free", 
 
 - GitHub MCP: `gitomwtyczka/video-seo-engine` branch `main`
 - SSH VPS: `ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100`
-- DB: `docker exec vse-postgres psql -U vse`
 - **FILE BRIDGE / Wetty: ZAKAZ**
 
 ---
@@ -100,4 +125,4 @@ Screenshot potwierdza: https://vse.impresjapr.pl/dashboard — sidebar: "Free", 
 
 ---
 
-*Supervisor 03 | sonic-void | 2026-06-16 18:39*
+*Supervisor 03 | sonic-void | 2026-06-16 19:05 | updated with dev-07 findings*
