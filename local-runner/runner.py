@@ -1,6 +1,6 @@
 """VSE Local Transcript Runner.
 
-CO: Skrypt Python’a działający jako Windows Service (przez NSSM).
+CO: Skrypt Python'a działający jako Windows Service (przez NSSM).
 Polluje API VSE po zadania transkrypcji i pobiera je lokalnie.
 
 PO CO:
@@ -20,6 +20,15 @@ Instalacja:
   Uruchom install.bat jako administrator (wymaga NSSM)
 
 Log: %ProgramData%\\VSELocalRunner\\runner.log (lub stdout w trybie dev)
+
+## Format transkryptu (VTT-like)
+
+Od v2.0 runner wysyła transkrypt Z TIMESTAMPAMI w formacie:
+  __VTT__\n[MM:SS] tekst\n[MM:SS] tekst...\n
+
+To pozwala pipeline.py zamienić segmenty na prawdziwy plik .vtt który
+generator.py parsuje do anchor-matching rozdziałów. Bez timestampów
+generator nie może wyciągnąć rzeczywistych czasów → rozdziały = 0.
 """
 import logging
 import os
@@ -113,26 +122,65 @@ def extract_video_id(url: str) -> Optional[str]:
     return None
 
 
-def fetch_transcript(video_url: str) -> Optional[str]:
-    """Pobiera transkrypt YouTube przez youtube-transcript-api.
+def _format_segments_as_vtt(segments: list) -> str:
+    """Konwertuje segmenty youtube-transcript-api do formatu VTT-like z markerami.
 
-    CO: Lokalne pobranie transkryptu na PC Usera.
+    CO: Zamienia listę [{text, start, duration}] na wieloliniowy string
+    z markerami [MM:SS] co segment.
+
+    PO CO: generator.py (parse_vtt_full) oczekuje pliku .vtt z prawdziwymi
+    timestampami. Jeśli runner wyśle plain text (bez czasów), generator
+    nie może dopasować rozdziałów do rzeczywistych momentów wideo →
+    wszystkie chaptery pokazują czas=0.
+
+    Ten format __VTT__ to "VTT-like" — pipeline.py konwertuje go do
+    prawdziwego WebVTT zanim zapisze do pliku tymczasowego dla generatora.
+
+    Format wyjściowy:
+        __VTT__\n[MM:SS] tekst\n[MM:SS] tekst...\n
+
+    Args:
+        segments: Lista dictów z polami: text (str), start (float), duration (float).
+
+    Returns:
+        Wieloliniowy string z prefixem __VTT__ i markerami [MM:SS].
+    """
+    lines = ["__VTT__"]
+    for seg in segments:
+        start = seg.get("start", 0.0)
+        text = seg.get("text", "").strip()
+        if not text:
+            continue
+        m = int(start // 60)
+        s = int(start % 60)
+        lines.append(f"[{m:02d}:{s:02d}] {text}")
+    return "\n".join(lines)
+
+
+def fetch_transcript(video_url: str) -> Optional[str]:
+    """Pobiera transkrypt YouTube przez youtube-transcript-api Z TIMESTAMPAMI.
+
+    CO: Lokalne pobranie transkryptu na PC Usera w formacie VTT-like.
 
     PO CO: Oracle Cloud VPS ma zbanowane IP — tutaj działamy z normalnego IP.
     youtube-transcript-api nie wymaga klucza API.
 
+    ZMIANA v2.0 (2026-06-16): Wysyłamy teraz transkrypt Z TIMESTAMPAMI
+    (format __VTT__) zamiast plain text. Bez timestampów generator nie
+    może anchor-matchować rozdziałów → wszystkie chaptery = time:0.
+
     JAK:
-    1. Wyodrebnienie video ID z URL
+    1. Wyodrębnienie video ID z URL
     2. Listowanie dostępnych transkryptów
     3. Fetch w kolejności LANG_PRIORITY (pl, en, en-US, en-GB)
     4. Fallback: pierwszy dostępny transkrypt
-    5. Konkatenacja tekstów segmentów
+    5. Formatowanie segmentów jako [MM:SS] tekst z prefixem __VTT__
 
     Args:
         video_url: YouTube URL lub ID.
 
     Returns:
-        Pełny tekst transkryptu lub None jeśli brak.
+        String z prefixem __VTT__ i timestampami, lub None jeśli brak transkryptu.
 
     Raises:
         Exception: Gdy youtube-transcript-api zgłosi błąd.
@@ -174,11 +222,23 @@ def fetch_transcript(video_url: str) -> Optional[str]:
         except StopIteration:
             return None
 
-    # Fetch i połącz segmenty
+    # Fetch segmentów Z TIMESTAMPAMI
     segments = transcript.fetch()
-    text = " ".join(s.text for s in segments if s.text)
-    log.info("Transcript fetched: %d chars", len(text))
-    return text if text else None
+
+    # Konwertuj do formatu VTT-like z markerami [MM:SS]
+    # segments to lista FetchedTranscriptSnippet lub dict-like z polami:
+    # text, start, duration
+    seg_dicts = []
+    for s in segments:
+        if hasattr(s, "text"):
+            seg_dicts.append({"text": s.text, "start": getattr(s, "start", 0.0)})
+        elif isinstance(s, dict):
+            seg_dicts.append(s)
+
+    vtt_text = _format_segments_as_vtt(seg_dicts)
+    total_chars = len(vtt_text)
+    log.info("Transcript fetched with timestamps: %d chars, %d segments", total_chars, len(seg_dicts))
+    return vtt_text if seg_dicts else None
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +257,7 @@ def get_pending_jobs() -> list:
     """Pobiera listę pending jobów z API.
 
     Returns:
-        Lista dictów z job’ami lub pusta lista przy błędzie.
+        Lista dictów z job'ami lub pusta lista przy błędzie.
     """
     try:
         r = requests.get(
@@ -223,8 +283,8 @@ def submit_result(job_id: str, transcript: Optional[str], error: Optional[str] =
     """Wysyła wynik transkrypcji do API.
 
     Args:
-        job_id: UUID job’u.
-        transcript: Tekst transkryptu (None jeśli status=failed).
+        job_id: UUID job'u.
+        transcript: Tekst transkryptu z __VTT__ prefix (None jeśli status=failed).
         error: Opis błędu (None jeśli OK).
 
     Returns:
@@ -260,7 +320,7 @@ def process_job(job: dict) -> None:
 
     CO: Główna logika przetwarzania — pobierz i wyślij.
 
-    PO CO: Enkapsuluje obsługę jednego job’u — błędy jednego joba
+    PO CO: Enkapsuluje obsługę jednego job'u — błędy jednego joba
     nie przerywają pętli głównej.
 
     Args:
@@ -279,7 +339,7 @@ def process_job(job: dict) -> None:
         text = fetch_transcript(video_url)
         if text:
             submit_result(job_id, transcript=text)
-            log.info("Job %s: OK (%d chars)", job_id, len(text))
+            log.info("Job %s: OK (%d chars, VTT timestamps included)", job_id, len(text))
         else:
             submit_result(job_id, transcript=None, error="No transcript available for this video")
             log.warning("Job %s: no transcript found", job_id)
@@ -294,7 +354,7 @@ def process_job(job: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    """Główna pętla Local Runner’a.
+    """Główna pętla Local Runner'a.
 
     Działa w nieskończonej pętli (Windows Service pattern).
     Zatrzymanie: SIGTERM lub Ctrl+C (SIGINT).
@@ -312,6 +372,7 @@ def main() -> None:
     log.info("API: %s", API_BASE)
     log.info("Poll interval: %ds", POLL_INTERVAL)
     log.info("Log dir: %s", LOG_DIR)
+    log.info("Transcript format: __VTT__ with [MM:SS] timestamps")
     log.info("=" * 60)
 
     while True:
