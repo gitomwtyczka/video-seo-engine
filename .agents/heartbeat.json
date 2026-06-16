@@ -1,13 +1,14 @@
 {
   "callsign": "vse-dev-09",
-  "status": "working",
-  "current_task": "Dashboard UI D2+D3 + NEXT_PUBLIC_API_URL fix",
-  "timestamp": "2026-06-16T19:42:00Z",
-  "last_completed": [],
-  "pending": [
-    "ETAP 1: Fix NEXT_PUBLIC_API_URL",
-    "ETAP 2: D2 Zakładki Artykuł+Rozdziały",
-    "ETAP 3: D3 Inject One-Click Modal",
-    "ETAP 4: Deploy + weryfikacja"
-  ]
+  "status": "done",
+  "current_task": "Dashboard UI D2+D3 + NEXT_PUBLIC_API_URL fix — kompletny",
+  "timestamp": "2026-06-16T20:03:00Z",
+  "last_completed": [
+    "fix: NEXT_PUBLIC_API_URL remove /api suffix — commit 69e4196",
+    "feat: D2 tabbed dashboard (Schemat/Artykuł/Rozdziały) — commit 9832cac",
+    "feat: D3 inject modal with localStorage — commit 9832cac",
+    "deploy + weryfikacja — kontenery Up, /v1/admin/users 401 (poprawne)",
+    "raport dual-write: video-seo-engine + sonic-void inbox"
+  ],
+  "pending": []
 }
