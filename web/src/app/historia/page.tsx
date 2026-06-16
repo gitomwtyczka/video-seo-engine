@@ -5,6 +5,7 @@
  *        NIE z localStorage, NIE z cache — zawsze z API (/v1/jobs/history).
  *        Kliknięcie "Otwórz wyniki" przenosi do /dashboard?job_id=X
  *        gdzie dashboard ładuje pełne dane z DB.
+ *        Tytuł joba jest teraz klikalnym linkiem do YouTube (jeśli video_url dostępny).
  * JAK: Fetch GET /v1/jobs/history z paginacją, wyświetla tabelę z filmami.
  */
 import { useSession } from 'next-auth/react'
@@ -146,7 +147,7 @@ export default function HistoriaPage() {
             <div className="text-center py-16 text-gray-500">
               <p className="text-4xl mb-3">🎬</p>
               <p className="text-lg font-medium">Brak historii</p>
-              <p className="text-sm mt-1">Przetwórz pierwszy film na <Link href="/dashboard" className="text-violet-400 hover:underline">Dashboardzie</Link>.</p>
+              <p className="text-sm mt-1">Przytwórz pierwszy film na <Link href="/dashboard" className="text-violet-400 hover:underline">Dashboardzie</Link>.</p>
             </div>
           )}
 
@@ -165,9 +166,22 @@ export default function HistoriaPage() {
                           />
                         )}
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-white truncate">
-                            {job.post_title || job.video_url}
-                          </p>
+                          {/* Tytuł — klikalny link do YouTube jeśli video_url dostępny */}
+                          {job.video_url ? (
+                            <a
+                              href={job.video_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium text-white hover:text-violet-400 transition-colors truncate block"
+                              title={job.video_url}
+                            >
+                              {job.post_title || job.video_url}
+                            </a>
+                          ) : (
+                            <p className="text-sm font-medium text-white truncate">
+                              {job.post_title || '(brak tytułu)'}
+                            </p>
+                          )}
                           {job.post_title && (
                             <p className="text-xs text-gray-600 truncate mt-0.5">
                               {job.video_url}
