@@ -1,12 +1,15 @@
 {
-  "callsign": "arch-api-01",
-  "status": "done",
-  "current_task": "Analiza API design — inter-SaaS integracja, versioning, webhooks, rate limiting",
-  "timestamp": "2026-06-16T17:55:00Z",
+  "callsign": "vse-runner-01",
+  "status": "working",
+  "current_task": "Fix Local Runner Windows Service — VTT fix DEV-06, serwis nie startuje NET HELPMSG 2186",
+  "timestamp": "2026-06-16T18:06:51Z",
   "last_completed": [
-    "docs/ANALYSIS_api_design.md — commit 0ac9da2 (2026-06-16)",
-    ".agents/reports/2026-06-16_arch-api-01_api-design.md — commit b0a8e44 (2026-06-16)",
-    "sonic-void inbox: .agents/reports/inbox/2026-06-16_arch-api-01_api-design.md — commit fa992fe (2026-06-16)"
+    "arch-api-01: docs/ANALYSIS_api_design.md — commit 0ac9da2 (2026-06-16)"
   ],
-  "pending": []
+  "pending": [
+    "git checkout origin/main -- runner.py jobs.py",
+    "weryfikacja VTT fix (__VTT__)",
+    "restart VSELocalRunner service",
+    "raport do sonic-void inbox"
+  ]
 }
