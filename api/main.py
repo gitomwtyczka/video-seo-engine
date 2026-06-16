@@ -19,6 +19,11 @@ Endpoints:
   POST /v1/auth/refresh       — refresh access token
   GET  /v1/auth/google        — Google OAuth redirect
   GET  /v1/users/me           — current user profile + usage
+  GET  /v1/portals            — list user's WP portals
+  POST /v1/portals            — add WP portal
+  GET  /v1/portals/{id}/credentials — portal with password
+  PATCH /v1/portals/{id}      — update portal
+  DELETE /v1/portals/{id}     — delete portal
   GET  /v1/admin/users        — [ADMIN] list all users
   GET  /v1/admin/users/{id}   — [ADMIN] user details
   PATCH /v1/admin/users/{id}/plan — [ADMIN] change user plan
@@ -39,6 +44,7 @@ from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
 from api.routers.jobs import router as jobs_router
 from api.routers.admin import router as admin_router
+from api.routers.portals import router as portals_router
 from api.models.response import HealthResponse
 from api.middleware.error_logging import ErrorLoggingMiddleware
 from api.db import engine, Base, AsyncSessionLocal
@@ -87,6 +93,9 @@ app.include_router(jobs_router)
 
 # Admin panel router (requires is_admin=True)
 app.include_router(admin_router)
+
+# Portal management router (requires authenticated user)
+app.include_router(portals_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
@@ -137,9 +146,10 @@ async def startup_event() -> None:
         from api.models.user import User, Plan, UsageLog, ApiKey  # noqa: F401
         from api.models.job import TranscriptJob  # noqa: F401
         from api.models.app_settings import AppSettings  # noqa: F401
+        from api.models.portal import WpPortal  # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings).")
+        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals).")
     except Exception as e:
         logger.warning(f"DB init skipped (no DB configured?): {e}")
         return
