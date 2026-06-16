@@ -1,11 +1,12 @@
 {
   "callsign": "arch-api-01",
-  "status": "working",
+  "status": "done",
   "current_task": "Analiza API design — inter-SaaS integracja, versioning, webhooks, rate limiting",
-  "timestamp": "2026-06-16T17:52:00Z",
-  "last_completed": [],
-  "pending": [
-    "ANALYSIS_api_design.md → docs/",
-    "Raport do sonic-void inbox"
-  ]
+  "timestamp": "2026-06-16T17:55:00Z",
+  "last_completed": [
+    "docs/ANALYSIS_api_design.md — commit 0ac9da2 (2026-06-16)",
+    ".agents/reports/2026-06-16_arch-api-01_api-design.md — commit b0a8e44 (2026-06-16)",
+    "sonic-void inbox: .agents/reports/inbox/2026-06-16_arch-api-01_api-design.md — commit fa992fe (2026-06-16)"
+  ],
+  "pending": []
 }
