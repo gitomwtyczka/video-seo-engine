@@ -4,8 +4,13 @@
  * PO CO: Daje użytkownikowi dwie ścieżki:
  *   A (Free/Starter) — generuje SEO i pokazuje gotowe snippety HTML do skopiowania
  *   B (Pro/Agency)   — dodatkowo umożliwia automatyczną publikację na WordPress
- * JAK: Wywołuje POST /api/v1/generate → schema_data → renderuje 5 sekcji wynikowych.
- *      Dla planu pro/agency dodatkowo wyświetla PublishSection → POST /api/v1/inject.
+ * JAK: Wywołuje POST /v1/generate → schema_data → renderuje 5 sekcji wynikowych.
+ *      Dla planu pro/agency dodatkowo wyświetla PublishSection → POST /v1/inject.
+ *
+ * ROUTING NOTE: Frontend używa pustego prefixu ('') jako fallback dla NEXT_PUBLIC_API_URL.
+ * Wywołania idą na /v1/generate, /v1/inject, /v1/users/me.
+ * Nginx routuje location /v1/ → FastAPI :8085 (bez strippowania prefixu).
+ * NIE używamy /api/v1/* — nginx /api/ nie strippuje /api i FastAPI zwraca 404.
  */
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
@@ -209,7 +214,7 @@ function ResultSection({
  * PO CO: Pozwala użytkownikom Pro/Agency opublikować wygenerowane SEO na WP jednym klikiem.
  *        Eliminuje potrzebę ręcznego kopiowania do WordPressa — oszczędza czas agencjom.
  * JAK: Zbiera WP credentials (URL, user, app_password) + wp_post_id + status (draft/publish),
- *      wywołuje POST /api/v1/inject z schema_data. Credentials w MVP wpisywane ręcznie.
+ *      wywołuje POST /v1/inject z schema_data. Credentials w MVP wpisywane ręcznie.
  */
 function PublishSection({ schemaData, videoUrl }: { schemaData: SchemaData; videoUrl: string }) {
   const [wpUrl, setWpUrl] = useState('https://prawy.pl')
@@ -228,7 +233,7 @@ function PublishSection({ schemaData, videoUrl }: { schemaData: SchemaData; vide
     setPublishing(true)
     setPublishResult(null)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
       const res = await fetch(`${apiUrl}/v1/inject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -372,7 +377,7 @@ export default function DashboardPage() {
    * CO: DashboardPage — główny komponent strony /dashboard
    * PO CO: Hub dla użytkownika — generuje SEO z YouTube URL i wyświetla wyniki w czytelnej formie.
    * JAK: useSession z NextAuth → auth guard. Stan lokalny dla URL, wyników, plan usera.
-   *      Fetch plan przez /api/v1/users/me (Bearer token z session.accessToken).
+   *      Fetch plan przez /v1/users/me (Bearer token z session.accessToken).
    */
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -394,7 +399,7 @@ export default function DashboardPage() {
     const fetchProfile = async () => {
       if (!session?.accessToken) return
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
         const res = await fetch(`${apiUrl}/v1/users/me`, {
           headers: { Authorization: `Bearer ${session.accessToken as string}` },
         })
@@ -428,7 +433,7 @@ export default function DashboardPage() {
     setError('')
     setResult(null)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
       const res = await fetch(`${apiUrl}/v1/generate`, {
         method: 'POST',
         headers: {
