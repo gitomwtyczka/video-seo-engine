@@ -1,14 +1,13 @@
 {
   "callsign": "vse-architect-01",
-  "status": "working",
-  "current_task": "ARCHITECTURE.md — kompletny audyt architektury projektu",
-  "timestamp": "2026-06-16T17:23:00Z",
+  "status": "done",
+  "current_task": "ARCHITECTURE.md — ZAKOŃCZONY",
+  "timestamp": "2026-06-16T17:28:00Z",
   "last_completed": [
-    "Poprzednia sesja: vse-dev-05 — nginx not-found fix — commit 2cb7889"
+    "Audyt repo: root tree, docker-compose, api/, web/src/, core/, local-runner/",
+    "Audyt: NextAuth route.ts, middleware.ts, models (user.py, job.py, request.py, response.py)",
+    "ARCHITECTURE.md — commit 90b21fe — 2026-06-16",
+    "14 sekcji: stack, foldery, Docker, URL routing, auth flow, DB schema, API shapes, Local Runner, deploy, gotchas"
   ],
-  "pending": [
-    "Audyt: repo tree, docker-compose, api/, web/src/, local-runner/",
-    "Stworzenie ARCHITECTURE.md",
-    "Raport do sonic-void inbox"
-  ]
+  "pending": []
 }
