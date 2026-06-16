@@ -2,7 +2,7 @@
 
 CO: SQLAlchemy model tabeli transcript_jobs.
 
-PO CO: Kolejka zadań dla Local Runner’a (Windows Service na PC Usera).
+PO CO: Kolejka zadań dla Local Runner'a (Windows Service na PC Usera).
 YouTube blokuje youtube-transcript-api z Oracle Cloud VPS IP.
 Rozwiązaniem jest przeniesienie fetchowania transkryptów na lokalne PC,
 które ma normalne IP domowe/biurowe. Ta tabela to szyna komunikacji
@@ -12,25 +12,27 @@ JAK:
 - VPS tworzy job ze statusem 'pending'
 - Local Runner polluje /v1/jobs/pending, pobiera transkrypt, POST-uje wynik
 - Pipeline czeka na status 'fetched', potem kontynuuje
+- Po generowaniu schema zapisywana jest do kolumny schema_data (JSONB)
+- GET /v1/jobs/{id} zwraca pełne dane (w tym schema) dla historii
 """
 import uuid
 from datetime import datetime
 
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
 from api.db import Base
 
 
 class TranscriptJob(Base):
-    """Kolejka zadań transkrypcji dla Local Runner’a.
+    """Kolejka zadań transkrypcji dla Local Runner'a.
 
     Lifecycle:
         pending  → runner pobrał z /v1/jobs/pending
         fetched  → runner zwrócił transkrypt przez /v1/jobs/{id}/result
         processing → pipeline w trakcie generowania SEO
-        done    → pipeline zakończony
+        done    → pipeline zakończony, schema_data zapisane
         failed  → błąd (runner lub pipeline)
     """
     __tablename__ = "transcript_jobs"
@@ -49,6 +51,11 @@ class TranscriptJob(Base):
         index=True,
     )  # pending | fetched | processing | done | failed
     transcript = Column(Text, nullable=True)  # NULL do czasu zwrotu przez runner
+    schema_data = Column(
+        JSONB,
+        nullable=True,
+        default=None,
+    )  # NULL do czasu generowania; potem pełny dict z pipeline.run_generate()
     error = Column(Text, nullable=True)  # NULL jeśli OK
     created_at = Column(
         DateTime(timezone=True),
