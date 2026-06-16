@@ -3,6 +3,8 @@
  * CO: Strona /historia — lista przetworzonych filmów YouTube
  * PO CO: Użytkownik widzi historię swoich generacji SEO z bazy PostgreSQL.
  *        NIE z localStorage, NIE z cache — zawsze z API (/v1/jobs/history).
+ *        Kliknięcie "Otwórz wyniki" przenosi do /dashboard?job_id=X
+ *        gdzie dashboard ładuje pełne dane z DB.
  * JAK: Fetch GET /v1/jobs/history z paginacją, wyświetla tabelę z filmami.
  */
 import { useSession } from 'next-auth/react'
@@ -17,6 +19,8 @@ interface HistoryJob {
   status: string
   error: string | null
   has_vtt: boolean
+  has_schema: boolean
+  post_title: string | null
   created_at: string
   updated_at: string | null
 }
@@ -51,11 +55,12 @@ export default function HistoriaPage() {
 
   const statusBadge = (s: string) => {
     const map: Record<string, { bg: string; text: string; label: string }> = {
-      fetched: { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: 'Pobrano' },
-      pending: { bg: 'bg-yellow-500/10 border-yellow-500/20', text: 'text-yellow-400', label: 'Oczekuje' },
-      processing: { bg: 'bg-blue-500/10 border-blue-500/20', text: 'text-blue-400', label: 'Przetwarzanie' },
-      done: { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: 'Gotowe' },
-      failed: { bg: 'bg-red-500/10 border-red-500/20', text: 'text-red-400', label: 'Błąd' },
+      completed: { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: '✅ Gotowe' },
+      done: { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: '✅ Gotowe' },
+      fetched: { bg: 'bg-blue-500/10 border-blue-500/20', text: 'text-blue-400', label: '📥 Pobrano' },
+      pending: { bg: 'bg-yellow-500/10 border-yellow-500/20', text: 'text-yellow-400', label: '⏳ W kolejce' },
+      processing: { bg: 'bg-blue-500/10 border-blue-500/20', text: 'text-blue-400', label: '⏳ W trakcie' },
+      failed: { bg: 'bg-red-500/10 border-red-500/20', text: 'text-red-400', label: '❌ Błąd' },
     }
     const style = map[s] || { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-400', label: s }
     return (
@@ -159,10 +164,15 @@ export default function HistoriaPage() {
                             className="w-16 h-12 rounded object-cover flex-shrink-0"
                           />
                         )}
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-white truncate">
-                            {job.video_url}
+                            {job.post_title || job.video_url}
                           </p>
+                          {job.post_title && (
+                            <p className="text-xs text-gray-600 truncate mt-0.5">
+                              {job.video_url}
+                            </p>
+                          )}
                           <div className="flex items-center gap-2 mt-1">
                             {statusBadge(job.status)}
                             {job.has_vtt && (
@@ -178,16 +188,36 @@ export default function HistoriaPage() {
                         <p className="text-xs text-red-400 mt-1 ml-[76px]">{job.error}</p>
                       )}
                     </div>
-                    {job.video_id && (
-                      <a
-                        href={`https://www.youtube.com/watch?v=${job.video_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-gray-500 hover:text-violet-400 transition-colors flex-shrink-0 ml-4"
-                      >
-                        YT →
-                      </a>
-                    )}
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                      {/* Otwórz wyniki — widoczny gdy schema jest dostępna */}
+                      {job.has_schema && (
+                        <Link
+                          href={`/dashboard?job_id=${job.id}`}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600/15 text-violet-400 border border-violet-500/25 hover:bg-violet-600/25 hover:border-violet-500/40 transition-all flex items-center gap-1.5"
+                        >
+                          🔍 Otwórz wyniki →
+                        </Link>
+                      )}
+                      {/* Generuj ponownie — gdy brak schema */}
+                      {!job.has_schema && (job.status === 'fetched' || job.status === 'done') && (
+                        <Link
+                          href={`/dashboard`}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-800 text-gray-400 border border-gray-700 hover:text-white hover:border-gray-600 transition-all"
+                        >
+                          Generuj →
+                        </Link>
+                      )}
+                      {job.video_id && (
+                        <a
+                          href={`https://www.youtube.com/watch?v=${job.video_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gray-500 hover:text-violet-400 transition-colors"
+                        >
+                          YT →
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
