@@ -1,11 +1,13 @@
 {
-  "callsign": "vse-analyst-01",
-  "status": "done",
-  "current_task": "Admin Panel Audit — diagnoza kompletna",
-  "timestamp": "2026-06-16T19:37:00Z",
-  "last_completed": [
-    "video-seo-engine: .agents/reports/2026-06-16_vse-analyst-01_admin-panel-audit.md — commit fcb6257",
-    "sonic-void inbox: .agents/reports/inbox/2026-06-16_vse-analyst-01_admin-panel-audit.md — commit 3903eb6"
-  ],
-  "pending": []
+  "callsign": "vse-dev-09",
+  "status": "working",
+  "current_task": "Dashboard UI D2+D3 + NEXT_PUBLIC_API_URL fix",
+  "timestamp": "2026-06-16T19:42:00Z",
+  "last_completed": [],
+  "pending": [
+    "ETAP 1: Fix NEXT_PUBLIC_API_URL",
+    "ETAP 2: D2 Zakładki Artykuł+Rozdziały",
+    "ETAP 3: D3 Inject One-Click Modal",
+    "ETAP 4: Deploy + weryfikacja"
+  ]
 }
