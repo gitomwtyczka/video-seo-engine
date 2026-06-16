@@ -2,13 +2,18 @@
 Admin router: user management for administrators.
 
 CO: Endpointy zarządzania użytkownikami — lista, szczegóły, zmiana planu.
+    Dodatkowo: GET/POST /v1/admin/debug-mode — przełącznik trybu debug.
 PO CO: Admin może zarządzać subskrypcjami bez logowania do bazy SQL na VPS.
        Wcześniej zmiana planu wymagała ręcznego SQL (np. tobroz@gmail.com → agency).
+       Tryb debug pozwala włączyć verbose logging bez restartu kontenera.
 JAK: Używa get_current_admin dependency (wymaga is_admin=True na koncie).
      Endpointy pod /v1/admin/* — chronione przez JWT + is_admin check.
+     debug-mode przechowywany w tabeli app_settings (klucz: debug_mode).
 """
 from datetime import datetime, timezone
 from typing import Optional, List
+import logging
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,6 +25,9 @@ from sqlalchemy.orm import selectinload
 from api.db import get_db
 from api.auth import get_current_admin
 from api.models.user import User, Plan, UsageLog
+from api.models.app_settings import AppSettings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -67,6 +75,14 @@ class AdminStatsResponse(BaseModel):
     users_by_plan: dict
     active_users_30d: int
     generations_today: int
+
+
+class DebugModeResponse(BaseModel):
+    enabled: bool
+
+
+class DebugModeRequest(BaseModel):
+    enabled: bool
 
 
 # --- Helpers ---
@@ -272,3 +288,63 @@ async def get_admin_stats(
         active_users_30d=active_users_30d,
         generations_today=generations_today,
     )
+
+
+@router.get("/debug-mode", response_model=DebugModeResponse)
+async def get_debug_mode(
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    CO: Zwraca aktualny stan trybu debug (enabled/disabled).
+    PO CO: Admin panel odczytuje stan przy załadowaniu strony.
+    JAK: Odczytuje klucz 'debug_mode' z tabeli app_settings.
+         Jeśli nie ma wpisu — zwraca enabled=False (domyślny stan).
+         Env DEBUG_MODE ma wyższy priorytet niż BD.
+    """
+    # Env variable takes precedence
+    env_debug = os.getenv("DEBUG_MODE", "").lower()
+    if env_debug in ("true", "false"):
+        return DebugModeResponse(enabled=(env_debug == "true"))
+
+    result = await db.execute(
+        select(AppSettings).where(AppSettings.key == "debug_mode")
+    )
+    setting = result.scalar_one_or_none()
+    enabled = setting is not None and setting.value == "true"
+    return DebugModeResponse(enabled=enabled)
+
+
+@router.post("/debug-mode", response_model=DebugModeResponse)
+async def set_debug_mode(
+    payload: DebugModeRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    CO: Włącza lub wyłącza tryb debug.
+    PO CO: Admin może włączyć verbose logging bez SSH na VPS i bez restartu kontenera.
+           ErrorLoggingMiddleware czyta DEBUG_MODE z env — zapis do BD jest sygnałem
+           dla przyszłych restartów lub widgetów UI.
+    JAK: UPSERT do tabeli app_settings (key=debug_mode, value=true/false).
+         Ustawia też env var DEBUG_MODE w biejącym procesie (działa do restartu).
+    """
+    value = "true" if payload.enabled else "false"
+
+    # Update env var in current process (live effect without restart)
+    os.environ["DEBUG_MODE"] = value
+
+    # Persist in DB for UI state
+    result = await db.execute(
+        select(AppSettings).where(AppSettings.key == "debug_mode")
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = value
+    else:
+        db.add(AppSettings(key="debug_mode", value=value))
+
+    await db.commit()
+    logger.info("Debug mode set to %s by admin %s", value, admin.email)
+    return DebugModeResponse(enabled=payload.enabled)
