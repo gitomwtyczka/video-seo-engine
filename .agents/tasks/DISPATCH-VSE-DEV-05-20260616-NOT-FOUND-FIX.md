@@ -1,4 +1,4 @@
-# DISPATCH — vse-dev-05 | Naprawa „Not Found” przy generowaniu SEO
+# DISPATCH — vse-dev-05 | Naprawa „Not Found” + plan upgrade
 
 **ID:** DISPATCH-VSE-DEV-05-20260616-NOT-FOUND-FIX  
 **Data:** 2026-06-16  
@@ -27,7 +27,7 @@ Przedtem system nie działał w ogóle (Oracle Cloud IP ban blokował transkrypt
 
 ---
 
-## Problem do naprawy
+## Zadanie 1 — Naprawa „Not Found” (P0)
 
 **Symptom:** Na dashboardzie `vse.impresjapr.pl/dashboard` po wklejeniu URL YouTube i kliknięciu „Generuj SEO” — pojawia się:
 ```
@@ -41,55 +41,74 @@ W crimson-void kolejność bloków w `nginx/default.conf` jest KRYTYCZNA:
 - `/api/auth/` musi być PRZED `/api/` (NextAuth przed FastAPI)
 - Jeśli DEV-04 dodał `/v1/` w złym miejscu — może zakłócać routing `/v1/generate` lub `/v1/inject`
 
-**Alternatywna hipoteza:** Frontend wywołuje inny endpoint niż ten który istnieje w FastAPI (np. `/v1/generate` vs `/api/v1/generate`).
+**Alternatywna hipoteza:** Frontend wywołuje inny endpoint niż ten który istnieje w FastAPI.
+
+### Kroki:
+1. Przeczytaj `nginx/default.conf` z crimson-void (GitHub MCP, branch main)
+2. Przeczytaj `api/routers/` — jakie endpointy istnieją?
+3. Przeczytaj frontend — co wywołuje po kliknięciu „Generuj SEO”?
+4. Porównaj routing — znajdź rozbiezność
+5. Naprawa minimalna i precyzyjna
+6. Deploy: `docker compose up -d --no-deps --force-recreate vse-api` i/lub `nginx`
+7. Test: wklej URL YouTube → kliknij Generuj SEO → brak błędu
+
+**Zasady nginx (KRYTYCZNE):**
+```
+/api/auth/  ZAWSZE PIERWSZE  (NextAuth)
+/api/       ZAWSZE DRUGIE    (Next.js)
+/v1/        TRZECIE          (FastAPI)
+/           OSTATNIE         (Next.js fallback)
+```
 
 ---
 
-## Twoje zadanie
+## Zadanie 2 — Upgrade planu użytkownika (P1)
 
-### Krok 1 — Diagnoza
+**żądanie:** Użytkownik `tobroz@gmail.com` (loguje się przez Google OAuth) ma plan `Free`. Powinien mieć najwyższy dostępny plan.
 
-Przed jakimikolwiek zmianami:
-
-1. Przeczytaj aktualny `nginx/default.conf` z crimson-void (GitHub MCP, branch main)
-2. Przeczytaj aktualny `api/routers/` — jakie endpointy istnieją?
-3. Przeczytaj frontend — co wywołuje po kliknięciu „Generuj SEO”? Sprawdz `web/src/` lub `frontend/` — fetch/axios call do jakiego URL?
-4. Porównaj: czy nginx ma location dla tego endpointu? Czy proxy_pass jest na właściwy port?
-
-### Krok 2 — Fix
-
-Naprawa musi być minimalna i precyzyjna:
-- Jeśli problem w nginx: popraw tylko kolejność lub brakujący `location` block
-- Jeśli problem w froncie: popraw URL endpointu
-- Jeśli problem w FastAPI: dodaj brakujący router/endpoint
-
-### Krok 3 — Deploy i weryfikacja
-
+### Kroki:
+1. SSH na Oracle ARM:
 ```bash
-# SSH na oracle
 ssh -i ~/.ssh/oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100
-
-# Rebuild tylko niezbędnych kontenerów
-cd /home/ubuntu/video-seo-engine
-git pull origin main
-docker compose up -d --no-deps --force-recreate vse-api
-# i/lub
-docker compose up -d --no-deps --force-recreate nginx
 ```
 
-**Test weryfikacyjny:**
-- Wklej URL YouTube na `vse.impresjapr.pl/dashboard`
-- Kliknij „Generuj SEO”
-- Oczekiwany wynik: generowanie działa (może zwrócić transcript pending — to OK)
+2. Wejdź do bazy danych:
+```bash
+cd /home/ubuntu/video-seo-engine
+docker compose exec db psql -U postgres -d vse_db
+```
+
+3. Znajdź użytkownika i sprawdź strukturę:
+```sql
+-- Sprawdź tabelę users
+SELECT id, email, plan, created_at FROM users WHERE email = 'tobroz@gmail.com';
+
+-- Sprawdź jakie plany istnieją w systemie
+SELECT DISTINCT plan FROM users;
+```
+
+4. Upgrade planu:
+```sql
+-- Ustaw najwyższy plan (sprawdź nazwę planu w kodzie najpierw!)
+-- Możliwe wartości: 'agency', 'pro', 'enterprise', 'admin' — sprawdź enum w modelu
+UPDATE users SET plan = '[NAJWYŻSZY_PLAN]' WHERE email = 'tobroz@gmail.com';
+
+-- Weryfikacja
+SELECT id, email, plan FROM users WHERE email = 'tobroz@gmail.com';
+```
+
+5. Przed wykonaniem UPDATE — przeczytaj model User w `api/models/` żeby znać dostępne wartości enum planu.
+
+**Po wykonaniu:** zaloguj się jako tobroz@gmail.com i sprawdź czy dashboard pokazuje zmieniony plan.
 
 ---
 
 ## Ważne zasady (nie łam!)
 
-1. **nginx kolejność:** `/api/auth/` ZAWSZE przed `/api/` ZAWSZE przed `/v1/` ZAWSZE przed `/` (location specificity)
-2. **Nie ruszaj** `dc3709f` — Local Runner działa, nie psuj
-3. **Nie ruszaj** `125477c` — logowanie naprawione
-4. Testuj na SSH po każdej zmianie nginx: `docker compose logs nginx --tail=20`
+1. **Nie ruszaj** `dc3709f` — Local Runner działa, nie psuj
+2. **Nie ruszaj** `125477c` — logowanie naprawione
+3. Testuj po każdej zmianie nginx: `docker compose logs nginx --tail=20`
+4. Backup przed UPDATE w bazie: `SELECT * FROM users WHERE email = 'tobroz@gmail.com';` zapisz wynik w raporcie
 
 ---
 
@@ -116,10 +135,11 @@ FastAPI :8085:
 Twoja sesja jest kompletna gdy:
 - [ ] Heartbeat `"status": "done"` z commit SHA
 - [ ] Generuj SEO na `vse.impresjapr.pl/dashboard` działa bez błędu
+- [ ] `tobroz@gmail.com` — plan ustawiony na najwyższy, widoczny na dashboardzie
 - [ ] Raport w `video-seo-engine/.agents/reports/2026-06-16_vse-dev-05_not-found-fix.md`
 - [ ] Raport w `sonic-void/.agents/reports/inbox/2026-06-16_vse-dev-05_not-found-fix.md`
-- [ ] `project_status.json` w sonic-void zaktualizowany (pole `video-seo-engine`)
+- [ ] `project_status.json` w sonic-void zaktualizowany
 
 ---
 
-*Supervisor 01 | sonic-void | 2026-06-16 14:14*
+*Supervisor 01 | sonic-void | 2026-06-16 14:15 (update: +plan upgrade tobroz@gmail.com)*
