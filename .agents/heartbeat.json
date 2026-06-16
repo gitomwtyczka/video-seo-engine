@@ -1,11 +1,14 @@
 {
-  "callsign": "arch-senior-01",
-  "status": "working",
-  "current_task": "Synteza 4 raportów analitycznych → docs/ARCHITECTURE_decisions.md",
-  "timestamp": "2026-06-16T18:20:00Z",
-  "last_completed": [],
-  "pending": [
-    "docs/ARCHITECTURE_decisions.md — synteza ADR",
-    "dual-write reports do sonic-void inbox"
-  ]
+  "callsign": "vse-runner-01",
+  "status": "done",
+  "current_task": "Fix Local Runner Windows Service — VTT fix DEV-06 + NSSM migration",
+  "timestamp": "2026-06-16T18:24:00Z",
+  "last_completed": [
+    "git checkout origin/main -- local-runner/runner.py (DEV-06 VTT fix dostarczony)",
+    "Diagnoza root cause: pywin32 niekompletna instalacja (pythonservice.exe = 20KB stub)",
+    "Migracja serwisu: pywin32 → NSSM (choco install nssm)",
+    "pip install globalnie do C:\\Python314\\Lib\\site-packages (LocalSystem access)",
+    "VSELocalRunner Status: Running — 2026-06-16 18:23:34 — DEV-06 __VTT__ potwierdzony w logu"
+  ],
+  "pending": []
 }
