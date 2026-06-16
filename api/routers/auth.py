@@ -54,6 +54,21 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class GoogleTokenExchangeRequest(BaseModel):
+    """
+    CO: Żądanie wymiany tokenu Google na token VSE.
+
+    PO CO: NextAuth GoogleProvider dostarcza id_token podpisany przez Google.
+    Frontned nie posiada naszego backend JWT — dopiero po zamianie tutaj
+    uzyskuje token VSE, z którym może pobrać plan/is_admin przez /v1/users/me.
+
+    JAK: NextAuth jwt callback → POST /v1/auth/google/token-exchange
+    z id_token z konta Google → backend weryfikuje przez Google tokeninfo,
+    upsertuje usera, zwraca nasz JWT pair.
+    """
+    id_token: str
+
+
 # --- Endpoints ---
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -139,6 +154,94 @@ async def refresh_token(payload: RefreshRequest, db: AsyncSession = Depends(get_
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise credentials_exception
+
+    return TokenResponse(
+        access_token=create_access_token(str(user.id), user.email),
+        refresh_token=create_refresh_token(str(user.id))
+    )
+
+
+@router.post("/google/token-exchange", response_model=TokenResponse)
+async def google_token_exchange(
+    payload: GoogleTokenExchangeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    CO: Wymienia Google id_token na parę JWT VSE (access_token + refresh_token).
+
+    PO CO: NextAuth GoogleProvider nie przekazuje naszego backend JWT do jwt callback.
+    Ten endpoint uzupełnia brakujące ogniwo: NextAuth dostaje Google id_token
+    z account.id_token, wysyła go tutaj, dostaje nasz JWT, zapisuje do sesji.
+    Dzięki temu plan i is_admin są dostępne natychmiast po pierwszym logowaniu,
+    bez czekania 5 minut na refresh.
+
+    JAK:
+    1. Weryfikuje Google id_token przez Google tokeninfo endpoint
+    2. Pobiera google_id (sub) i email
+    3. Upsertuje usera w bazie (create or link by email)
+    4. Zwraca nasz JWT pair — identycznie jak POST /v1/auth/login
+    """
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth not configured"
+        )
+
+    # Verify the Google id_token via Google's tokeninfo endpoint
+    async with httpx.AsyncClient() as client:
+        tokeninfo_resp = await client.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": payload.id_token},
+        )
+
+    if tokeninfo_resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google id_token"
+        )
+
+    tokeninfo = tokeninfo_resp.json()
+
+    # Verify the token was issued for our app (security check)
+    if tokeninfo.get("aud") != GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google id_token audience mismatch"
+        )
+
+    google_id = tokeninfo.get("sub")
+    email = tokeninfo.get("email")
+    full_name = tokeninfo.get("name")
+    email_verified = tokeninfo.get("email_verified") == "true"
+
+    if not google_id or not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing required fields in Google id_token"
+        )
+
+    # Upsert user — identycznie jak w /google/callback
+    result = await db.execute(select(User).where(User.google_id == google_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Check if email already exists (link accounts)
+        result2 = await db.execute(select(User).where(User.email == email))
+        user = result2.scalar_one_or_none()
+        if user:
+            user.google_id = google_id
+        else:
+            user = User(
+                email=email,
+                full_name=full_name,
+                google_id=google_id,
+                plan_id="free",
+                is_verified=email_verified
+            )
+            db.add(user)
+
+    await db.commit()
+    await db.refresh(user)
 
     return TokenResponse(
         access_token=create_access_token(str(user.id), user.email),
