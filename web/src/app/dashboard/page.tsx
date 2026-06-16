@@ -15,6 +15,7 @@
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import Link from 'next/link'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -719,9 +720,9 @@ export default function DashboardPage() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
-          <NavItem icon="grid" label="Dashboard" active />
-          <NavItem icon="clock" label="Historia" />
-          <NavItem icon="settings" label="Ustawienia" />
+          <NavItem icon="grid" label="Dashboard" href="/dashboard" active />
+          <NavItem icon="clock" label="Historia" href="/historia" />
+          <NavItem icon="settings" label="Ustawienia" href="/ustawienia" />
         </nav>
 
         {/* User info + plan */}
@@ -810,6 +811,7 @@ export default function DashboardPage() {
 
           {/* ─── Empty state stats ────────────────────────────────────────── */}
           {!result && !loading && (
+            <>
             <div className="grid grid-cols-3 gap-4 mb-8">
               {[
                 { label: 'Filmy w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
@@ -823,6 +825,10 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+
+            {/* ─── WP Integration Panel (always visible) ────────────────────── */}
+            <WpQuickPanel />
+            </>
           )}
 
           {/* ─── Results ──────────────────────────────────────────────────── */}
@@ -1144,11 +1150,11 @@ export default function DashboardPage() {
 // ─── NavItem ──────────────────────────────────────────────────────────────────
 
 /**
- * CO: NavItem — element nawigacji w sidebarze
- * PO CO: Spójna wizualnie nawigacja z aktywnym stanem.
- * JAK: Prosty przycisk z ikoną SVG i labelem, highlight gdy active=true.
+ * CO: NavItem — element nawigacji w sidebarze z routingiem
+ * PO CO: Spójna wizualnie nawigacja z aktywnym stanem i prawdziwymi linkami.
+ * JAK: Next.js Link z ikoną SVG i labelem, highlight gdy active=true.
  */
-function NavItem({ icon, label, active }: { icon: string; label: string; active?: boolean }) {
+function NavItem({ icon, label, href, active }: { icon: string; label: string; href: string; active?: boolean }) {
   const icons: Record<string, React.ReactNode> = {
     grid: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1168,7 +1174,8 @@ function NavItem({ icon, label, active }: { icon: string; label: string; active?
     ),
   }
   return (
-    <button
+    <Link
+      href={href}
       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
         active
           ? 'bg-violet-600/10 text-violet-400'
@@ -1177,6 +1184,95 @@ function NavItem({ icon, label, active }: { icon: string; label: string; active?
     >
       {icons[icon]}
       {label}
-    </button>
+    </Link>
+  )
+}
+
+// ─── WpQuickPanel ─────────────────────────────────────────────────────────────
+
+/**
+ * CO: WpQuickPanel — stały panel konfiguracji WordPress na dashboardzie
+ * PO CO: Użytkownik widzi panel WP OD RAZU po zalogowaniu — nie musi generować
+ *        schema żeby zobaczyć sekcję publikacji. Credentials zapamiętane w localStorage.
+ * JAK: Collapsible panel z formularzem WP credentials. Pokazuje status połączenia.
+ */
+function WpQuickPanel() {
+  const [expanded, setExpanded] = useState(false)
+  const creds = loadWpCredentials()
+  const hasCredentials = creds.wpUser && creds.wpPassword && creds.wpUrl !== 'https://'
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-8">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-800/30 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-sm">
+            🔗
+          </div>
+          <div className="text-left">
+            <p className="text-sm font-medium text-white">Integracja WordPress</p>
+            <p className="text-xs text-gray-500">
+              {hasCredentials ? `Skonfigurowano: ${creds.wpUrl}` : 'Skonfiguruj portal do publikacji'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {hasCredentials && (
+            <span className="px-2 py-0.5 text-xs bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
+              ✓ Połączono
+            </span>
+          )}
+          <svg
+            className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-5 pb-5 border-t border-gray-800">
+          <p className="text-xs text-gray-400 mt-3 mb-3">
+            Dane logowania będą użyte przy publikacji artykułu. Zapamiętywane w przeglądarce (localStorage).
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">URL portalu WordPress</label>
+              <input
+                type="text"
+                defaultValue={creds.wpUrl}
+                onBlur={(e) => saveWpCredentials({ ...loadWpCredentials(), wpUrl: e.target.value })}
+                placeholder="https://twojportal.pl"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Użytkownik WP</label>
+                <input
+                  type="text"
+                  defaultValue={creds.wpUser}
+                  onBlur={(e) => saveWpCredentials({ ...loadWpCredentials(), wpUser: e.target.value })}
+                  placeholder="admin"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Application Password</label>
+                <input
+                  type="password"
+                  defaultValue={creds.wpPassword}
+                  onBlur={(e) => saveWpCredentials({ ...loadWpCredentials(), wpPassword: e.target.value })}
+                  placeholder="xxxx xxxx xxxx xxxx"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
