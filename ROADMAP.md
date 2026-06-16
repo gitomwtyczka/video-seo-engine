@@ -1,6 +1,6 @@
 # VSE — Video SEO Engine | Roadmap Produktowy
 
-> Ostatnia aktualizacja: 2026-06-16 | Supervisor 02  
+> Ostatnia aktualizacja: 2026-06-16 | Supervisor 03  
 > Status: 🟢 Faza 3 KOMPLETNA → Faza 4 w planowaniu
 
 ---
@@ -95,6 +95,27 @@ vse.impresjapr.pl
 
 ---
 
+## ⚙️ Zasady operacyjne — Local Runner
+
+> Wprowadzone: 2026-06-16 | Supervisor 03
+
+### 🔒 ZASADA: Runner musi być standalone
+
+**Local Runner (Windows Service) MUSI działać bez doinstalowywania jakichkolwiek zewnętrznych komponentów na maszynie użytkownika.**
+
+- ✅ Wszystkie zależności bundlowane w paczce instalacyjnej (`runner.exe` lub folder z `requirements.txt` + venv bootstrapped)
+- ✅ Instalacja = rozpakuj + uruchom install script — zero manualnych kroków
+- ✅ Aktualizacje przez `git fetch + git checkout` konkretnego pliku — nie `git pull` (risk: untracked conflicts)
+- ❌ Zakaz: wymagania instalacji Python osobno przez użytkownika
+- ❌ Zakaz: wymagania ręcznego pip install przed startem
+- ❌ Zakaz: zależność od globalnego środowiska systemowego
+
+**Powód:** Każda dodatkowa zależność to bloker wdrożenia. Celem jest instalacja w 5 minut na dowolnym Windows 10+ bez wiedzy technicznej.
+
+**Target architecture (Faza 4+):** Self-contained `.exe` (PyInstaller) lub skrypt z embedded venv bootstrapem.
+
+---
+
 ## Plany i Ceny
 
 | Plan | Cena | Procesy/mies. | Portale WP | YouTube Channel | API |
@@ -109,7 +130,7 @@ vse.impresjapr.pl
 ## ✅ Faza 1 — Infrastruktura Core DONE
 
 | Commit | Co | Kiedy |
-|--------|----|---------|
+|--------|----|-------|
 | `2c0c31e` | FastAPI + pipeline | 2026-06-14 |
 | `7eb5288`–`54fb5d9` | Local Runner (Windows Service) | 2026-06-16 |
 | `9fb1f85` | nginx fix /v1/ → FastAPI | 2026-06-16 |
@@ -210,8 +231,7 @@ Podgląd co zostanie wysłane:
 Potwierdzenie: link do posta WP
 ```
 
-**Scope:** `web/src/app/dashboard/` + `api/routers/inject.py` (weryfikacja)
-
+**Scope:** `web/src/app/dashboard/` + `api/routers/inject.py` (weryfikacja)  
 **Priorytet:** P1. Dispatch D2+D3 gotowy do wysłania.
 
 ---
