@@ -12,6 +12,7 @@ JAK:
 2. GET  /v1/jobs/pending  — runner (Bearer LOCAL_RUNNER_TOKEN) pobiera zadania
 3. POST /v1/jobs/{id}/result — runner zwraca transkrypt
 4. GET  /v1/jobs/{id}     — polling statusu (JWT lub runner)
+5. GET  /v1/jobs/history  — lista jobów (dla strony /historia)
 
 Security (SUPPLEMENT-VSE-DEV-04-20260615-SECURITY):
 - LOCAL_RUNNER_TOKEN: min 256-bit entropy (secrets.token_urlsafe(32))
@@ -37,9 +38,9 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import AsyncSessionLocal
@@ -241,6 +242,26 @@ class JobResponse(BaseModel):
         from_attributes = True
 
 
+class HistoryJobResponse(BaseModel):
+    """Rozszerzony response dla historii — zawiera tytuł z YT URL.
+
+    CO: Model odpowiedzi dla endpointu GET /v1/jobs/history.
+    PO CO: Strona /historia potrzebuje więcej danych niż JobResponse
+    — tytuł wideo, czas przetworzenia, link do YouTube.
+    """
+    id: str
+    video_url: str
+    video_id: Optional[str] = None
+    status: str
+    error: Optional[str] = None
+    has_vtt: bool = False
+    created_at: str
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -294,6 +315,41 @@ async def get_pending_jobs(
     jobs = result.scalars().all()
     logger.info("[jobs] /pending: %d jobs returned for runner", len(jobs))
     return [_job_to_response(j) for j in jobs]
+
+
+@router.get("/history", response_model=List[HistoryJobResponse])
+async def get_job_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(_get_db),
+) -> List[HistoryJobResponse]:
+    """Zwraca historię jobów transkrypcji (wszystkie statusy).
+
+    CO: Endpoint dla strony /historia — lista przetworzonych filmów.
+
+    PO CO: Użytkownik widzi co już przetworzył: jakie filmy, kiedy,
+    z jakim wynikiem. Historia jest z PostgreSQL — nie localStorage.
+    To nienaruszalna zasada architektoniczna (patrz ROADMAP.md).
+
+    JAK: SELECT z transcript_jobs ORDER BY created_at DESC, paginacja.
+    Nie filtruje po user_id — w MVP jest jeden użytkownik (Admin/Agency).
+    W przyszłości: filtrowanie po user_id z JWT tokenu.
+
+    Args:
+        limit: Maks. liczba wyników (domyślnie 50, max 200).
+        offset: Przesunięcie dla paginacji.
+
+    Returns:
+        Lista HistoryJobResponse posortowana od najnowszych.
+    """
+    result = await db.execute(
+        select(TranscriptJob)
+        .order_by(desc(TranscriptJob.created_at))
+        .offset(offset)
+        .limit(limit)
+    )
+    jobs = result.scalars().all()
+    return [_job_to_history_response(j) for j in jobs]
 
 
 @router.post("/{job_id}/result", response_model=dict)
@@ -381,6 +437,21 @@ async def get_job(
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _extract_video_id_from_url(url: str) -> Optional[str]:
+    """Wyciąga YouTube video ID z URL."""
+    import re
+    patterns = [
+        r'(?:youtube\.com/watch\?v=)([a-zA-Z0-9_-]{11})',
+        r'(?:youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'(?:youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, url)
+        if m:
+            return m.group(1)
+    return None
+
+
 def _job_to_response(job: TranscriptJob) -> JobResponse:
     """Konwertuje ORM model na Pydantic response."""
     return JobResponse(
@@ -388,6 +459,22 @@ def _job_to_response(job: TranscriptJob) -> JobResponse:
         video_url=job.video_url,
         status=job.status,
         error=job.error,
+        created_at=job.created_at.isoformat() if job.created_at else "",
+        updated_at=job.updated_at.isoformat() if job.updated_at else None,
+    )
+
+
+def _job_to_history_response(job: TranscriptJob) -> HistoryJobResponse:
+    """Konwertuje ORM model na rozszerzony response dla historii."""
+    video_id = _extract_video_id_from_url(job.video_url) if job.video_url else None
+    has_vtt = bool(job.transcript and job.transcript.startswith("__VTT__"))
+    return HistoryJobResponse(
+        id=str(job.id),
+        video_url=job.video_url,
+        video_id=video_id,
+        status=job.status,
+        error=job.error,
+        has_vtt=has_vtt,
         created_at=job.created_at.isoformat() if job.created_at else "",
         updated_at=job.updated_at.isoformat() if job.updated_at else None,
     )
