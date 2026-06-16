@@ -6,7 +6,7 @@
 
 ---
 
-# TASK: vse-dev-09 — Env Fix + D2+D3 Dashboard UI + Inject One-Click
+# TASK: vse-dev-09 — Env Fix + D2+D3 Dashboard + UX Fixes
 
 **Data:** 2026-06-16  
 **Dispatch from:** Supervisor 03  
@@ -24,127 +24,138 @@ Przed czymkolwiek przeczytaj przez GitHub MCP:
 
 ## Twój deliverable:
 
-1. **Fix `NEXT_PUBLIC_API_URL`** — admin panel i dashboard client-side fetch trafiają na złą ścieżkę
-2. **D2** — Dashboard: zakładki Artykuł + Rozdziały (zamiast surowego JSON)
-3. **D3** — Inject one-click: modal z polami WP zamiast copy-paste
-4. **Jeden rebuild** na końcu
-5. **Weryfikacja** admin panelu po rebuildie
+1. Fix `NEXT_PUBLIC_API_URL` (naprawia admin panel)
+2. D2 — Dashboard: zakładki Artykuł + Rozdziały z prawdziwymi czasami
+3. D3 — Panel WP widoczny od razu (nie dopiero po obróbce)
+4. Inject one-click modal
+5. Historia z bazy danych (nie localStorage/cache)
+6. Historia i Ustawienia klikalne
+7. Jeden rebuild + weryfikacja
 
 ---
 
 ## ETAP 1 — Fix NEXT_PUBLIC_API_URL (ZRÓB PIERWSZE)
 
-### Diagnoza (znana, nie odkrywaj ponownie):
-
-Agent `vse-analyst-01` zidentyfikował root cause admin panelu:
-
+**Problem (znany, nie odkrywaj ponownie):**
 ```
-NEXT_PUBLIC_API_URL = "https://vse.impresjapr.pl/api"   ← ZLE
+NEXT_PUBLIC_API_URL = "https://vse.impresjapr.pl/api"  ← ZLE
 fetch → /api/v1/admin/users → 404 ❌
 
 Powinno być:
-NEXT_PUBLIC_API_URL = "https://vse.impresjapr.pl"       ← DOBRZE
-fetch → /v1/admin/users → 401 (bez tokenu) ✅
+NEXT_PUBLIC_API_URL = "https://vse.impresjapr.pl"      ← DOBRZE
+fetch → /v1/admin/users → poprawnie ✅
 ```
 
-**UWAGA:** `NEXT_PUBLIC_*` zmienne są wbudowane w build Next.js (baked at build time). Sama zmiana env w docker-compose bez rebuildu NIE wystarczy.
-
-### Jak znaleźć gdzie jest ta zmienna:
-
-```powershell
-# Sprawdź na VPS:
-ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker inspect vse-web | grep -i API_URL"
-ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "cat /opt/vse/docker-compose.vse.yml | grep -A5 NEXT_PUBLIC"
-```
-
-Jak znajdziesz plik — zmień `NEXT_PUBLIC_API_URL` na `https://vse.impresjapr.pl` (bez `/api`).
-Plik docker-compose zmień przez GitHub MCP, jeśli jest w repo.
+Znajdź zmienną w docker-compose lub `.env`, zmień przez GitHub MCP.
+`NEXT_PUBLIC_*` jest wbudowane w build — sama zmiana bez rebuildu NIE wystarczy.
 
 ---
 
-## ETAP 2 — D2: Zakładki Artykuł + Rozdziały
+## ETAP 2 — Rozdzialy z prawidłowymi czasami (VTT fix diagnoza)
 
-Aktualnie `/dashboard` pokazuje tylko JSON-LD schema. Dodaj zakładki:
+**Problem:** Użytkownik zgadza, że timestamps rozdziałów nadal = 0, wpisy puste.
+
+DEV-06 miał to naprawić (format `__VTT__\n[MM:SS] tekst`). Zbadaj:
+
+1. Sprawdź `api/services/pipeline.py` przez GitHub MCP — czy parser `__VTT__` jest poprawny
+2. Sprawdź `api/routers/jobs.py` — czy sanitize zachowuje timestamps
+3. Sprawdź co zwraca API w polu `schema_data.chapters` dla przetworzonego joba — SSH:
+   ```powershell
+   ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker exec [API_CONTAINER] curl -s http://localhost:8085/v1/jobs/[JOB_ID] | python3 -m json.tool | grep -A5 chapter"
+   ```
+4. Jeśli backend zwraca poprawne czasy — problem jest w renderowaniu frontend (`page.tsx`)
+5. Jeśli backend zwraca 0 — problem w pipeline, napraw tam
+
+**Cel:** Użytkownik widzi `[02:15] Tytuł rozdziału` a nie `[00:00] `
+
+---
+
+## ETAP 3 — D3: Panel WP od razu widoczny
+
+**Problem:** Panel logowania do portalu WP pojawia się dopiero po obróbce linka.
+**Oczekiwanie:** Formularz z polami URL+credentials powinien być widoczny od początku (domyślnie otwarty lub jako boczny panel).
+
+Implementacja MVP:
+```
+/dashboard:
+  Po lewej lub na dole — panel stały:
+    [ URL portalu WP      ]
+    [ WP Username         ]
+    [ WP App Password     ]
+    [Wyślij do portalu] ← aktywny dopiero gdy jest wygenerowane schema
+```
+
+Zapis credentials w `localStorage` = akceptowalny MVP.
+
+---
+
+## ETAP 4 — D2: Zakładki Artykuł + Rozdziały
 
 ```
 /dashboard — po generowaniu:
 ├── Zakładka: Schemat (obecny JSON-LD) ← ZOSTAJE
 ├── Zakładka: Artykuł [NOWE]
-│   ├── Lead (lead)
-│   ├── Treść artykułu (article_body)
-│   ├── Cytaty (quotes[])
-│   └── FAQ
+│   ├── Lead, Treść, Cytaty, FAQ
 ├── Zakładka: Rozdziały [NOWE]
-│   └── Lista: [02:15] Tytuł rozdziału
-└── Akcje:
-    ├── [Kopiuj JSON-LD]
-    ├── [Kopiuj artykuł]
-    └── [Wyślij do portalu] → D3
+│   └── [02:15] Tytuł — z prawdziwymi czasami
+└── Akcje: Kopiuj / Wyślij
 ```
-
-**Plik:** `web/src/app/dashboard/page.tsx`
-
-Przed edycją przeczytaj przez GitHub MCP:
-- `web/src/app/dashboard/page.tsx` — aktualny kod
-- `api/routers/generate.py` — co zwraca API (jakie pola)
-
-Użyj fetch z `BACKEND_URL` (server-side) zamiast `NEXT_PUBLIC_API_URL` (client-side) tam gdzie to możliwe. Jeśli musisz użyć client-side — użyj wzorca `fetch('/v1/...')` (relatywna ścieżka bez hosta).
 
 ---
 
-## ETAP 3 — D3: Inject One-Click Modal
+## ETAP 5 — Historia: baza danych (KRYTYCZNE)
 
-Aktualnie inject wymaga ręcznego wpisania URL+credentials przy każdym użyciu. Cel MVP:
+**Zasada architektoniczna (nienaruszalna):**
+> Historia procesowania musi być pobierana z bazy danych PostgreSQL.
+> NIE z localStorage, NIE z sessionStorage, NIE z żadnego lokalnego cache.
 
-```
-Klik [Wyślij do portalu]
-    ↓
-Modal:
-  - URL portalu WP (np. https://prawy.pl)
-  - WP username
-  - WP Application Password
-  - [Wyślij] → POST /v1/inject
-    ↓
-Potwierdzenie: link do opublikowanego posta WP
-```
+**Dlaczego:** localStorage = traci się po wylogowaniu, nie działa między urządzeniami, nie działa w trybie incognito. To był znany bloker w poprzednim projekcie SaaS.
 
-Zapis credentials w `localStorage` na sesję = akceptowalny MVP.
-Nie buduj pełnego zarządzania portalami (to Faza 5).
-
-Przeczytaj przez GitHub MCP: `api/routers/inject.py` — jakie pola przyjmuje endpoint.
+**Implementacja:**
+- Historia = tabela `transcript_jobs` + `usage_logs` w PostgreSQL
+- Endpoint: `GET /v1/jobs/history?user_id=...` lub `GET /v1/jobs/` z filtrem po user
+- Sprawdź czy endpoint historii istnieje w `api/routers/jobs.py`
+- Jeśli nie ma — dodaj endpoint zwracający historię jobów zalogowanego usera
+- Frontend `/historia` czyta z API, nie z cache
 
 ---
 
-## ETAP 4 — Deploy i weryfikacja
+## ETAP 6 — Historia i Ustawienia klikalne
+
+**Problem:** Linki "Historia" i "Ustawienia" w sidebarze są nieklikalne (prawdopodobnie `href="#"` lub brak routingu).
+
+**Minimum viable:**
+- `/historia` — strona z listą przetworzonych linków (z bazy, patrz Etap 5)
+- `/ustawienia` — placeholder z informacją "W trakcie budowy" (nie musi być pełne)
+
+Sprawdź w `web/src/app/` czy te katalogi/pliki istnieją.
+
+---
+
+## ETAP 7 — Deploy i weryfikacja
 
 ```powershell
-# Jeden rebuild na koniec:
 ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "cd /opt/vse && git pull origin main && docker compose -f docker-compose.vse.yml up -d --build vse-web"
-
-# Sprawdź status (po ~3 min):
-ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker compose -f docker-compose.vse.yml ps"
 ```
 
-**Weryfikacja po deploy:**
-1. `https://vse.impresjapr.pl/admin` — czy panel laduje (nie spinner/error)
-2. `https://vse.impresjapr.pl/dashboard` — czy zakładki Artykuł/Rozdziały się pokazują
-3. `curl https://vse.impresjapr.pl/api/v1/admin/users` — czy nadal 404 czy już przechodzi
+Build ~3 min. Weryfikacja:
+1. `/admin` — tabela userów ładuje się
+2. `/dashboard` — zakładki Artykuł/Rozdziały widoczne, panel WP od razu
+3. `/historia` — strona istnieje i ładuje z API
+4. Czasy rozdziałów != 0
 
 ---
 
-## ⚠️ PowerShell — wzorzec SSH dla złożonych komend
+## ⚠️ Kolejność implementacji
 
-Proste komendy:
-```powershell
-ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker ps"
-```
-
-Złożone (SQL, zagnieżdżone cudzysłowy) → write_to_file skryptu + scp + ssh:
-```powershell
-# 1. write_to_file "D:/tmp/cmd.sh" z treścią
-# 2. scp -i ~/.ssh/oracle-crimson.key D:/tmp/cmd.sh ubuntu@147.224.162.100:/tmp/
-# 3. ssh ... "bash /tmp/cmd.sh"
-```
+1. Przeczytaj ARCHITECTURE.md + ROADMAP.md
+2. Przeczytaj kluczowe pliki (jobs.py, pipeline.py, page.tsx, middleware.ts)
+3. Fix NEXT_PUBLIC_API_URL
+4. Diagnoza VTT timestamps (backend najpierw)
+5. Historia endpoint (jeśli brak)
+6. Frontend: zakładki + panel WP + historia + ustawienia placeholder
+7. Jeden rebuild
+8. Weryfikacja
 
 ---
 
@@ -175,4 +186,4 @@ Złożone (SQL, zagnieżdżone cudzysłowy) → write_to_file skryptu + scp + ss
 
 ---
 
-*Supervisor 03 | sonic-void | 2026-06-16 19:40 | v2 — scalony z NEXT_PUBLIC_API_URL fix + admin verification*
+*Supervisor 03 | sonic-void | 2026-06-16 19:48 | v3 — dodane: VTT diagnoza, panel WP od razu, historia z DB, Historia/Ustawienia klikalne*
