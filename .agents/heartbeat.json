@@ -1,12 +1,14 @@
 {
-  "callsign": "arch-senior-01",
-  "status": "done",
-  "current_task": "Synteza 4 raportów analitycznych → docs/ARCHITECTURE_decisions.md",
-  "timestamp": "2026-06-16T18:24:00Z",
-  "last_completed": [
-    "docs/ARCHITECTURE_decisions.md — commit 2821a03 (2026-06-16)",
-    "video-seo-engine: .agents/reports/2026-06-16_arch-senior-01_architecture-decisions.md — commit 04b6ffe",
-    "sonic-void inbox: .agents/reports/inbox/2026-06-16_arch-senior-01_architecture-decisions.md — commit 827fbe2"
-  ],
-  "pending": []
+  "callsign": "vse-analyst-01",
+  "status": "working",
+  "current_task": "Admin Panel Audit — diagnoza dlaczego panel zniknal po deployach",
+  "timestamp": "2026-06-16T19:17:00Z",
+  "last_completed": [],
+  "pending": [
+    "Sprawdzic pliki admin w repo",
+    "Test endpointow na VPS",
+    "Sprawdzic middleware",
+    "Sprawdzic is_admin w DB i JWT",
+    "Dual-write raport"
+  ]
 }
