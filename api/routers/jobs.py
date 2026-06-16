@@ -1,9 +1,9 @@
 """VSE Jobs Router — Local Transcript Runner API.
 
-CO: Router FastAPI obsługujący kolejkę zadąń transkrypcji.
+CO: Router FastAPI obsługujący kolejkę zadań transkrypcji.
 
 PO CO: YouTube blokuje youtube-transcript-api z Oracle Cloud VPS IP.
-Ten router to szyna komunikacji między API (VPS) a Local Runner’em
+Ten router to szyna komunikacji między API (VPS) a Local Runner'em
 (Windows Service na PC Usera z normalnym IP). Bez transkryptu Claude
 nie ma danych wejściowych — pipeline się nie może wykonać.
 
@@ -18,6 +18,15 @@ Security (SUPPLEMENT-VSE-DEV-04-20260615-SECURITY):
 - Rate limit: 30 req/min per token na endpointach runnera
 - Sanitizacja transkryptu: strip HTML, max 50k znaków, normalizacja whitespace
 - Idempotent: drugi POST na 'fetched' job zwraca 200 bez zmiany danych
+
+## Format __VTT__ (od v2.0, 2026-06-16)
+
+Local Runner wysyła transkrypt z timestampami w formacie:
+  __VTT__\n[MM:SS] tekst\n[MM:SS] tekst...\n
+
+Sanitize_transcript wykrywa ten prefix i zachowuje strukturę wieloliniową
+zamiast normalizować whitespace. Pipeline.py konwertuje __VTT__ do
+prawdziwego WebVTT dla generatora.
 """
 import logging
 import os
@@ -70,12 +79,14 @@ def _check_rate_limit(token: str) -> bool:
 # ---------------------------------------------------------------------------
 # Transcript Sanitization (RYZYKO 1 z Security Supplement)
 # ---------------------------------------------------------------------------
-MAX_TRANSCRIPT_LENGTH = 50_000  # ~6h wideo
-_ALLOWED_CHARS = re.compile(r'<[^>]+>')
+MAX_TRANSCRIPT_LENGTH = 100_000  # zwiększone z 50k bo __VTT__ dodaje overhead
+_HTML_TAGS = re.compile(r'<[^>]+>')
+# Wzorzec dopuszczalny w liniach VTT: [MM:SS] tekst
+_VTT_LINE = re.compile(r'^\[\d{2}:\d{2}\] .+')
 
 
 def sanitize_transcript(raw: str) -> str:
-    """Sanitizuje transkrypt przed przekazaniem do Claude.
+    """Sanitizuje transkrypt przed przekazaniem do pipeline.
 
     CO: Oczyszcza tekst transkryptu z potencjalnie złośliwej treści.
 
@@ -83,17 +94,23 @@ def sanitize_transcript(raw: str) -> str:
     mógłby POST-ować fałszywy HTML/skrypty jako transkrypt, które
     Claude przetworzy jak prawdą i wstrzyknie złośliwy schema do WP.
 
-    JAK:
+    JAK (format __VTT__, od v2.0):
     1. Sprawdzenie typu i niepustości
-    2. Strip tagów HTML (nie escaping — usuwanie)
-    3. Normalizacja whitespace
+    2. Wykrycie formatu __VTT__ (zachowaj strukturę wieloliniową!)
+    3. Strip tagów HTML z każdej linii
     4. Obcięcie do MAX_TRANSCRIPT_LENGTH
+
+    JAK (plain text, fallback dla starszych runnerów):
+    1. Strip tagów HTML
+    2. Normalizacja whitespace
+    3. Obcięcie do MAX_TRANSCRIPT_LENGTH
 
     Args:
         raw: Surowy tekst transkryptu od runnera.
 
     Returns:
-        Oczyszczony tekst gotowy do przekazania do generatora.
+        Oczyszczony tekst. Dla __VTT__: zachowuje newlines i markery.
+        Dla plain text: jednoliniowy string.
 
     Raises:
         ValueError: Jeśli raw nie jest niepustym stringiem.
@@ -101,18 +118,44 @@ def sanitize_transcript(raw: str) -> str:
     if not raw or not isinstance(raw, str):
         raise ValueError("Transcript must be a non-empty string")
 
-    # Strip HTML tags
-    clean = _ALLOWED_CHARS.sub(' ', raw)
+    # Wykryj format __VTT__ (runner v2.0+)
+    is_vtt = raw.startswith("__VTT__")
 
-    # Normalizuj whitespace
-    clean = ' '.join(clean.split())
+    if is_vtt:
+        # Zachowaj strukturę wieloliniową — nie normalizuj whitespace!
+        # Przetwarzaj linię po linii: strip HTML, zachowaj markery [MM:SS]
+        lines = raw.split("\n")
+        clean_lines = []
+        for line in lines:
+            # Strip tagów HTML z każdej linii
+            clean_line = _HTML_TAGS.sub(' ', line)
+            # Usuń nadmiarowe spacje wewnątrz linii (nie newlines!)
+            clean_line = ' '.join(clean_line.split())
+            if clean_line:
+                clean_lines.append(clean_line)
+        clean = "\n".join(clean_lines)
+    else:
+        # Fallback: plain text (stary runner bez timestampów)
+        clean = _HTML_TAGS.sub(' ', raw)
+        clean = ' '.join(clean.split())
 
     # Ogranicz długość
     if len(clean) > MAX_TRANSCRIPT_LENGTH:
-        clean = clean[:MAX_TRANSCRIPT_LENGTH]
+        if is_vtt:
+            # Dla VTT: obetnij po pełnych liniach, nie w środku
+            truncated_lines = []
+            total = 0
+            for line in clean.split("\n"):
+                if total + len(line) + 1 > MAX_TRANSCRIPT_LENGTH:
+                    break
+                truncated_lines.append(line)
+                total += len(line) + 1
+            clean = "\n".join(truncated_lines)
+        else:
+            clean = clean[:MAX_TRANSCRIPT_LENGTH]
         logger.warning(
-            "Transcript truncated to %d chars (original: %d)",
-            MAX_TRANSCRIPT_LENGTH, len(raw),
+            "Transcript truncated to ~%d chars (original: %d)",
+            len(clean), len(raw),
         )
 
     return clean
@@ -136,7 +179,7 @@ def _verify_runner_token(authorization: str = Header(None)) -> str:
     """Weryfikuje Bearer token runnera.
 
     PO CO: Endpointy /pending i /{id}/result są dostępne tylko dla
-    autoryzowanego Local Runner’a. Chronione przez Bearer token
+    autoryzowanego Local Runner'a. Chronione przez Bearer token
     z minimalną entropią 256 bitów.
 
     Raises:
@@ -207,7 +250,7 @@ async def create_job(
     body: CreateJobRequest,
     db: AsyncSession = Depends(_get_db),
 ) -> JobResponse:
-    """Tworzy nowe zadanie transkrypcji w kolejce Local Runner’a.
+    """Tworzy nowe zadanie transkrypcji w kolejce Local Runner'a.
 
     CO: Endpoint dla frontendu/użytkownika — inicjuje pipeline.
     PO CO: Zamiast próbować pobrać transkrypt na VPS (ban IP),
@@ -232,7 +275,7 @@ async def get_pending_jobs(
     token: str = Depends(_verify_runner_token),
     db: AsyncSession = Depends(_get_db),
 ) -> List[JobResponse]:
-    """Zwraca listę jobów ze statusem 'pending' dla Local Runner’a.
+    """Zwraca listę jobów ze statusem 'pending' dla Local Runner'a.
 
     CO: Polling endpoint dla Windows Service.
     PO CO: Runner odpytuje ten endpoint co POLL_INTERVAL sekund,
@@ -246,7 +289,7 @@ async def get_pending_jobs(
         select(TranscriptJob)
         .where(TranscriptJob.status == "pending")
         .order_by(TranscriptJob.created_at.asc())
-        .limit(10)  # max 10 na raz, unika floodów
+        .limit(10)  # max 10 na raz, unika floodow
     )
     jobs = result.scalars().all()
     logger.info("[jobs] /pending: %d jobs returned for runner", len(jobs))
@@ -268,7 +311,7 @@ async def complete_job(
 
     Security:
     - Idempotent: jeśli job już 'fetched', zwraca 200 bez zmiany danych.
-    - Sanitizacja: strip HTML, limit 50k znaków przed zapisem.
+    - Sanitizacja: strip HTML, limit 100k znaków, VTT-aware (zachowuje newlines).
 
     Returns:
         {"status": "fetched"} lub {"status": "already_processed"}.
@@ -277,7 +320,7 @@ async def complete_job(
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
 
-    # Idempotent: jeśli już przetworzony, zwroć 200 bez zmian
+    # Idempotent: jeśli już przetworzony, zwróć 200 bez zmian
     if job.status != "pending":
         logger.warning(
             "[jobs] Job %s already in status '%s', ignoring duplicate result",
@@ -292,13 +335,16 @@ async def complete_job(
             logger.error("[jobs] Transcript sanitization failed for %s: %s", job_id, e)
             raise HTTPException(422, f"Invalid transcript: {e}")
 
+        # Loguj format dla diagnostyki
+        is_vtt = sanitized.startswith("__VTT__")
+        logger.info(
+            "[jobs] Job %s: transcript received (%d chars, format=%s)",
+            job_id, len(sanitized), "VTT" if is_vtt else "plain",
+        )
+
         job.transcript = sanitized
         job.status = "fetched"
         job.error = None
-        logger.info(
-            "[jobs] Job %s: transcript received (%d chars)",
-            job_id, len(sanitized),
-        )
     elif result.status == "failed":
         job.status = "failed"
         job.error = result.error or "Runner reported failure"
@@ -320,7 +366,7 @@ async def get_job(
 
     CO: Endpoint do pollingu statusu przez frontend lub pipeline.
     PO CO: Frontend pokazuje użytkownikowi postęp, pipeline czeka na 'fetched'.
-    Auth: Brak (dostęp publiczny w obrębie VPS — ID to UUID v4 = nieprzewidyąne).
+    Auth: Brak (dostęp publiczny w obrębie VPS — ID to UUID v4 = nieprzewidywalne).
 
     Returns:
         JobResponse z aktualnym statusem.
