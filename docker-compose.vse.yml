@@ -51,7 +51,7 @@ services:
     env_file: .env
     environment:
       - NEXTAUTH_URL=https://vse.impresjapr.pl
-      - NEXT_PUBLIC_API_URL=https://vse.impresjapr.pl/api
+      - NEXT_PUBLIC_API_URL=https://vse.impresjapr.pl
       # Internal Docker URL for server-side NextAuth calls (avoids public nginx roundtrip)
       - BACKEND_URL=http://vse-api:8085
       - PORT=3001
