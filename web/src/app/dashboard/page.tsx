@@ -4,8 +4,8 @@
  * PO CO: Daje użytkownikowi dwie ścieżki:
  *   A (Free/Starter) — generuje SEO i pokazuje gotowe snippety HTML do skopiowania
  *   B (Pro/Agency)   — dodatkowo umożliwia automatyczną publikację na WordPress
- * JAK: Wywołuje POST /v1/generate → schema_data → renderuje 5 sekcji wynikowych.
- *      Dla planu pro/agency dodatkowo wyświetla PublishSection → POST /v1/inject.
+ * JAK: Wywołuje POST /v1/generate → schema_data → renderuje 3 zakładki wynikowe
+ *      (Schemat, Artykuł, Rozdziały). Dla planu pro/agency InjectModal → POST /v1/inject.
  *
  * ROUTING NOTE: Frontend używa pustego prefixu ('') jako fallback dla NEXT_PUBLIC_API_URL.
  * Wywołania idą na /v1/generate, /v1/inject, /v1/users/me.
@@ -14,7 +14,7 @@
  */
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,9 +31,11 @@ interface SchemaData {
   post_title?: string
   meta_description?: string
   wp_slug?: string
+  lead?: string
   article_body?: string
   chapters?: ChapterItem[]
   faq?: FaqItem[]
+  quotes?: QuoteItem[]
   [key: string]: unknown
 }
 
@@ -48,6 +50,11 @@ interface FaqItem {
   answer?: string
 }
 
+interface QuoteItem {
+  text?: string
+  author?: string
+}
+
 interface UserPlan {
   id: string
   display_name: string
@@ -60,7 +67,16 @@ interface UserProfile {
   usage: { used_this_month: number; quota: number; percent: number }
 }
 
+interface InjectResult {
+  status?: string
+  wp_post_id?: number
+  post_url?: string
+  created?: boolean
+  error?: string
+}
+
 type CopiedKey = string | null
+type TabKey = 'schema' | 'article' | 'chapters'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -135,6 +151,39 @@ function schemaToScriptTag(schema: SchemaData | null): string {
   return `<script type="application/ld+json">\n${JSON.stringify(schema ?? {}, null, 2)}\n</script>`
 }
 
+/** Build article text for copy (lead + body + faq). */
+function articleToText(schema: SchemaData | null, faq: FaqItem[]): string {
+  const parts: string[] = []
+  if (schema?.post_title) parts.push(`# ${schema.post_title}\n`)
+  if (schema?.lead) parts.push(`${schema.lead}\n`)
+  if (schema?.article_body) parts.push(`${schema.article_body}\n`)
+  if (faq.length > 0) {
+    parts.push('## FAQ\n')
+    faq.forEach((f) => {
+      parts.push(`**${f.question ?? ''}**\n${f.answer ?? ''}\n`)
+    })
+  }
+  return parts.join('\n')
+}
+
+/** Load WP credentials from localStorage */
+function loadWpCredentials(): { wpUrl: string; wpUser: string; wpPassword: string } {
+  if (typeof window === 'undefined') return { wpUrl: 'https://', wpUser: '', wpPassword: '' }
+  try {
+    const saved = localStorage.getItem('vse_wp_credentials')
+    if (saved) return JSON.parse(saved)
+  } catch { /* ignore */ }
+  return { wpUrl: 'https://', wpUser: '', wpPassword: '' }
+}
+
+/** Save WP credentials to localStorage */
+function saveWpCredentials(creds: { wpUrl: string; wpUser: string; wpPassword: string }): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem('vse_wp_credentials', JSON.stringify(creds))
+  } catch { /* ignore */ }
+}
+
 // ─── Subcomponents ────────────────────────────────────────────────────────────
 
 /**
@@ -148,11 +197,13 @@ function CopyButton({
   id,
   copiedKey,
   onCopy,
+  label,
 }: {
   text: string
   id: string
   copiedKey: CopiedKey
   onCopy: (text: string, id: string) => void
+  label?: string
 }) {
   const active = copiedKey === id
   return (
@@ -164,14 +215,14 @@ function CopyButton({
           : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'
       }`}
     >
-      {active ? '✓ Skopiowano' : 'Kopiuj'}
+      {active ? '✓ Skopiowano' : (label ?? 'Kopiuj')}
     </button>
   )
 }
 
 /**
  * CO: ResultSection — pojedyncza sekcja wynikowa z nagłówkiem i przyciskiem Kopiuj
- * PO CO: Zapewnia spójny wygląd wszystkich pól wynikowych (tytuł, meta, schema, FAQ, chapters).
+ * PO CO: Zapewnia spójny wygląd wszystkich pól wynikowych.
  * JAK: Opakowuje dowolny content children w ramkę z nagłówkiem i przyciskiem kopiowania.
  */
 function ResultSection({
@@ -210,45 +261,130 @@ function ResultSection({
 }
 
 /**
- * CO: PublishSection — sekcja automatycznej publikacji na WordPress
- * PO CO: Pozwala użytkownikom Pro/Agency opublikować wygenerowane SEO na WP jednym klikiem.
- *        Eliminuje potrzebę ręcznego kopiowania do WordPressa — oszczędza czas agencjom.
- * JAK: Zbiera WP credentials (URL, user, app_password) + wp_post_id + status (draft/publish),
- *      wywołuje POST /v1/inject z schema_data. Credentials w MVP wpisywane ręcznie.
+ * CO: TabBar — przełącznik zakładek Schemat/Artykuł/Rozdziały
+ * PO CO: Pozwala użytkownikowi przełączać widok wyników bez przeładowania strony.
+ * JAK: Proste przyciski z active state, kontrolowane przez parent.
  */
-function PublishSection({ schemaData, videoUrl }: { schemaData: SchemaData; videoUrl: string }) {
-  const [wpUrl, setWpUrl] = useState('https://prawy.pl')
-  const [wpUser, setWpUser] = useState('')
-  const [wpPassword, setWpPassword] = useState('')
+function TabBar({
+  active,
+  onChange,
+  chaptersCount,
+  faqCount,
+}: {
+  active: TabKey
+  onChange: (tab: TabKey) => void
+  chaptersCount: number
+  faqCount: number
+}) {
+  const tabs: { key: TabKey; label: string; badge?: number }[] = [
+    { key: 'schema', label: 'Schemat' },
+    { key: 'article', label: 'Artykuł', badge: faqCount > 0 ? faqCount : undefined },
+    { key: 'chapters', label: 'Rozdziały', badge: chaptersCount > 0 ? chaptersCount : undefined },
+  ]
+  return (
+    <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 mb-5">
+      {tabs.map((tab) => (
+        <button
+          key={tab.key}
+          onClick={() => onChange(tab.key)}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+            active === tab.key
+              ? 'bg-violet-600/20 text-violet-400 border border-violet-500/30'
+              : 'text-gray-400 hover:text-white hover:bg-gray-800/50 border border-transparent'
+          }`}
+        >
+          {tab.label}
+          {tab.badge != null && tab.badge > 0 && (
+            <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+              active === tab.key
+                ? 'bg-violet-500/30 text-violet-300'
+                : 'bg-gray-700 text-gray-500'
+            }`}>
+              {tab.badge}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * CO: InjectModal — modalny formularz publikacji na WordPress
+ * PO CO: Umożliwia użytkownikom Pro/Agency wstrzyknięcie SEO na WordPress jednym klikiem.
+ *        Credentials zapamiętywane w localStorage — nie trzeba ich wpisywać za każdym razem.
+ * JAK: Overlay modal z formularzem WP (URL, user, app password, opcjonalny post ID, status draft/publish).
+ *      Po kliknięciu "Opublikuj" → POST /v1/inject → wyświetla wynik z linkiem do posta.
+ */
+function InjectModal({
+  schemaData,
+  videoUrl,
+  onClose,
+}: {
+  schemaData: SchemaData
+  videoUrl: string
+  onClose: () => void
+}) {
+  const initialCreds = loadWpCredentials()
+  const [wpUrl, setWpUrl] = useState(initialCreds.wpUrl)
+  const [wpUser, setWpUser] = useState(initialCreds.wpUser)
+  const [wpPassword, setWpPassword] = useState(initialCreds.wpPassword)
   const [wpPostId, setWpPostId] = useState('')
   const [postStatus, setPostStatus] = useState<'draft' | 'publish'>('draft')
   const [publishing, setPublishing] = useState(false)
-  const [publishResult, setPublishResult] = useState<{ status?: string; error?: string } | null>(null)
+  const [publishResult, setPublishResult] = useState<InjectResult | null>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  // Close on click outside
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+      onClose()
+    }
+  }
 
   const handlePublish = async () => {
-    if (!wpUser || !wpPassword || !wpPostId) {
-      setPublishResult({ error: 'Uzupełnij wszystkie pola WordPress.' })
+    if (!wpUser || !wpPassword || !wpUrl) {
+      setPublishResult({ error: 'Uzupełnij URL portalu, użytkownika i Application Password.' })
       return
     }
+
+    // Save credentials to localStorage
+    saveWpCredentials({ wpUrl, wpUser, wpPassword })
+
     setPublishing(true)
     setPublishResult(null)
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const body: Record<string, unknown> = {
+        video_url: videoUrl,
+        schema_data: schemaData,
+        site_config: {
+          wp_base_url: wpUrl,
+          wp_user: wpUser,
+          wp_app_password: wpPassword,
+        },
+        post_status: postStatus,
+      }
+      // wp_post_id: jeśli podane → aktualizacja, jeśli puste → nowy post
+      if (wpPostId.trim()) {
+        body.wp_post_id = parseInt(wpPostId, 10)
+      }
+
       const res = await fetch(`${apiUrl}/v1/inject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wp_post_id: parseInt(wpPostId, 10),
-          video_url: videoUrl,
-          schema_data: schemaData,
-          site_config: {
-            wp_base_url: wpUrl,
-            wp_user: wpUser,
-            wp_app_password: wpPassword,
-          },
-        }),
+        body: JSON.stringify(body),
       })
-      let data
+      let data: InjectResult
       try { data = await res.json() } catch { data = { error: `HTTP ${res.status}` } }
       setPublishResult(data)
     } catch (e: unknown) {
@@ -259,113 +395,188 @@ function PublishSection({ schemaData, videoUrl }: { schemaData: SchemaData; vide
   }
 
   return (
-    <div className="mt-6 bg-gradient-to-br from-violet-950/40 to-fuchsia-950/20 border border-violet-500/30 rounded-2xl p-6">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-sm">
-          🚀
-        </div>
-        <div>
-          <h3 className="font-semibold text-white">Publikuj na WordPress</h3>
-          <p className="text-xs text-gray-400">Automatyczna publikacja — plan Pro/Agency</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-400 mb-1">WordPress URL</label>
-          <input
-            type="text"
-            value={wpUrl}
-            onChange={(e) => setWpUrl(e.target.value)}
-            placeholder="https://twojportal.pl"
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Użytkownik WP</label>
-          <input
-            type="text"
-            value={wpUser}
-            onChange={(e) => setWpUser(e.target.value)}
-            placeholder="admin"
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">App Password</label>
-          <input
-            type="password"
-            value={wpPassword}
-            onChange={(e) => setWpPassword(e.target.value)}
-            placeholder="xxxx xxxx xxxx xxxx"
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">ID Posta WP</label>
-          <input
-            type="number"
-            value={wpPostId}
-            onChange={(e) => setWpPostId(e.target.value)}
-            placeholder="12345"
-            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-          />
-        </div>
-        <div className="flex items-end">
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="post_status"
-                value="draft"
-                checked={postStatus === 'draft'}
-                onChange={() => setPostStatus('draft')}
-                className="accent-violet-500"
-              />
-              <span className="text-sm text-gray-300">Szkic</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="post_status"
-                value="publish"
-                checked={postStatus === 'publish'}
-                onChange={() => setPostStatus('publish')}
-                className="accent-violet-500"
-              />
-              <span className="text-sm text-gray-300">Publikuj</span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <button
-        onClick={handlePublish}
-        disabled={publishing}
-        className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={handleBackdropClick}
+    >
+      <div
+        ref={modalRef}
+        className="w-full max-w-lg bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden animate-in"
+        style={{ animation: 'fadeInUp 0.25s ease-out' }}
       >
-        {publishing ? (
-          <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Publikowanie...</>
-        ) : (
-          <>🚀 Opublikuj na portalu</>
-        )}
-      </button>
-
-      {publishResult && (
-        <div
-          className={`mt-3 p-3 rounded-lg text-sm ${
-            publishResult.error
-              ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-              : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
-          }`}
-        >
-          {publishResult.error ? (
-            <><span className="font-medium">⚠️ Błąd:</span> {publishResult.error}</>
-          ) : (
-            <><span className="font-medium">✓ Sukces:</span> status={publishResult.status ?? 'ok'}</>
-          )}
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gradient-to-r from-violet-950/50 to-fuchsia-950/30">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-sm">
+              🚀
+            </div>
+            <div>
+              <h3 className="font-semibold text-white">Publikuj na WordPress</h3>
+              <p className="text-xs text-gray-400">Wyślij artykuł + SEO schema na portal</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white transition-colors p-1"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-      )}
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          {/* Article preview */}
+          <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4">
+            <p className="text-xs text-gray-500 mb-1">Artykuł do publikacji:</p>
+            <p className="text-sm font-medium text-white truncate">
+              {schemaData.post_title ?? '(brak tytułu)'}
+            </p>
+            {schemaData.meta_description && (
+              <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                {schemaData.meta_description}
+              </p>
+            )}
+          </div>
+
+          {/* WP URL */}
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">URL portalu WordPress</label>
+            <input
+              type="text"
+              value={wpUrl}
+              onChange={(e) => setWpUrl(e.target.value)}
+              placeholder="https://twojportal.pl"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+            />
+          </div>
+
+          {/* Credentials row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+              <input
+                type="text"
+                value={wpUser}
+                onChange={(e) => setWpUser(e.target.value)}
+                placeholder="admin"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Application Password</label>
+              <input
+                type="password"
+                value={wpPassword}
+                onChange={(e) => setWpPassword(e.target.value)}
+                placeholder="xxxx xxxx xxxx xxxx"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Post ID + Status */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">
+                ID posta WP <span className="text-gray-600">(puste = nowy post)</span>
+              </label>
+              <input
+                type="number"
+                value={wpPostId}
+                onChange={(e) => setWpPostId(e.target.value)}
+                placeholder="Puste = nowy artykuł"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Status publikacji</label>
+              <div className="flex gap-4 h-[42px] items-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modal_post_status"
+                    value="draft"
+                    checked={postStatus === 'draft'}
+                    onChange={() => setPostStatus('draft')}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-gray-300">Szkic</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modal_post_status"
+                    value="publish"
+                    checked={postStatus === 'publish'}
+                    onChange={() => setPostStatus('publish')}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-gray-300">Publikuj</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Publish button */}
+          <button
+            onClick={handlePublish}
+            disabled={publishing}
+            className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+          >
+            {publishing ? (
+              <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Publikowanie...</>
+            ) : (
+              <>🚀 Opublikuj na portalu</>
+            )}
+          </button>
+
+          {/* Result */}
+          {publishResult && (
+            <div
+              className={`p-4 rounded-xl text-sm ${
+                publishResult.error
+                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                  : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+              }`}
+            >
+              {publishResult.error ? (
+                <><span className="font-medium">⚠️ Błąd:</span> {publishResult.error}</>
+              ) : (
+                <div className="space-y-1">
+                  <p><span className="font-medium">✓ Sukces!</span>
+                    {publishResult.created ? ' Utworzono nowy artykuł' : ' Zaktualizowano artykuł'}
+                    {publishResult.wp_post_id && ` (ID: ${publishResult.wp_post_id})`}
+                  </p>
+                  {publishResult.post_url && (
+                    <a
+                      href={publishResult.post_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200 underline underline-offset-2"
+                    >
+                      Otwórz artykuł na portalu →
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-gray-600 text-center">
+            Dane logowania zapamiętane w przeglądarce (localStorage)
+          </p>
+        </div>
+      </div>
+
+      {/* Animation keyframe */}
+      <style jsx>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   )
 }
@@ -378,6 +589,7 @@ export default function DashboardPage() {
    * PO CO: Hub dla użytkownika — generuje SEO z YouTube URL i wyświetla wyniki w czytelnej formie.
    * JAK: useSession z NextAuth → auth guard. Stan lokalny dla URL, wyników, plan usera.
    *      Fetch plan przez /v1/users/me (Bearer token z session.accessToken).
+   *      Wyniki wyświetlane w 3 zakładkach: Schemat, Artykuł, Rozdziały.
    */
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -388,6 +600,8 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
   const [copiedKey, setCopiedKey] = useState<CopiedKey>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [activeTab, setActiveTab] = useState<TabKey>('article')
+  const [showInjectModal, setShowInjectModal] = useState(false)
 
   // Auth guard
   useEffect(() => {
@@ -460,6 +674,7 @@ export default function DashboardPage() {
       if (!schema) throw new Error('Serwer nie zwrócił schema_data')
 
       setResult({ raw: schema, videoId: data.video_id, time: data.processing_time_s, inputUrl: url.trim() })
+      setActiveTab('article') // default to article tab after generation
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Nieznany błąd')
     } finally {
@@ -479,6 +694,7 @@ export default function DashboardPage() {
   const schema = result?.raw ?? null
   const chapters = extractChapters(schema)
   const faq = extractFaq(schema)
+  const quotes = (schema?.quotes as QuoteItem[] | undefined) ?? []
 
   const planLabel = userProfile?.plan?.display_name ?? 'Free'
   const usageUsed = userProfile?.usage?.used_this_month ?? 0
@@ -621,110 +837,280 @@ export default function DashboardPage() {
                     {result.time && <> · {result.time.toFixed(1)}s</>}
                   </p>
                 </div>
-                <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
-                  ✓ Wygenerowano
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
+                    ✓ Wygenerowano
+                  </span>
+                  {isPro && (
+                    <button
+                      onClick={() => setShowInjectModal(true)}
+                      className="px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5"
+                    >
+                      🚀 Wyślij do portalu
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {/* ── 1. Tytuł artykułu ──────────────────────────────────── */}
-              <ResultSection
-                title="Tytuł artykułu"
-                copyText={schema?.post_title ?? ''}
-                copyId="post_title"
-                copiedKey={copiedKey}
-                onCopy={handleCopy}
-              >
-                <p className="text-white font-medium">{schema?.post_title ?? '(brak tytułu)'}</p>
-                {schema?.focus_keyphrase && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Focus: <span className="text-violet-400">{schema.focus_keyphrase}</span>
-                  </p>
-                )}
-              </ResultSection>
+              {/* ── Tab Bar ───────────────────────────────────────── */}
+              <TabBar
+                active={activeTab}
+                onChange={setActiveTab}
+                chaptersCount={chapters.length}
+                faqCount={faq.length}
+              />
 
-              {/* ── 2. Meta description ───────────────────────────────── */}
-              <ResultSection
-                title="Meta description"
-                copyText={schema?.meta_description ?? ''}
-                copyId="meta_description"
-                copiedKey={copiedKey}
-                onCopy={handleCopy}
-              >
-                <p className="text-gray-300 text-sm leading-relaxed">
-                  {schema?.meta_description ?? '(brak meta description)'}
-                </p>
-              </ResultSection>
+              {/* ── Tab: Schemat ──────────────────────────────────── */}
+              {activeTab === 'schema' && (
+                <div>
+                  {/* Tytuł artykułu */}
+                  <ResultSection
+                    title="Tytuł artykułu"
+                    copyText={schema?.post_title ?? ''}
+                    copyId="post_title"
+                    copiedKey={copiedKey}
+                    onCopy={handleCopy}
+                  >
+                    <p className="text-white font-medium">{schema?.post_title ?? '(brak tytułu)'}</p>
+                    {schema?.focus_keyphrase && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Focus: <span className="text-violet-400">{schema.focus_keyphrase}</span>
+                      </p>
+                    )}
+                  </ResultSection>
 
-              {/* ── 3. Schema JSON-LD ─────────────────────────────────── */}
-              <ResultSection
-                title="Schema JSON-LD"
-                copyText={schemaToScriptTag(schema)}
-                copyId="schema_jsonld"
-                copiedKey={copiedKey}
-                onCopy={handleCopy}
-                badge="Wklej do <head>"
-              >
-                <pre className="text-xs text-emerald-400 font-mono overflow-auto max-h-72 leading-relaxed">
+                  {/* Meta description */}
+                  <ResultSection
+                    title="Meta description"
+                    copyText={schema?.meta_description ?? ''}
+                    copyId="meta_description"
+                    copiedKey={copiedKey}
+                    onCopy={handleCopy}
+                  >
+                    <p className="text-gray-300 text-sm leading-relaxed">
+                      {schema?.meta_description ?? '(brak meta description)'}
+                    </p>
+                  </ResultSection>
+
+                  {/* Schema JSON-LD */}
+                  <ResultSection
+                    title="Schema JSON-LD"
+                    copyText={schemaToScriptTag(schema)}
+                    copyId="schema_jsonld"
+                    copiedKey={copiedKey}
+                    onCopy={handleCopy}
+                    badge="Wklej do <head>"
+                  >
+                    <pre className="text-xs text-emerald-400 font-mono overflow-auto max-h-72 leading-relaxed">
 {`<script type="application/ld+json">`}
 {JSON.stringify(schema ?? {}, null, 2)}
 {`</script>`}
-                </pre>
-              </ResultSection>
+                    </pre>
+                  </ResultSection>
+                </div>
+              )}
 
-              {/* ── 4. Rozdziały ──────────────────────────────────────── */}
-              <ResultSection
-                title={`Rozdziały (${chapters.length})`}
-                copyText={chaptersToText(chapters)}
-                copyId="chapters"
-                copiedKey={copiedKey}
-                onCopy={handleCopy}
-              >
-                {chapters.length > 0 ? (
-                  <div className="space-y-1">
-                    {chapters.map((ch, i) => (
-                      <div key={i} className="flex items-center gap-3 py-1.5">
-                        <span className="text-violet-400 font-mono text-sm w-12 flex-shrink-0">
-                          {secToTimestamp(ch.startOffset)}
-                        </span>
-                        <span className="text-gray-300 text-sm">{ch.name ?? '(bez tytułu)'}</span>
+              {/* ── Tab: Artykuł ──────────────────────────────────── */}
+              {activeTab === 'article' && (
+                <div>
+                  {/* Copy all button */}
+                  <div className="flex justify-end mb-4">
+                    <CopyButton
+                      text={articleToText(schema, faq)}
+                      id="article_all"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                      label="Kopiuj cały artykuł"
+                    />
+                  </div>
+
+                  {/* Tytuł */}
+                  {schema?.post_title && (
+                    <ResultSection
+                      title="Tytuł artykułu"
+                      copyText={schema.post_title}
+                      copyId="art_title"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <h3 className="text-xl font-bold text-white">{schema.post_title}</h3>
+                    </ResultSection>
+                  )}
+
+                  {/* Lead */}
+                  {schema?.lead && (
+                    <ResultSection
+                      title="Lead / Wstęp"
+                      copyText={schema.lead}
+                      copyId="art_lead"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <p className="text-gray-200 text-sm leading-relaxed italic">
+                        {schema.lead}
+                      </p>
+                    </ResultSection>
+                  )}
+
+                  {/* Treść artykułu */}
+                  {schema?.article_body && (
+                    <ResultSection
+                      title="Treść artykułu"
+                      copyText={schema.article_body}
+                      copyId="art_body"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                        {schema.article_body}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-sm">Brak rozdziałów w wygenerowanej schemie.</p>
-                )}
-              </ResultSection>
+                    </ResultSection>
+                  )}
 
-              {/* ── 5. FAQ ────────────────────────────────────────────── */}
-              <ResultSection
-                title={`FAQ (${faq.length})`}
-                copyText={faqToHtml(faq)}
-                copyId="faq"
-                copiedKey={copiedKey}
-                onCopy={handleCopy}
-                badge="Kopiuj HTML"
-              >
-                {faq.length > 0 ? (
-                  <div className="space-y-3">
-                    {faq.map((item, i) => (
-                      <details key={i} className="group">
-                        <summary className="cursor-pointer text-sm font-medium text-white flex items-center gap-2 select-none">
-                          <span className="text-violet-400 group-open:rotate-90 transition-transform inline-block">›</span>
-                          {item.question ?? '(brak pytania)'}
-                        </summary>
-                        <p className="ml-4 mt-1.5 text-gray-400 text-sm leading-relaxed">
-                          {item.answer ?? '(brak odpowiedzi)'}
-                        </p>
-                      </details>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-sm">Brak FAQ w wygenerowanej schemie.</p>
-                )}
-              </ResultSection>
+                  {/* Cytaty */}
+                  {quotes.length > 0 && (
+                    <ResultSection
+                      title={`Cytaty (${quotes.length})`}
+                      copyText={quotes.map((q) => `"${q.text ?? ''}" — ${q.author ?? ''}`).join('\n')}
+                      copyId="art_quotes"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <div className="space-y-3">
+                        {quotes.map((q, i) => (
+                          <blockquote key={i} className="border-l-2 border-violet-500/50 pl-4">
+                            <p className="text-gray-200 text-sm italic">"{q.text ?? ''}"</p>
+                            {q.author && (
+                              <footer className="text-xs text-gray-500 mt-1">— {q.author}</footer>
+                            )}
+                          </blockquote>
+                        ))}
+                      </div>
+                    </ResultSection>
+                  )}
 
-              {/* ── Ścieżka B: Publikacja (pro/agency only) ───────────── */}
-              {isPro && <PublishSection schemaData={result.raw} videoUrl={result.inputUrl} />}
+                  {/* FAQ */}
+                  <ResultSection
+                    title={`FAQ (${faq.length})`}
+                    copyText={faqToHtml(faq)}
+                    copyId="art_faq"
+                    copiedKey={copiedKey}
+                    onCopy={handleCopy}
+                    badge="Kopiuj HTML"
+                  >
+                    {faq.length > 0 ? (
+                      <div className="space-y-3">
+                        {faq.map((item, i) => (
+                          <details key={i} className="group">
+                            <summary className="cursor-pointer text-sm font-medium text-white flex items-center gap-2 select-none">
+                              <span className="text-violet-400 group-open:rotate-90 transition-transform inline-block">›</span>
+                              {item.question ?? '(brak pytania)'}
+                            </summary>
+                            <p className="ml-4 mt-1.5 text-gray-400 text-sm leading-relaxed">
+                              {item.answer ?? '(brak odpowiedzi)'}
+                            </p>
+                          </details>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">Brak FAQ w wygenerowanej schemie.</p>
+                    )}
+                  </ResultSection>
+
+                  {/* No article content fallback */}
+                  {!schema?.lead && !schema?.article_body && faq.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <p className="text-lg mb-1">📝</p>
+                      <p className="text-sm">Brak treści artykułu w wygenerowanej schemie.</p>
+                      <p className="text-xs text-gray-600 mt-1">Sprawdź zakładkę Schemat — tam znajdziesz pełne dane JSON-LD.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Tab: Rozdziały ────────────────────────────────── */}
+              {activeTab === 'chapters' && (
+                <div>
+                  <ResultSection
+                    title={`Rozdziały (${chapters.length})`}
+                    copyText={chaptersToText(chapters)}
+                    copyId="chapters_tab"
+                    copiedKey={copiedKey}
+                    onCopy={handleCopy}
+                  >
+                    {chapters.length > 0 ? (
+                      <div className="space-y-0.5">
+                        {chapters.map((ch, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center gap-4 py-2.5 px-3 rounded-lg hover:bg-gray-800/50 transition-colors group"
+                          >
+                            <span className="text-violet-400 font-mono text-sm w-14 flex-shrink-0 bg-violet-500/10 px-2 py-1 rounded text-center">
+                              {secToTimestamp(ch.startOffset)}
+                            </span>
+                            <span className="text-gray-200 text-sm flex-1">{ch.name ?? '(bez tytułu)'}</span>
+                            {ch.endOffset != null && ch.startOffset != null && (
+                              <span className="text-xs text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {Math.round(ch.endOffset - ch.startOffset)}s
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <p className="text-lg mb-1">📑</p>
+                        <p className="text-sm">Brak rozdziałów w wygenerowanej schemie.</p>
+                        <p className="text-xs text-gray-600 mt-1">Rozdziały wymagają transkryptu z timestampami (format VTT).</p>
+                      </div>
+                    )}
+                  </ResultSection>
+
+                  {/* YouTube-format copy */}
+                  {chapters.length > 0 && (
+                    <div className="mt-2">
+                      <ResultSection
+                        title="Format YouTube (do opisu wideo)"
+                        copyText={chapters.map((c) => `${secToTimestamp(c.startOffset)} ${c.name ?? ''}`).join('\n')}
+                        copyId="chapters_yt"
+                        copiedKey={copiedKey}
+                        onCopy={handleCopy}
+                        badge="Wklej do opisu YT"
+                      >
+                        <pre className="text-sm text-gray-300 font-mono leading-relaxed">
+                          {chapters.map((c) => `${secToTimestamp(c.startOffset)} ${c.name ?? ''}`).join('\n')}
+                        </pre>
+                      </ResultSection>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Action buttons row ─────────────────────────────── */}
+              <div className="flex items-center gap-3 mt-6 pt-6 border-t border-gray-800">
+                <CopyButton
+                  text={schemaToScriptTag(schema)}
+                  id="action_schema"
+                  copiedKey={copiedKey}
+                  onCopy={handleCopy}
+                  label="📋 Kopiuj JSON-LD"
+                />
+                <CopyButton
+                  text={articleToText(schema, faq)}
+                  id="action_article"
+                  copiedKey={copiedKey}
+                  onCopy={handleCopy}
+                  label="📋 Kopiuj artykuł"
+                />
+                {isPro && (
+                  <button
+                    onClick={() => setShowInjectModal(true)}
+                    className="px-4 py-1.5 text-xs rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white font-medium hover:opacity-90 transition-all"
+                  >
+                    🚀 Wyślij do portalu
+                  </button>
+                )}
+              </div>
 
               {/* Upsell dla free — widoczny gdy nie jest pro */}
               {!isPro && (
@@ -742,6 +1128,15 @@ export default function DashboardPage() {
           )}
         </div>
       </main>
+
+      {/* Inject Modal */}
+      {showInjectModal && result && (
+        <InjectModal
+          schemaData={result.raw}
+          videoUrl={result.inputUrl}
+          onClose={() => setShowInjectModal(false)}
+        />
+      )}
     </div>
   )
 }
