@@ -1,13 +1,18 @@
 {
   "callsign": "vse-dev-09",
   "status": "done",
-  "current_task": "Dashboard UI D2+D3 + NEXT_PUBLIC_API_URL fix — kompletny",
-  "timestamp": "2026-06-16T20:03:00Z",
+  "current_task": "Dashboard UI v2+v3 — ALL TASKS COMPLETE",
+  "timestamp": "2026-06-16T20:42:00Z",
   "last_completed": [
-    "fix: NEXT_PUBLIC_API_URL remove /api suffix — commit 69e4196",
+    "fix: NEXT_PUBLIC_API_URL — commit 69e4196",
     "feat: D2 tabbed dashboard (Schemat/Artykuł/Rozdziały) — commit 9832cac",
     "feat: D3 inject modal with localStorage — commit 9832cac",
-    "deploy + weryfikacja — kontenery Up, /v1/admin/users 401 (poprawne)",
+    "feat: GET /v1/jobs/history endpoint — commit fee9f94",
+    "feat: /historia page (PostgreSQL) — commit dbe6b53",
+    "feat: /ustawienia placeholder — commit d18ea62",
+    "feat: middleware new routes — commit 4a0ab25",
+    "feat: sidebar Link nav + WP panel — commit 2ba71f3",
+    "deploy live + weryfikacja — 3 kontenery UP",
     "raport dual-write: video-seo-engine + sonic-void inbox"
   ],
   "pending": []
