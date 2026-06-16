@@ -14,13 +14,27 @@
 
 ---
 
+## 📚 KROK 0b — Przeczytaj kontekst projektu (OBOWIĄZKOWE PRZED ANALIZĄ)
+
+Przed czymkolwiek przeczytaj przez GitHub MCP:
+
+1. **Architektura** — `docs/ARCHITECTURE.md`  
+   *Zawiera: stack, kontenery Docker, nazwy serwisów, porty, strukturę katalogów*
+
+2. **Roadmap** — `ROADMAP.md`  
+   *Zawiera: co już zrobione, co w toku, fazy, commity które wdrożyły admin panel*
+
+Bez znajomości tych dokumentów ryzykujesz odkrywanie rzeczy które są już udokumentowane.
+
+---
+
 ## Twój deliverable:
 
 Raport diagnostyczny: dlaczego admin panel nie działa i co konkretnie trzeba naprawić.
 
 ---
 
-## Kontekst
+## Kontekst znany (nie odkrywaj ponownie)
 
 Admin panel został zaimplementowany przez `vse-dev-07` (commits `e13651e`, `f73e8a9`, `bd36dee`, `b151371`).
 
@@ -36,47 +50,48 @@ Weryfikacja z tamtej sesji działała:
 
 **Teraz:** Użytkownik mówi że panel "przepadł" po kolejnych deployach.
 
+**Znany problem pokrewny:** `vse-dev-08` aktywnie naprawia JWT callback — `is_admin` i `plan` mogą nie być w sesji NextAuth. To jest prawdopodobny wspólny mianownik.
+
 ---
 
 ## Co zbadać
 
-### 1. Czy kod jest w repo?
-
-```
-GitHub MCP — sprawdź czy pliki istnieją:
-- web/src/app/admin/page.tsx
-- web/src/middleware.ts
-- api/routers/admin.py
-- api/main.py (czy router admin jest zarejestrowany?)
-```
-
-### 2. Czy na VPS działają endpointy?
+### 1. Nazwy kontenerów (zanim cokolwiek innego)
 
 ```powershell
-# Test bez auth (powinno 401):
+ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker ps --format '{{.Names}} {{.Status}}'"
+```
+
+Nie zakładaj nazw (`vse-db`, `vse-postgres`) — ustal je empirycznie.
+
+### 2. Czy kod admin jest w repo?
+
+GitHub MCP — sprawdź czy pliki istnieją:
+- `web/src/app/admin/page.tsx`
+- `web/src/middleware.ts`
+- `api/routers/admin.py`
+- `api/main.py` (czy router admin jest zarejestrowany)
+
+### 3. Czy endpointy odpowiadają?
+
+```powershell
+# Powinno 401:
 ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "curl -s -o /dev/null -w '%{http_code}' https://vse.impresjapr.pl/v1/admin/users"
 
-# Test strony /admin (powinno redirect do /login):
+# Powinno redirect do /login:
 ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "curl -s -o /dev/null -w '%{http_code}' https://vse.impresjapr.pl/admin"
 ```
 
-### 3. Czy middleware jest aktywny?
-
-Sprawdź `web/src/middleware.ts` w repo — czy chroni trasy `/admin`?
-
-### 4. Czy `is_admin` jest ustawione?
+### 4. Stan bazy danych
 
 ```powershell
-# Ustal nazwę kontenera DB:
-ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker ps --format '{{.Names}}'"
-
-# Sprawdź is_admin dla tobroz@gmail.com:
-ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker exec [NAZWA_KONTENERA] psql -U [USER] -c 'SELECT email, plan, is_admin FROM users WHERE email=\'tobroz@gmail.com\';'"
+# Po ustaleniu nazwy kontenera DB:
+ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "docker exec [KONTENER_DB] psql -U [USER] -d [DB] -c 'SELECT email, plan, is_admin FROM users LIMIT 5;'"
 ```
 
-### 5. Czy JWT token zawiera `is_admin`?
+### 5. JWT session — czy is_admin trafia do frontendu?
 
-Sprawdź `web/src/app/api/auth/[...nextauth]/route.ts` — czy `is_admin` jest w session callback (może ten sam problem co z `plan`).
+Sprawdź `web/src/app/api/auth/[...nextauth]/route.ts` (GitHub MCP) — czy `is_admin` jest w session callback. To prawdopodobnie ten sam błąd co z `plan` (fixowany przez vse-dev-08).
 
 ---
 
@@ -89,14 +104,17 @@ Sprawdź `web/src/app/api/auth/[...nextauth]/route.ts` — czy `is_admin` jest w
 - Kod w repo: TAK/NIE (lista plików)
 - Endpoint /v1/admin/users: [HTTP status]
 - Endpoint /admin: [HTTP status]
-- is_admin w DB: TAK/NIE
-- is_admin w JWT token: TAK/NIE
+- is_admin w DB: TAK/NIE (wartość)
+- is_admin w JWT session callback: TAK/NIE
 
 ## Root Cause
 [Co konkretnie nie działa]
 
 ## Wymagane działania
 [Lista konkretnych fixów do wykonania przez dev]
+
+## Zależności
+[Czy fix wymaga wyniku vse-dev-08?]
 ```
 
 ---
@@ -129,4 +147,4 @@ Sprawdź `web/src/app/api/auth/[...nextauth]/route.ts` — czy `is_admin` jest w
 
 ---
 
-*Supervisor 03 | sonic-void | 2026-06-16 19:15*
+*Supervisor 03 | sonic-void | 2026-06-16 19:32 | updated: KROK 0b architektura+roadmap*
