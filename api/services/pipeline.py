@@ -13,7 +13,13 @@ Pipeline for POST /v1/process:
 Local Runner Mode (LOCAL_RUNNER_MODE=true):
   Zamiast pobierać transkrypt bezpośrednio na VPS (zablokowane przez
   YouTube dla Oracle Cloud IP), pipeline tworzy job w tabeli transcript_jobs
-  i czeka na wynik od Local Runner’a (Windows Service na PC Usera).
+  i czeka na wynik od Local Runner'a (Windows Service na PC Usera).
+
+  Obsługa formatu __VTT__ (od v2.0, 2026-06-16):
+  Runner wysyła segmenty z timestampami jako __VTT__ format.
+  Pipeline konwertuje ten format do prawdziwego WebVTT (.vtt) pliku
+  który core.generator.parse_vtt_full() może sparsować do anchor-matchowania.
+  Bez tej konwersji chaptery pokazywały time=0.
 """
 import asyncio
 import logging
@@ -28,8 +34,8 @@ from requests.auth import HTTPBasicAuth
 
 logger = logging.getLogger(__name__)
 
-# Timeout pollowania na transkrypt od Local Runner’a
-LOCAL_RUNNER_POLL_INTERVAL = 2    # sekund między check’ami
+# Timeout pollowania na transkrypt od Local Runner'a
+LOCAL_RUNNER_POLL_INTERVAL = 2    # sekund między check'ami
 LOCAL_RUNNER_POLL_TIMEOUT = 120  # max sekund czekania
 
 
@@ -52,6 +58,74 @@ def _extract_video_id(url: str) -> str:
     raise ValueError(f"Cannot extract video ID from: {url}")
 
 
+def _vtt_runner_to_webvtt(vtt_runner_text: str) -> str:
+    """Konwertuje format __VTT__ z Local Runner'a do prawdziwego WebVTT.
+
+    CO: Konwerter formatów transkryptu — plik tymczasowy dla generatora.
+
+    PO CO: core.generator.parse_vtt_full() oczekuje prawdziwego pliku .vtt
+    z timestampami w formacie '00:MM:SS.000 --> 00:MM:SS.000'.
+    Local Runner wysyła format '__VTT__\n[MM:SS] tekst\n...'.
+    Ta funkcja konwertuje między formatami — bez niej generator
+    dostałby plain text i chaptery = time:0.
+
+    JAK:
+    Input:  '__VTT__\n[02:15] Tekst segmentu\n[07:43] Kolejny...'
+    Output: 'WEBVTT\n\n1\n00:02:15.000 --> 00:02:20.000\nTekst segmentu\n\n...'
+
+    Args:
+        vtt_runner_text: String z prefixem __VTT__ od Local Runner'a.
+
+    Returns:
+        Prawidłowy WebVTT string gotowy do zapisu do pliku .vtt.
+    """
+    import re
+    lines = vtt_runner_text.split("\n")
+    webvtt_parts = ["WEBVTT", ""]
+    cue_index = 1
+    segments = []
+
+    pattern = re.compile(r'^\[(\d{2}):(\d{2})\] (.+)$')
+    for line in lines:
+        if line == "__VTT__" or not line.strip():
+            continue
+        m = pattern.match(line.strip())
+        if m:
+            minutes = int(m.group(1))
+            seconds = int(m.group(2))
+            text = m.group(3)
+            start_sec = minutes * 60 + seconds
+            segments.append((start_sec, text))
+
+    # Buduj cue'y z par kolejnych segmentów
+    for i, (start_sec, text) in enumerate(segments):
+        # End time: następny segment lub start + 5 sekund
+        if i + 1 < len(segments):
+            end_sec = segments[i + 1][0]
+        else:
+            end_sec = start_sec + 5
+
+        # Format: 00:MM:SS.000
+        start_h, start_m, start_s = start_sec // 3600, (start_sec % 3600) // 60, start_sec % 60
+        end_h, end_m, end_s = end_sec // 3600, (end_sec % 3600) // 60, end_sec % 60
+
+        start_str = f"{start_h:02d}:{start_m:02d}:{start_s:02d}.000"
+        end_str = f"{end_h:02d}:{end_m:02d}:{end_s:02d}.000"
+
+        webvtt_parts.append(str(cue_index))
+        webvtt_parts.append(f"{start_str} --> {end_str}")
+        webvtt_parts.append(text)
+        webvtt_parts.append("")
+        cue_index += 1
+
+    result = "\n".join(webvtt_parts)
+    logger.info(
+        "[pipeline] Converted __VTT__ to WebVTT: %d segments, %d chars",
+        len(segments), len(result),
+    )
+    return result
+
+
 async def _create_transcript_job(video_url: str) -> str:
     """Tworzy job transkrypcji w DB i zwraca jego ID.
 
@@ -59,7 +133,7 @@ async def _create_transcript_job(video_url: str) -> str:
 
     PO CO: Zamiast bezpośrednio pobierać transkrypt (co kończy się ban-em
     z Oracle Cloud IP), tworzy zadanie w kolejce — Local Runner pobierze
-    transkrypt z normalnego IP i odesłe przez /v1/jobs/{id}/result.
+    transkrypt z normalnego IP i odeślę przez /v1/jobs/{id}/result.
 
     JAK: Bezpośrednio przez ORM (bez HTTP roundtrip do localhost).
 
@@ -83,19 +157,20 @@ async def _create_transcript_job(video_url: str) -> str:
 
 
 async def _wait_for_transcript(job_id: str) -> str:
-    """Polluje DB na transkrypt z job’a Local Runner’a.
+    """Polluje DB na transkrypt z job'a Local Runner'a.
 
     CO: Async polling pętla czekająca na status 'fetched' lub 'failed'.
 
     PO CO: Pipeline musi poczekać aż Local Runner pobierze transkrypt
-    lokalnie i odesłe wynik. Poll co LOCAL_RUNNER_POLL_INTERVAL sekund,
+    lokalnie i odeślę wynik. Poll co LOCAL_RUNNER_POLL_INTERVAL sekund,
     max LOCAL_RUNNER_POLL_TIMEOUT sekund.
 
     Args:
-        job_id: UUID job’u jako string.
+        job_id: UUID job'u jako string.
 
     Returns:
         Tekst transkryptu (sanitized, z /v1/jobs/{id}/result).
+        Może być w formacie __VTT__ (od runnera v2.0) lub plain text.
 
     Raises:
         RuntimeError: Jeśli timeout lub runner zgłosił failure.
@@ -149,7 +224,7 @@ async def _fetch_transcript_local_runner(video_url: str) -> str:
         video_url: YouTube URL.
 
     Returns:
-        Tekst transkryptu.
+        Tekst transkryptu (może być __VTT__ lub plain text).
     """
     job_id = await _create_transcript_job(video_url)
     logger.info(
@@ -216,10 +291,27 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
             except RuntimeError as e:
                 raise RuntimeError(f"Local Runner transcript failed: {e}") from e
 
-            # Zapisz transkrypt do pliku tymczasowego (core.generator oczekuje ścieżki)
+            # Zapisz transkrypt do pliku tymczasowego
+            # generator.parse_vtt_full() oczekuje prawdziwego WebVTT
             import pathlib
-            vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.txt")
-            pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
+            vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")
+
+            if transcript_text.startswith("__VTT__"):
+                # Runner v2.0+: konwertuj format __VTT__ do prawdziwego WebVTT
+                logger.info(
+                    "[generate] __VTT__ format detected — converting to WebVTT for generator"
+                )
+                webvtt_content = _vtt_runner_to_webvtt(transcript_text)
+                pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
+            else:
+                # Stary runner (plain text): zapisz bezpośrednio
+                # Generator dostanie plain text — chaptery mogą być niedokładne
+                logger.warning(
+                    "[generate] Plain text transcript (no timestamps) — "
+                    "chapters will have approximate times. Upgrade runner to v2.0."
+                )
+                pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
+
             meta["vtt_path"] = vtt_path
         else:
             # Standard mode: bezpośrednio youtube-transcript-api (może być zablokowane na VPS)
