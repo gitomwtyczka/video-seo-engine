@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useJobLoader } from './use-job-loader'
+import { usePortals, type Portal } from './use-portals'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -330,10 +331,11 @@ function TabBar({
 }
 
 /**
- * CO: InjectModal — modalny formularz publikacji na WordPress
+ * CO: InjectModal — modalny formularz publikacji na WordPress z dropdown portalów
  * PO CO: Umożliwia użytkownikom Pro/Agency wstrzyknięcie SEO na WordPress jednym klikiem.
- *        Credentials zapamiętywane w localStorage — nie trzeba ich wpisywać za każdym razem.
- * JAK: Overlay modal z formularzem WP (URL, user, app password, opcjonalny post ID, status draft/publish).
+ *        Portale zapisane w bazie danych (/v1/portals) — dropdown z auto-fill credentials.
+ *        Fallback: ręczne wpisanie credentials (zapisywane w localStorage).
+ * JAK: usePortals() → dropdown z listą portali → wybór portalu → getCredentials() → auto-fill.
  *      Po kliknięciu "Opublikuj" → POST /v1/inject → wyświetla wynik z linkiem do posta.
  */
 function InjectModal({
@@ -345,7 +347,9 @@ function InjectModal({
   videoUrl: string
   onClose: () => void
 }) {
+  const { portals, loading: portalsLoading, getCredentials } = usePortals()
   const initialCreds = loadWpCredentials()
+  const [selectedPortalId, setSelectedPortalId] = useState<string>('')
   const [wpUrl, setWpUrl] = useState(initialCreds.wpUrl)
   const [wpUser, setWpUser] = useState(initialCreds.wpUser)
   const [wpPassword, setWpPassword] = useState(initialCreds.wpPassword)
@@ -353,7 +357,19 @@ function InjectModal({
   const [postStatus, setPostStatus] = useState<'draft' | 'publish'>('draft')
   const [publishing, setPublishing] = useState(false)
   const [publishResult, setPublishResult] = useState<InjectResult | null>(null)
+  const [loadingCreds, setLoadingCreds] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
+
+  // Auto-select default portal on load
+  useEffect(() => {
+    if (portals.length > 0 && !selectedPortalId) {
+      const defaultPortal = portals.find((p) => p.is_default) ?? portals[0]
+      if (defaultPortal) {
+        handlePortalSelect(defaultPortal.id)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portals])
 
   // Close on Escape
   useEffect(() => {
@@ -371,13 +387,35 @@ function InjectModal({
     }
   }
 
+  const handlePortalSelect = async (portalId: string) => {
+    if (portalId === '__manual__') {
+      setSelectedPortalId('__manual__')
+      setWpUrl(initialCreds.wpUrl)
+      setWpUser(initialCreds.wpUser)
+      setWpPassword(initialCreds.wpPassword)
+      return
+    }
+    setSelectedPortalId(portalId)
+    setLoadingCreds(true)
+    try {
+      const creds = await getCredentials(portalId)
+      if (creds) {
+        setWpUrl(creds.url)
+        setWpUser(creds.wp_username)
+        setWpPassword(creds.wp_app_password)
+      }
+    } finally {
+      setLoadingCreds(false)
+    }
+  }
+
   const handlePublish = async () => {
     if (!wpUser || !wpPassword || !wpUrl) {
       setPublishResult({ error: 'Uzupełnij URL portalu, użytkownika i Application Password.' })
       return
     }
 
-    // Save credentials to localStorage
+    // Save credentials to localStorage as fallback
     saveWpCredentials({ wpUrl, wpUser, wpPassword })
 
     setPublishing(true)
@@ -394,7 +432,6 @@ function InjectModal({
         },
         post_status: postStatus,
       }
-      // wp_post_id: jeśli podane → aktualizacja, jeśli puste → nowy post
       if (wpPostId.trim()) {
         body.wp_post_id = parseInt(wpPostId, 10)
       }
@@ -413,6 +450,8 @@ function InjectModal({
       setPublishing(false)
     }
   }
+
+  const isManual = selectedPortalId === '__manual__' || portals.length === 0
 
   return (
     <div
@@ -460,41 +499,87 @@ function InjectModal({
             )}
           </div>
 
-          {/* WP URL */}
+          {/* Portal selector — NEW */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1.5">URL portalu WordPress</label>
-            <input
-              type="text"
-              value={wpUrl}
-              onChange={(e) => setWpUrl(e.target.value)}
-              placeholder="https://twojportal.pl"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-            />
+            <label className="block text-xs text-gray-400 mb-1.5">Portal WordPress</label>
+            {portalsLoading ? (
+              <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
+                <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
+                Ładowanie portali...
+              </div>
+            ) : (
+              <select
+                value={selectedPortalId}
+                onChange={(e) => handlePortalSelect(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+              >
+                {portals.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} — {p.url}{p.is_default ? ' ★' : ''}
+                  </option>
+                ))}
+                <option value="__manual__">✏️ Wpisz ręcznie...</option>
+              </select>
+            )}
+            {loadingCreds && (
+              <p className="text-xs text-violet-400 mt-1 flex items-center gap-1">
+                <span className="animate-spin inline-block w-2.5 h-2.5 border border-violet-400/30 border-t-violet-400 rounded-full" />
+                Pobieranie danych portalu...
+              </p>
+            )}
           </div>
 
-          {/* Credentials row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
-              <input
-                type="text"
-                value={wpUser}
-                onChange={(e) => setWpUser(e.target.value)}
-                placeholder="admin"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-              />
+          {/* Manual credentials — visible only when manual mode or no portals */}
+          {isManual && (
+            <>
+              {/* WP URL */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">URL portalu WordPress</label>
+                <input
+                  type="text"
+                  value={wpUrl}
+                  onChange={(e) => setWpUrl(e.target.value)}
+                  placeholder="https://twojportal.pl"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                />
+              </div>
+
+              {/* Credentials row */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+                  <input
+                    type="text"
+                    value={wpUser}
+                    onChange={(e) => setWpUser(e.target.value)}
+                    placeholder="admin"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Application Password</label>
+                  <input
+                    type="password"
+                    value={wpPassword}
+                    onChange={(e) => setWpPassword(e.target.value)}
+                    placeholder="xxxx xxxx xxxx xxxx"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Selected portal info — visible in portal mode */}
+          {!isManual && !loadingCreds && wpUrl && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg">
+              <span className="text-xs text-violet-400">🔗</span>
+              <span className="text-xs text-gray-400">{wpUrl}</span>
+              <span className="text-xs text-gray-600">·</span>
+              <span className="text-xs text-gray-400">{wpUser}</span>
             </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Application Password</label>
-              <input
-                type="password"
-                value={wpPassword}
-                onChange={(e) => setWpPassword(e.target.value)}
-                placeholder="xxxx xxxx xxxx xxxx"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-              />
-            </div>
-          </div>
+          )}
 
           {/* Post ID + Status */}
           <div className="grid grid-cols-2 gap-3">
@@ -542,7 +627,7 @@ function InjectModal({
           {/* Publish button */}
           <button
             onClick={handlePublish}
-            disabled={publishing}
+            disabled={publishing || loadingCreds}
             className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
           >
             {publishing ? (
@@ -585,7 +670,7 @@ function InjectModal({
           )}
 
           <p className="text-xs text-gray-600 text-center">
-            Dane logowania zapamiętane w przeglądarce (localStorage)
+            {isManual ? 'Dane logowania zapamiętane w przeglądarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}
           </p>
         </div>
       </div>
