@@ -12,7 +12,8 @@ JAK:
 2. GET  /v1/jobs/pending  — runner (Bearer LOCAL_RUNNER_TOKEN) pobiera zadania
 3. POST /v1/jobs/{id}/result — runner zwraca transkrypt
 4. GET  /v1/jobs/{id}     — polling statusu (JWT lub runner)
-5. GET  /v1/jobs/history  — lista jobów (dla strony /historia)
+5. GET  /v1/jobs/{id}/vtt — pobieranie pliku VTT transkrypcji
+6. GET  /v1/jobs/history  — lista jobów (dla strony /historia)
 
 Security (SUPPLEMENT-VSE-DEV-04-20260615-SECURITY):
 - LOCAL_RUNNER_TOKEN: min 256-bit entropy (secrets.token_urlsafe(32))
@@ -39,6 +40,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -456,6 +458,61 @@ async def get_job(
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
     return _job_to_full_response(job)
+
+
+@router.get("/{job_id}/vtt")
+async def get_job_vtt(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(_get_db),
+) -> Response:
+    """Pobiera transkrypt VTT jako plik do pobrania.
+
+    CO: Endpoint serwujący transkrypt w formacie WebVTT.
+
+    PO CO: Badge VTT w /historia jest klikalnym linkiem prowadzącym
+    do tego endpointu. Użytkownik może pobrać / podejrzeć transkrypt
+    bez szukania go w bazie danych ręcznie.
+
+    JAK:
+    1. Pobiera job z DB po UUID.
+    2. Sprawdza czy transkrypt istnieje i jest w formacie __VTT__.
+    3. Konwertuje __VTT__ do prawdziwego WebVTT (pipeline._vtt_runner_to_webvtt).
+    4. Zwraca jako text/vtt z Content-Disposition: inline.
+    Dla plain text transkryptów — zwraca text/plain.
+
+    Returns:
+        Response z treścią VTT i odpowiednim Content-Type.
+    """
+    job = await db.get(TranscriptJob, job_id)
+    if not job:
+        raise HTTPException(404, f"Job {job_id} not found")
+
+    if not job.transcript:
+        raise HTTPException(404, "No transcript available for this job")
+
+    video_id = _extract_video_id_from_url(job.video_url) if job.video_url else "transcript"
+    filename = f"{video_id or 'transcript'}.vtt"
+
+    if job.transcript.startswith("__VTT__"):
+        # Konwertuj __VTT__ runner format do prawdziwego WebVTT
+        from api.services.pipeline import _vtt_runner_to_webvtt
+        webvtt_content = _vtt_runner_to_webvtt(job.transcript)
+        return Response(
+            content=webvtt_content,
+            media_type="text/vtt",
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+            },
+        )
+    else:
+        # Plain text transkrypt — zwróć jako text/plain
+        return Response(
+            content=job.transcript,
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'inline; filename="{video_id or "transcript"}.txt"',
+            },
+        )
 
 
 # ---------------------------------------------------------------------------

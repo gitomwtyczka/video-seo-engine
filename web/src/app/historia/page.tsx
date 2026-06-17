@@ -6,6 +6,7 @@
  *        Kliknięcie "Otwórz wyniki" przenosi do /dashboard?job_id=X
  *        gdzie dashboard ładuje pełne dane z DB.
  *        Tytuł joba jest teraz klikalnym linkiem do YouTube (jeśli video_url dostępny).
+ *        Badge VTT jest klikalnym linkiem do pobrania pliku transkrypcji.
  * JAK: Fetch GET /v1/jobs/history z paginacją, wyświetla tabelę z filmami.
  */
 import { useSession } from 'next-auth/react'
@@ -190,9 +191,18 @@ export default function HistoriaPage() {
                           <div className="flex items-center gap-2 mt-1">
                             {statusBadge(job.status)}
                             {job.has_vtt && (
-                              <span className="px-2 py-0.5 text-xs rounded-full border bg-blue-500/10 border-blue-500/20 text-blue-400">
+                              <a
+                                href={`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/jobs/${job.id}/vtt`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Pobierz transkrypt VTT"
+                                className="px-2 py-0.5 text-xs rounded-full border bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/40 hover:text-blue-300 transition-all cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
                                 VTT
-                              </span>
+                              </a>
                             )}
                             <span className="text-xs text-gray-600">{formatDate(job.created_at)}</span>
                           </div>
