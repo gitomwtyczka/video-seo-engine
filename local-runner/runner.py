@@ -11,7 +11,7 @@ self-hosted runner.
 
 JAK:
 1. Poll GET /v1/jobs/pending co POLL_INTERVAL sekund
-2. Dla każdego 'pending' joba: pobierz transkrypt przez youtube-transcript-api
+2. Dla każdego 'pending' joba: pobierz transkrypt przez yt-dlp (cookies) lub youtube-transcript-api
 3. POST /v1/jobs/{id}/result z transkryptem lub błędem
 4. Pętla się powtarza bez końca (SIGTERM = graceful stop)
 
@@ -29,14 +29,29 @@ Od v2.0 runner wysyła transkrypt Z TIMESTAMPAMI w formacie:
 To pozwala pipeline.py zamienić segmenty na prawdziwy plik .vtt który
 generator.py parsuje do anchor-matching rozdziałów. Bez timestampów
 generator nie może wyciągnąć rzeczywistych czasów → rozdziały = 0.
+
+## Strategia pobierania transkryptu (v3.0 — 2026-06-17)
+
+YouTube coraz agresywniej blokuje requesty bez cookies — nawet na domowym IP.
+
+Aktualna strategia (primary → fallback):
+1. yt-dlp --cookies-from-browser firefox  ← PRIMARY (działa, pobiera auth z Firefox)
+2. yt-dlp --cookies-from-browser chrome   ← fallback 1
+3. yt-dlp --cookies-from-browser edge     ← fallback 2
+4. youtube-transcript-api (bez cookies)   ← last resort (może być zablokowane)
+
+Format json3 → konwertujemy do __VTT__ z timestampami.
 """
+import json
 import logging
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -52,6 +67,9 @@ POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "10"))  # sekund
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_DIR = os.getenv("LOG_DIR", r"C:\ProgramData\VSELocalRunner")
 LANG_PRIORITY = ["pl", "en", "en-US", "en-GB"]  # kolejność preferowanych języków
+
+# Kolejność przeglądarek do cookies — zmień wg dostępności na PC
+BROWSER_PRIORITY = ["firefox", "chrome", "edge", "chromium"]
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -157,88 +175,290 @@ def _format_segments_as_vtt(segments: list) -> str:
     return "\n".join(lines)
 
 
-def fetch_transcript(video_url: str) -> Optional[str]:
-    """Pobiera transkrypt YouTube przez youtube-transcript-api Z TIMESTAMPAMI.
+def _parse_json3_to_segments(json3_text: str) -> list:
+    """Parsuje format json3 (yt-dlp) do listy segmentów [{text, start}].
 
-    CO: Lokalne pobranie transkryptu na PC Usera w formacie VTT-like.
+    CO: YouTube json3 zawiera tStartMs, dDurationMs i segs[{utf8, tOffsetMs}].
+    Konwertujemy do prostych [{text, start}] kompatybilnych z _format_segments_as_vtt.
 
-    PO CO: Oracle Cloud VPS ma zbanowane IP — tutaj działamy z normalnego IP.
-    youtube-transcript-api nie wymaga klucza API.
+    Args:
+        json3_text: Zawartość pliku .json3 z yt-dlp.
 
-    ZMIANA v2.0 (2026-06-16): Wysyłamy teraz transkrypt Z TIMESTAMPAMI
-    (format __VTT__) zamiast plain text. Bez timestampów generator nie
-    może anchor-matchować rozdziałów → wszystkie chaptery = time:0.
+    Returns:
+        Lista dictów [{text: str, start: float}] w sekundach.
+    """
+    try:
+        data = json.loads(json3_text)
+    except json.JSONDecodeError as e:
+        log.error("Failed to parse json3: %s", e)
+        return []
 
-    JAK:
-    1. Wyodrębnienie video ID z URL
-    2. Listowanie dostępnych transkryptów
-    3. Fetch w kolejności LANG_PRIORITY (pl, en, en-US, en-GB)
-    4. Fallback: pierwszy dostępny transkrypt
-    5. Formatowanie segmentów jako [MM:SS] tekst z prefixem __VTT__
+    events = data.get("events", [])
+    segments = []
+
+    for event in events:
+        t_start_ms = event.get("tStartMs", 0)
+        segs = event.get("segs", [])
+        if not segs:
+            continue
+
+        # Składamy tekst z segmentów wewnątrz eventu
+        parts = []
+        for seg in segs:
+            utf8_text = seg.get("utf8", "").replace("\n", " ").strip()
+            if utf8_text:
+                parts.append(utf8_text)
+
+        full_text = " ".join(parts).strip()
+        if not full_text:
+            continue
+
+        start_sec = t_start_ms / 1000.0
+        segments.append({"text": full_text, "start": start_sec})
+
+    log.debug("Parsed %d segments from json3", len(segments))
+    return segments
+
+
+def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
+    """Pobiera transkrypt przez yt-dlp z cookies przeglądarki (PRIMARY strategy).
+
+    CO: Używa yt-dlp --cookies-from-browser do autentykacji YouTube.
+    Omija blokadę IP przez cookies z zalogowanej przeglądarki.
+
+    PO CO:
+    - youtube-transcript-api coraz częściej blokowane nawet na domowym IP
+    - YouTube wymaga cookies ("Sign in to confirm you're not a bot")
+    - yt-dlp + cookies z przeglądarki = najpewniejsza metoda
+
+    Strategia przeglądarek (BROWSER_PRIORITY):
+    firefox → chrome → edge → chromium
+
+    Format wyjściowy: __VTT__ z markerami [MM:SS] — identyczny jak v2.
 
     Args:
         video_url: YouTube URL lub ID.
 
     Returns:
-        String z prefixem __VTT__ i timestampami, lub None jeśli brak transkryptu.
+        String __VTT__ z timestampami lub None jeśli wszystkie metody zawiodły.
+    """
+    video_id = extract_video_id(video_url)
+    if not video_id:
+        log.error("Cannot extract video ID from: %s", video_url)
+        return None
 
-    Raises:
-        Exception: Gdy youtube-transcript-api zgłosi błąd.
+    # Próbuj kolejne przeglądarki
+    for browser in BROWSER_PRIORITY:
+        result = _try_ytdlp_with_browser(video_id, browser)
+        if result is not None:
+            return result
+        log.debug("Browser %s failed, trying next", browser)
+
+    log.warning("All browsers failed for yt-dlp, falling back to transcript-api")
+    return None
+
+
+def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
+    """Próbuje pobrać transkrypt przez yt-dlp z konkretną przeglądarką.
+
+    Args:
+        video_id: YouTube video ID (11 znaków).
+        browser: Nazwa przeglądarki (firefox, chrome, edge, chromium).
+
+    Returns:
+        String __VTT__ lub None jeśli się nie powiodło.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Najpierw próbujemy pobrać napisy ręczne (pl), potem auto-generated
+        for lang_spec in ["pl", "en"]:
+            json3_path = Path(tmpdir) / f"{video_id}.{lang_spec}.json3"
+
+            cmd = [
+                "yt-dlp",
+                "--no-update",
+                "--cookies-from-browser", browser,
+                "--skip-download",
+                "--write-sub",
+                "--write-auto-sub",
+                "--sub-lang", lang_spec,
+                "--sub-format", "json3",
+                "--output", str(Path(tmpdir) / f"{video_id}.%(ext)s"),
+                url,
+            ]
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+
+                if proc.returncode != 0:
+                    stderr_short = proc.stderr[:300] if proc.stderr else ""
+                    # Specyficzne błędy wskazujące że przeglądarka niedostępna
+                    if any(x in stderr_short for x in [
+                        "Could not copy", "Failed to extract", "No cookies"
+                    ]):
+                        log.debug(
+                            "Browser %s cookies unavailable: %s",
+                            browser, stderr_short[:100]
+                        )
+                        return None  # Ta przeglądarka niedostępna — stop próbowania
+                    log.debug(
+                        "yt-dlp %s lang=%s exit=%d: %s",
+                        browser, lang_spec, proc.returncode, stderr_short[:100]
+                    )
+                    continue
+
+                # Sprawdź czy plik json3 został pobrany
+                if json3_path.exists():
+                    json3_text = json3_path.read_text(encoding="utf-8")
+                    segments = _parse_json3_to_segments(json3_text)
+                    if segments:
+                        vtt = _format_segments_as_vtt(segments)
+                        log.info(
+                            "yt-dlp OK: browser=%s lang=%s segments=%d chars=%d",
+                            browser, lang_spec, len(segments), len(vtt)
+                        )
+                        return vtt
+                    log.debug("json3 parsed but 0 segments for lang=%s", lang_spec)
+                else:
+                    log.debug(
+                        "json3 file not found for lang=%s: %s", lang_spec, tmpdir
+                    )
+
+            except subprocess.TimeoutExpired:
+                log.warning(
+                    "yt-dlp timeout for browser=%s lang=%s", browser, lang_spec
+                )
+            except FileNotFoundError:
+                log.error("yt-dlp not found — install: pip install yt-dlp")
+                return None
+            except Exception as e:
+                log.error("yt-dlp unexpected error (browser=%s): %s", browser, e)
+
+    return None
+
+
+def fetch_transcript_api(video_url: str) -> Optional[str]:
+    """Pobiera transkrypt przez youtube-transcript-api (FALLBACK strategy).
+
+    CO: Bezpośrednie pobieranie transkryptu bez cookies.
+
+    PO CO: Fallback gdy yt-dlp + cookies nie zadziałały.
+    Może być blokowane przez YouTube IP ban — ale warto spróbować.
+
+    ZMIANA v2.0 (2026-06-16): Wysyłamy transkrypt Z TIMESTAMPAMI
+    (format __VTT__) zamiast plain text.
+
+    Args:
+        video_url: YouTube URL lub ID.
+
+    Returns:
+        String z prefixem __VTT__ i timestampami, lub None jeśli brak.
     """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
     except ImportError:
-        raise RuntimeError(
+        log.error(
             "youtube-transcript-api not installed. "
             "Run: pip install youtube-transcript-api"
         )
+        return None
 
     video_id = extract_video_id(video_url)
     if not video_id:
         raise ValueError(f"Cannot extract video ID from: {video_url}")
 
-    log.debug("Fetching transcript for video_id=%s", video_id)
+    log.debug("Fetching transcript via transcript-api for video_id=%s", video_id)
 
-    ytt = YouTubeTranscriptApi()
+    try:
+        ytt = YouTubeTranscriptApi()
 
-    # Lista dostępnych transkryptów
-    transcript_list = ytt.list(video_id)
+        # Lista dostępnych transkryptów
+        transcript_list = ytt.list(video_id)
 
-    # Próbuj w kolejności priorytetów językowych
-    transcript = None
-    for lang in LANG_PRIORITY:
-        try:
-            transcript = transcript_list.find_transcript([lang])
-            log.debug("Found transcript in language: %s", lang)
-            break
-        except Exception:
-            continue
+        # Próbuj w kolejności priorytetów językowych
+        transcript = None
+        for lang in LANG_PRIORITY:
+            try:
+                transcript = transcript_list.find_transcript([lang])
+                log.debug("Found transcript in language: %s", lang)
+                break
+            except Exception:
+                continue
 
-    # Fallback: pierwszy dostępny
-    if transcript is None:
-        try:
-            transcript = next(iter(transcript_list))
-            log.debug("Using fallback transcript (first available)")
-        except StopIteration:
-            return None
+        # Fallback: pierwszy dostępny
+        if transcript is None:
+            try:
+                transcript = next(iter(transcript_list))
+                log.debug("Using fallback transcript (first available)")
+            except StopIteration:
+                return None
 
-    # Fetch segmentów Z TIMESTAMPAMI
-    segments = transcript.fetch()
+        # Fetch segmentów Z TIMESTAMPAMI
+        segments = transcript.fetch()
 
-    # Konwertuj do formatu VTT-like z markerami [MM:SS]
-    # segments to lista FetchedTranscriptSnippet lub dict-like z polami:
-    # text, start, duration
-    seg_dicts = []
-    for s in segments:
-        if hasattr(s, "text"):
-            seg_dicts.append({"text": s.text, "start": getattr(s, "start", 0.0)})
-        elif isinstance(s, dict):
-            seg_dicts.append(s)
+        seg_dicts = []
+        for s in segments:
+            if hasattr(s, "text"):
+                seg_dicts.append({"text": s.text, "start": getattr(s, "start", 0.0)})
+            elif isinstance(s, dict):
+                seg_dicts.append(s)
 
-    vtt_text = _format_segments_as_vtt(seg_dicts)
-    total_chars = len(vtt_text)
-    log.info("Transcript fetched with timestamps: %d chars, %d segments", total_chars, len(seg_dicts))
-    return vtt_text if seg_dicts else None
+        vtt_text = _format_segments_as_vtt(seg_dicts)
+        total_chars = len(vtt_text)
+        log.info(
+            "transcript-api OK: %d chars, %d segments",
+            total_chars, len(seg_dicts)
+        )
+        return vtt_text if seg_dicts else None
+
+    except Exception as e:
+        log.warning("transcript-api failed: %s", str(e)[:200])
+        return None
+
+
+def fetch_transcript(video_url: str) -> Optional[str]:
+    """Pobiera transkrypt YouTube — próbuje wszystkie metody po kolei.
+
+    CO: Główna funkcja pobierania transkryptu z full fallback chain.
+
+    Strategia (v3.0 — 2026-06-17):
+    1. yt-dlp + firefox cookies (PRIMARY — najniezawodniejsze)
+    2. yt-dlp + chrome cookies (fallback 1)
+    3. yt-dlp + edge cookies (fallback 2)
+    4. youtube-transcript-api bez cookies (last resort)
+
+    Args:
+        video_url: YouTube URL lub ID.
+
+    Returns:
+        String __VTT__ z timestampami lub None jeśli wszystko zawodzi.
+
+    Raises:
+        ValueError: Gdy URL nieparsowalne.
+    """
+    log.info("Fetching transcript for: %s", video_url)
+
+    # PRIMARY: yt-dlp + browser cookies
+    result = fetch_transcript_ytdlp(video_url)
+    if result:
+        return result
+
+    # LAST RESORT: youtube-transcript-api (bez cookies — często blokowane)
+    log.warning(
+        "All yt-dlp methods failed — trying youtube-transcript-api (may be blocked)"
+    )
+    result = fetch_transcript_api(video_url)
+    if result:
+        return result
+
+    log.error("All transcript methods failed for: %s", video_url)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -368,11 +588,11 @@ def main() -> None:
         sys.exit(1)
 
     log.info("=" * 60)
-    log.info("VSE Local Transcript Runner started")
+    log.info("VSE Local Transcript Runner started (v3.0 — yt-dlp+cookies)")
     log.info("API: %s", API_BASE)
     log.info("Poll interval: %ds", POLL_INTERVAL)
     log.info("Log dir: %s", LOG_DIR)
-    log.info("Transcript format: __VTT__ with [MM:SS] timestamps")
+    log.info("Transcript strategy: yt-dlp+firefox → yt-dlp+chrome → yt-dlp+edge → transcript-api")
     log.info("=" * 60)
 
     while True:
