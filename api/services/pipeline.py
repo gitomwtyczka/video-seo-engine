@@ -25,7 +25,12 @@ SAAS Enrichment (2026-06-17, vse-dev-14):
   Krok 0 w run_generate(): jeśli SAAS_API_URL skonfigurowany w .env,
   pipeline pobiera frazy kluczowe z GSC i top pages portalu docelowego.
   Dane są przekazywane do generatora jako priority_keywords + internal_links.
-  Integracja jest opcjonalna — jeśli SAAS niedostępny, pipeline działa jak dotąd.
+  Integracja jest opcjonalna — jeśli SAAS niedostępny, pipeline działa jak dotać.
+
+GSC Status Surfacing (2026-06-17, sup-worker-01, KROK 4):
+  run_generate() teraz zwraca pole "gsc" z status/message/connect_url/upgrade_url.
+  Generowanie artykułu NIE jest blokowane przez brak GSC.
+  Caller (UI / API klient) widzi jawnie czy GSC było dostępne.
 """
 import asyncio
 import logging
@@ -241,8 +246,8 @@ async def _fetch_transcript_local_runner(video_url: str) -> str:
     return transcript
 
 
-async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict]]:
-    """Fetch SAAS SEO enrichment data for a portal (keywords + internal links).
+async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict], dict]:
+    """Fetch SAAS SEO enrichment data for a portal (keywords + internal links + gsc meta).
 
     CO: Wrapper — wywołuje saas_enricher i konwertuje wynik do formatu
     akceptowanego przez generator.
@@ -250,21 +255,33 @@ async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict]]:
     PO CO: Oddziela logikę SAAS od głównego flow run_generate().
     Jeśli SAAS nie jest skonfigurowany lub niedostępny — zwraca puste listy.
 
+    KROK 4 — GSC status surfacing:
+    Teraz zwraca również gsc_meta dict z polami:
+      gsc_status, gsc_message, gsc_connect_url, gsc_upgrade_url
+    Dzięki temu run_generate() może dołączyć "gsc" do swojej odpowiedzi.
+
     JAK:
     1. Sprawdź czy SAAS_API_URL ustawiony w env
     2. Jeśli tak → pobierz dane z saas_enricher
-    3. Zwróć (priority_keywords, internal_links)
+    3. Zwróć (priority_keywords, internal_links, gsc_meta)
 
     Args:
         site_url: URL portalu docelowego (np. https://prawy.pl).
 
     Returns:
-        Tuple (priority_keywords: list[str], internal_links: list[dict])
+        Tuple (priority_keywords: list[str], internal_links: list[dict], gsc_meta: dict)
     """
+    _gsc_unavailable = {
+        "status": "unavailable",
+        "message": None,
+        "connect_url": None,
+        "upgrade_url": None,
+    }
+
     saas_url = os.environ.get("SAAS_API_URL", "").strip()
     if not saas_url:
         logger.debug("[pipeline] SAAS_API_URL not set — skipping enrichment")
-        return [], []
+        return [], [], _gsc_unavailable
 
     try:
         from api.services.saas_enricher import (
@@ -277,18 +294,26 @@ async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict]]:
         priority_keywords = extract_priority_keywords(saas_data)
         internal_links = extract_internal_links(saas_data)
 
+        # Build gsc_meta from saas_data fields (KROK 4)
+        gsc_meta = {
+            "status": saas_data.get("gsc_status", "unavailable"),
+            "message": saas_data.get("gsc_message"),
+            "connect_url": saas_data.get("gsc_connect_url"),
+            "upgrade_url": saas_data.get("gsc_upgrade_url"),
+        }
+
         logger.info(
-            "[pipeline] SAAS enrichment for %s: %d keywords, %d links",
-            site_url, len(priority_keywords), len(internal_links),
+            "[pipeline] SAAS enrichment for %s: %d keywords, %d links, gsc_status=%s",
+            site_url, len(priority_keywords), len(internal_links), gsc_meta["status"],
         )
-        return priority_keywords, internal_links
+        return priority_keywords, internal_links, gsc_meta
 
     except Exception as exc:
         logger.warning(
             "[pipeline] SAAS enrichment failed for %s: %s — continuing without",
             site_url, exc,
         )
-        return [], []
+        return [], [], _gsc_unavailable
 
 
 def _resolve_site_url_from_env() -> str:
@@ -317,7 +342,12 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
       Krok 0 (przed generowaniem): jeśli SAAS_API_URL ustawiony w .env,
       pobiera frazy kluczowe z GSC i top pages portalu docelowego.
       Dane przekazywane do core/generator.py jako priority_keywords + internal_links.
-      Jeśli SAAS niedostępny — pipeline działa jak dotąd (graceful degradation).
+      Jeśli SAAS niedostępny — pipeline działa jak dotać (graceful degradation).
+
+    GSC Status Surfacing (2026-06-17, sup-worker-01, KROK 4):
+      Wynik zawiera pole "gsc" z status/message/connect_url/upgrade_url.
+      Generowanie artykułu NIE jest blokowane przez brak GSC.
+      UI/caller może poinformować usera o stanie integracji GSC.
 
     Args:
         video_url: YouTube video URL or ID.
@@ -326,7 +356,8 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
         post_title_override: Optional title override instead of yt-dlp metadata.
 
     Returns:
-        Dict with 'video_id', 'meta', 'seo' keys.
+        Dict with 'video_id', 'meta', 'seo', 'gsc' keys.
+        'gsc': {'status': str, 'message': str|None, 'connect_url': str|None, 'upgrade_url': str|None}
 
     Raises:
         ValueError: On invalid URL or missing API key.
@@ -354,8 +385,9 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
 
     # Step 0: SAAS enrichment — fetch keywords + internal links from GSC
     # (optional, graceful degradation if SAAS unavailable)
+    # KROK 4: now also returns gsc_meta for surfacing in response
     site_url = _resolve_site_url_from_env()
-    priority_keywords, internal_links = await _fetch_saas_enrichment(site_url)
+    priority_keywords, internal_links, gsc_meta = await _fetch_saas_enrichment(site_url)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         # 1. Fetch metadata + transcript
@@ -427,10 +459,16 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
             internal_links if internal_links else None,
         )
 
-    logger.info("[generate] done: video_id=%s keyphrase=%r saas=%s",
+    logger.info("[generate] done: video_id=%s keyphrase=%r saas=%s gsc_status=%s",
                 video_id, seo.get("focus_keyphrase", "?"),
-                "enriched" if seo.get("saas_enriched") else "standalone")
-    return {"video_id": video_id, "meta": meta, "seo": seo}
+                "enriched" if seo.get("saas_enriched") else "standalone",
+                gsc_meta["status"])
+    return {
+        "video_id": video_id,
+        "meta": meta,
+        "seo": seo,
+        "gsc": gsc_meta,  # KROK 4: GSC status surfaced to caller
+    }
 
 
 async def run_process(video_url: str, site_config: dict, options: dict,
