@@ -13,7 +13,12 @@ JAK:
 - Auth: Bearer token (SAAS_API_TOKEN z .env)
 - Cache w pamięci 30 min (dict + timestamp) — SAAS odpytuje GSC
   z quotą, nie chcemy bombardować
-- Fallback: jeśli SAAS niedostępny → puste dane (VSE działa jak dotąd)
+- Fallback: jeśli SAAS niedostępny → puste dane (VSE działa jak dotać)
+
+GSC Status Propagation (2026-06-17, sup-worker-01, KROK 3):
+  Zamiast połykania błędów HTTP cicho, enricher propaguje gsc_status z SAAS.
+  Pipeline i UI mogą poinformować usera o rzeczywistym stanie integracji GSC.
+  Stany: ok | not_connected | tier_locked | unavailable
 
 Zmienne .env:
   SAAS_API_URL  — bazowy URL SAAS (np. http://localhost:8001)
@@ -81,13 +86,19 @@ async def get_saas_seo_data(
 
     PO CO: Pipeline wywołuje ją przed generowaniem artykułu. Jeśli SAAS
     zwraca dane, generator dostaje priorytetowe frazy i propozycje linków.
-    Jeśli SAAS jest niedostępny — zwraca puste dane (graceful degradation).
+    Jeśli SAAS jest niedostępny — zwraca puste dane z gsc_status='unavailable'.
 
     JAK:
     1. Sprawdź cache → jeśli fresh → zwróć bez HTTP
     2. GET /api/external/seo-data?site_url=<url>
-    3. Parse response → cache → zwróć
-    4. Exception → log + zwróć puste dane
+    3. Parse response z gsc_status propagation
+    4. Exception → log + zwroć puste dane z gsc_status='unavailable'
+
+    KROK 3 — GSC status propagation:
+    - HTTP 200 z gsc_status: propaguje status (ok / not_connected / tier_locked)
+    - HTTP 402: tier_locked (GSC feature requires PRO+)
+    - HTTP 403/404: not_connected (brak autoryzacji GSC)
+    - Inne błędy: unavailable (tymczasowy błąd)
 
     Args:
         site_url: URL portalu docelowego (np. https://prawy.pl).
@@ -96,11 +107,22 @@ async def get_saas_seo_data(
 
     Returns:
         Dict z kluczami:
-          - keywords: list[dict] — frazy z GSC (query, clicks, impressions, position)
-          - top_pages: list[dict] — top strony portalu (page, clicks, impressions)
-        Puste listy jeśli SAAS niedostępny lub błąd.
+          - keywords: list[dict] — frazy z GSC
+          - top_pages: list[dict] — top strony portalu
+          - gsc_status: str — 'ok' | 'not_connected' | 'tier_locked' | 'unavailable'
+          - gsc_message: str | None
+          - gsc_connect_url: str | None
+          - gsc_upgrade_url: str | None
+        Puste listy i gsc_status='unavailable' jeśli SAAS niedostępny lub błąd.
     """
-    empty_result = {"keywords": [], "top_pages": []}
+    empty_result = {
+        "keywords": [],
+        "top_pages": [],
+        "gsc_status": "unavailable",
+        "gsc_message": None,
+        "gsc_connect_url": None,
+        "gsc_upgrade_url": None,
+    }
 
     # Resolve config
     if not saas_api_url or not saas_api_token:
@@ -137,31 +159,65 @@ async def get_saas_seo_data(
             )
             response = await client.get(endpoint, headers=headers, params=params)
 
-        if response.status_code != 200:
+        if response.status_code == 200:
+            data = response.json()
+            # KROK 3: Propagate gsc_status from SAAS response
+            result = {
+                "keywords": data.get("keywords", []),
+                "top_pages": data.get("top_pages", []),
+                "gsc_status": data.get("gsc_status", "ok"),
+                "gsc_message": data.get("gsc_message"),
+                "gsc_connect_url": data.get("gsc_connect_url"),
+                "gsc_upgrade_url": data.get("gsc_upgrade_url"),
+            }
+
+            kw_count = len(result["keywords"])
+            tp_count = len(result["top_pages"])
+            logger.info(
+                "[saas_enricher] SAAS data received: %d keywords, %d top_pages for %s (gsc_status=%s)",
+                kw_count, tp_count, site_url, result["gsc_status"],
+            )
+
+            # Cache the result (including gsc_status)
+            _set_cache(cache_key, result)
+            return result
+
+        elif response.status_code == 402:
+            # Tier locked — GSC feature requires PRO+
+            logger.info(
+                "[saas_enricher] SAAS HTTP 402 (tier_locked) for %s", site_url
+            )
+            detail = {}
+            try:
+                detail = response.json().get("detail", {})
+            except Exception:  # noqa: BLE001
+                pass
+            return {
+                **empty_result,
+                "gsc_status": "tier_locked",
+                "gsc_message": detail.get("gsc_message") if isinstance(detail, dict) else "Upgrade planu aby używać GSC.",
+                "gsc_upgrade_url": detail.get("gsc_upgrade_url") if isinstance(detail, dict) else "/pricing",
+            }
+
+        elif response.status_code in (403, 404):
+            # Not connected — no GSC auth for this domain
+            logger.info(
+                "[saas_enricher] SAAS HTTP %d (not_connected) for %s",
+                response.status_code, site_url,
+            )
+            return {
+                **empty_result,
+                "gsc_status": "not_connected",
+                "gsc_message": "Brak autoryzacji Google Search Console dla tej domeny.",
+                "gsc_connect_url": "/settings/google",
+            }
+
+        else:
             logger.warning(
                 "[saas_enricher] SAAS returned HTTP %d for %s: %s",
                 response.status_code, site_url, response.text[:200],
             )
             return empty_result
-
-        data = response.json()
-
-        # Normalize response structure
-        result = {
-            "keywords": data.get("keywords", []),
-            "top_pages": data.get("top_pages", []),
-        }
-
-        kw_count = len(result["keywords"])
-        tp_count = len(result["top_pages"])
-        logger.info(
-            "[saas_enricher] SAAS data received: %d keywords, %d top_pages for %s",
-            kw_count, tp_count, site_url,
-        )
-
-        # Cache the result
-        _set_cache(cache_key, result)
-        return result
 
     except httpx.TimeoutException:
         logger.warning(
