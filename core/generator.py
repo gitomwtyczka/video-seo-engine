@@ -17,6 +17,13 @@ Schema standards (Google 2026):
   - Quotation: NOT added (Google does not render; keep if existing)
   - Default model: gemini-2.5-flash | Claude: claude-sonnet-4-5
 
+SAAS Enrichment (2026-06-17, vse-dev-14):
+  - generate_seo_v4() accepts optional priority_keywords and internal_links
+  - If provided, appends SAAS context section to the LLM prompt
+  - Keywords come from GSC via SAAS /api/external/seo-data
+  - Internal links are top pages of the target portal
+  - Integration is optional — if not provided, prompt is unchanged
+
 Dependencies:
   pip install google-genai anthropic python-dotenv
 """
@@ -206,6 +213,62 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
 
 
 # ============================================================
+# SAAS ENRICHMENT — build prompt section from GSC data
+# ============================================================
+
+def _build_saas_prompt_section(
+    priority_keywords: Optional[list[str]] = None,
+    internal_links: Optional[list[dict]] = None,
+) -> str:
+    """Build an additional prompt section with SAAS enrichment data.
+
+    CO: Generuje sekcję promptu z danymi z SAAS (frazy GSC + linki wewn.).
+
+    PO CO: Jeśli SAAS zwraca dane, chcemy żeby LLM wiedział o priorytetowych
+    frazach portalu i mógł wpleść je w generowany artykuł. To podnosi
+    trafność SEO — artykuł używa fraz które portal JUŻ rankuje w Google.
+
+    JAK: Buduje markdown section która jest doklejana do głównego promptu.
+    Jeśli brak danych → pusty string (prompt bez zmian).
+
+    Args:
+        priority_keywords: Lista fraz kluczowych z GSC.
+        internal_links: Lista dictów z 'url' i 'title' do linkowania.
+
+    Returns:
+        String z sekcją promptu lub pusty string.
+    """
+    sections = []
+
+    if priority_keywords:
+        kw_list = ", ".join(f'"{kw}"' for kw in priority_keywords[:15])
+        sections.append(f"""## PRIORYTETOWE FRAZY KLUCZOWE Z GSC PORTALU
+
+Poniższe frazy są faktycznie wyszukiwane przez użytkowników Google i portal już na nie rankuje.
+Użyj ich naturalnie w article_body, meta_description, lead i FAQ — ale TYLKO jeśli pasują
+tematycznie do tego materiału wideo. Nie forsuj fraz na siłę.
+
+Frazy: {kw_list}""")
+
+    if internal_links:
+        links_text = "\n".join(
+            f"- {link['url']} ({link.get('title', '')})" for link in internal_links[:10]
+        )
+        sections.append(f"""## PROPOZYCJE LINKOW WEWNETRZNYCH
+
+Poniższe strony to najpopularniejsze artykuły portalu. Jeśli którykolwiek jest tematycznie
+powiązany z omawianym materiałem wideo, wstaw link w article_body jako naturalny anchor
+(np. "jak pisaliśmy w [temat](url)"). Max 2-3 linki, tylko jeśli pasują.
+
+{links_text}""")
+
+    if not sections:
+        return ""
+
+    return "\n\n" + "\n\n".join(sections) + "\n"
+
+
+# ============================================================
 # SEO GENERATION — prompt v5.4 anchor-based chapters + YT title formats
 # ============================================================
 
@@ -216,12 +279,19 @@ def generate_seo_v4(
     yt_url: str,
     api_key: str,
     provider: str = "gemini",
+    priority_keywords: Optional[list[str]] = None,
+    internal_links: Optional[list[dict]] = None,
 ) -> dict:
     """Call LLM to generate full SEO package for a video.
 
     Generates: focus_keyphrase, post_title, seo_title, yt_title, wp_slug,
     meta_description, lead, article_body, quotes (with anchor_text),
     chapters (with anchor_text), faq, youtube_description, video_description, tags.
+
+    SAAS Enrichment (2026-06-17):
+      If priority_keywords or internal_links are provided (from SAAS GSC data),
+      an additional prompt section is appended instructing the LLM to naturally
+      incorporate these keywords and links into the generated content.
 
     Args:
         title: WordPress post title.
@@ -230,6 +300,10 @@ def generate_seo_v4(
         yt_url: Full YouTube watch URL.
         api_key: API key for the selected LLM provider.
         provider: LLM provider: 'gemini' (default) or 'claude'.
+        priority_keywords: Optional list of priority keyword phrases from GSC
+            (via SAAS enrichment). If empty or None, prompt is unchanged.
+        internal_links: Optional list of dicts with 'url' and 'title' keys
+            for internal linking suggestions. If empty or None, prompt is unchanged.
 
     Returns:
         Parsed JSON dict from LLM response.
@@ -252,6 +326,9 @@ def generate_seo_v4(
 
     total_sec = int(total_duration % 60)
 
+    # Build SAAS enrichment section (empty string if no data)
+    saas_section = _build_saas_prompt_section(priority_keywords, internal_links)
+
     prompt = f"""Jestes ekspertem SEO i redaktorem portalu prawy.pl.
 
 Na podstawie transkryptu nagrania wideo przygotuj PELNY PAKIET SEO.
@@ -263,7 +340,7 @@ Czas nagrania: {total_min}:{total_sec:02d} ({total_min} minut)
 
 Transkrypt z markerami [MM:SS]:
 {text_trimmed}
-
+{saas_section}
 ## KLUCZOWE ZASADY DLA ROZDZIALOW
 
 Dla kazdego rozdzialu MUSISZ podac pole "anchor_text" — jest to DOKLADNY CYTAT 8-15 slow z transkryptu, ktore sa PIERWSZYMI slowami wypowiadanymi na poczatku danego tematu/rozdzialu.
@@ -322,6 +399,12 @@ Odpowiedz TYLKO JSON (bez markdown):
 {{"focus_keyphrase":"...","post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}"""
 
     logger.info("Calling %s for: %s", provider, title[:60])
+    if priority_keywords:
+        logger.info(
+            "SAAS enrichment active: %d keywords, %d links",
+            len(priority_keywords),
+            len(internal_links) if internal_links else 0,
+        )
     try:
         text = _call_llm(prompt, api_key, provider)
         text = text.strip()
@@ -347,6 +430,8 @@ def process_video(
     out_dir: Optional[str] = None,
     sleep_between: int = 0,
     provider: str = "gemini",
+    priority_keywords: Optional[list[str]] = None,
+    internal_links: Optional[list[dict]] = None,
 ) -> dict:
     """Run the full generation pipeline for a single video.
 
@@ -362,6 +447,10 @@ def process_video(
         out_dir: Directory to save the result JSON. If None, does not save.
         sleep_between: Seconds to sleep after the LLM call (rate-limit guard).
         provider: LLM provider: 'gemini' (default) or 'claude'.
+        priority_keywords: Optional list of priority keyword phrases from GSC
+            (via SAAS enrichment). Passed through to generate_seo_v4().
+        internal_links: Optional list of dicts with 'url' and 'title' for
+            internal linking suggestions. Passed through to generate_seo_v4().
 
     Returns:
         SEO result dict with all fields + resolved chapters + duration metadata.
@@ -380,7 +469,11 @@ def process_video(
         len(timestamped), len(segments), dur_min, dur_sec,
     )
 
-    result = generate_seo_v4(post_title, timestamped, duration, yt_url, api_key, provider)
+    result = generate_seo_v4(
+        post_title, timestamped, duration, yt_url, api_key, provider,
+        priority_keywords=priority_keywords,
+        internal_links=internal_links,
+    )
 
     # Fallback: post_title z seo_title jesli puste
     if not result.get("post_title", "").strip():
@@ -435,6 +528,13 @@ def process_video(
     result["duration_iso"] = format_duration_iso(duration)
     result["llm_provider"] = provider
 
+    # Track SAAS enrichment in result metadata
+    if priority_keywords:
+        result["saas_enriched"] = True
+        result["saas_keywords_count"] = len(priority_keywords)
+    else:
+        result["saas_enriched"] = False
+
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, f"{youtube_id}.json")
@@ -447,8 +547,9 @@ def process_video(
 
     matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
-        "Done: %d chapters (%d/%d matched), focus=%s",
+        "Done: %d chapters (%d/%d matched), focus=%s, saas=%s",
         len(resolved_chapters), matched_count, len(resolved_chapters),
         result.get("focus_keyphrase", "?"),
+        "enriched" if result.get("saas_enriched") else "standalone",
     )
     return result
