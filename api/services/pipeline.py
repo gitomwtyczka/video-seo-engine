@@ -18,8 +18,14 @@ Local Runner Mode (LOCAL_RUNNER_MODE=true):
   Obsługa formatu __VTT__ (od v2.0, 2026-06-16):
   Runner wysyła segmenty z timestampami jako __VTT__ format.
   Pipeline konwertuje ten format do prawdziwego WebVTT (.vtt) pliku
-  który core.generator.parse_vtt_full() może sparsować do anchor-matchowania.
+  który core.generator.parse_vtt_full() może sparsowarc do anchor-matchowania.
   Bez tej konwersji chaptery pokazywały time=0.
+
+SAAS Enrichment (2026-06-17, vse-dev-14):
+  Krok 0 w run_generate(): jeśli SAAS_API_URL skonfigurowany w .env,
+  pipeline pobiera frazy kluczowe z GSC i top pages portalu docelowego.
+  Dane są przekazywane do generatora jako priority_keywords + internal_links.
+  Integracja jest opcjonalna — jeśli SAAS niedostępny, pipeline działa jak dotąd.
 """
 import asyncio
 import logging
@@ -133,7 +139,7 @@ async def _create_transcript_job(video_url: str) -> str:
 
     PO CO: Zamiast bezpośrednio pobierać transkrypt (co kończy się ban-em
     z Oracle Cloud IP), tworzy zadanie w kolejce — Local Runner pobierze
-    transkrypt z normalnego IP i odeślę przez /v1/jobs/{id}/result.
+    transkrypt z normalnego IP i odeśle przez /v1/jobs/{id}/result.
 
     JAK: Bezpośrednio przez ORM (bez HTTP roundtrip do localhost).
 
@@ -162,7 +168,7 @@ async def _wait_for_transcript(job_id: str) -> str:
     CO: Async polling pętla czekająca na status 'fetched' lub 'failed'.
 
     PO CO: Pipeline musi poczekać aż Local Runner pobierze transkrypt
-    lokalnie i odeślę wynik. Poll co LOCAL_RUNNER_POLL_INTERVAL sekund,
+    lokalnie i odeśle wynik. Poll co LOCAL_RUNNER_POLL_INTERVAL sekund,
     max LOCAL_RUNNER_POLL_TIMEOUT sekund.
 
     Args:
@@ -235,9 +241,83 @@ async def _fetch_transcript_local_runner(video_url: str) -> str:
     return transcript
 
 
+async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict]]:
+    """Fetch SAAS SEO enrichment data for a portal (keywords + internal links).
+
+    CO: Wrapper — wywołuje saas_enricher i konwertuje wynik do formatu
+    akceptowanego przez generator.
+
+    PO CO: Oddziela logikę SAAS od głównego flow run_generate().
+    Jeśli SAAS nie jest skonfigurowany lub niedostępny — zwraca puste listy.
+
+    JAK:
+    1. Sprawdź czy SAAS_API_URL ustawiony w env
+    2. Jeśli tak → pobierz dane z saas_enricher
+    3. Zwróć (priority_keywords, internal_links)
+
+    Args:
+        site_url: URL portalu docelowego (np. https://prawy.pl).
+
+    Returns:
+        Tuple (priority_keywords: list[str], internal_links: list[dict])
+    """
+    saas_url = os.environ.get("SAAS_API_URL", "").strip()
+    if not saas_url:
+        logger.debug("[pipeline] SAAS_API_URL not set — skipping enrichment")
+        return [], []
+
+    try:
+        from api.services.saas_enricher import (
+            get_saas_seo_data,
+            extract_priority_keywords,
+            extract_internal_links,
+        )
+
+        saas_data = await get_saas_seo_data(site_url)
+        priority_keywords = extract_priority_keywords(saas_data)
+        internal_links = extract_internal_links(saas_data)
+
+        logger.info(
+            "[pipeline] SAAS enrichment for %s: %d keywords, %d links",
+            site_url, len(priority_keywords), len(internal_links),
+        )
+        return priority_keywords, internal_links
+
+    except Exception as exc:
+        logger.warning(
+            "[pipeline] SAAS enrichment failed for %s: %s — continuing without",
+            site_url, exc,
+        )
+        return [], []
+
+
+def _resolve_site_url_from_env() -> str:
+    """Resolve the target portal URL for SAAS enrichment.
+
+    CO: Helper — pobiera URL portalu z WP_BASE_URL lub hardcoded default.
+
+    PO CO: SAAS endpoint wymaga site_url żeby wiedzieć dla którego portalu
+    pobrać dane GSC. W przyszłości (multi-portal) będzie brane z profilu użytkownika.
+
+    Returns:
+        URL portalu do wzbogacenia (np. 'https://prawy.pl').
+    """
+    wp_url = os.environ.get("WP_BASE_URL", "").strip().rstrip("/")
+    if wp_url:
+        # Ensure trailing slash for SAAS compatibility
+        return wp_url + "/"
+    return "https://prawy.pl/"
+
+
 async def run_generate(video_url: str, llm_provider: str, lang: str,
                        post_title_override: Optional[str] = None) -> dict:
     """Fetch transcript + generate SEO schema. No WP write.
+
+    SAAS Enrichment (2026-06-17, vse-dev-14):
+      Krok 0 (przed generowaniem): jeśli SAAS_API_URL ustawiony w .env,
+      pobiera frazy kluczowe z GSC i top pages portalu docelowego.
+      Dane przekazywane do core/generator.py jako priority_keywords + internal_links.
+      Jeśli SAAS niedostępny — pipeline działa jak dotąd (graceful degradation).
 
     Args:
         video_url: YouTube video URL or ID.
@@ -271,6 +351,11 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
         raise ValueError(f"Unsupported LLM provider: {llm_provider!r}")
 
     local_runner_mode = os.environ.get("LOCAL_RUNNER_MODE", "false").lower() == "true"
+
+    # Step 0: SAAS enrichment — fetch keywords + internal links from GSC
+    # (optional, graceful degradation if SAAS unavailable)
+    site_url = _resolve_site_url_from_env()
+    priority_keywords, internal_links = await _fetch_saas_enrichment(site_url)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         # 1. Fetch metadata + transcript
@@ -326,7 +411,7 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
         yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
         wp_id_placeholder = 0  # no WP ID for generate-only
 
-        # 2. Generate schema (sync → thread)
+        # 2. Generate schema (sync → thread) with SAAS enrichment
         seo = await asyncio.to_thread(
             generate_schema,
             video_id,
@@ -338,10 +423,13 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
             None,  # out_dir — do not save file
             0,     # sleep_between
             llm_provider,
+            priority_keywords if priority_keywords else None,
+            internal_links if internal_links else None,
         )
 
-    logger.info("[generate] done: video_id=%s keyphrase=%r",
-                video_id, seo.get("focus_keyphrase", "?"))
+    logger.info("[generate] done: video_id=%s keyphrase=%r saas=%s",
+                video_id, seo.get("focus_keyphrase", "?"),
+                "enriched" if seo.get("saas_enriched") else "standalone")
     return {"video_id": video_id, "meta": meta, "seo": seo}
 
 
