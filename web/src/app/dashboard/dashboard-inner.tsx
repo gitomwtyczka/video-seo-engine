@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 /**
  * CO: Dashboard — główny widok aplikacji po zalogowaniu
  * PO CO: Daje użytkownikowi dwie ścieżki:
@@ -355,6 +355,7 @@ function InjectModal({
   const [wpPassword, setWpPassword] = useState(initialCreds.wpPassword)
   const [wpPostId, setWpPostId] = useState('')
   const [postStatus, setPostStatus] = useState<'draft' | 'publish'>('draft')
+  const [postFormat, setPostFormat] = useState('video')
   const [publishing, setPublishing] = useState(false)
   const [publishResult, setPublishResult] = useState<InjectResult | null>(null)
   const [loadingCreds, setLoadingCreds] = useState(false)
@@ -431,6 +432,7 @@ function InjectModal({
           wp_app_password: wpPassword,
         },
         post_status: postStatus,
+        post_format: postFormat,
       }
       if (wpPostId.trim()) {
         body.wp_post_id = parseInt(wpPostId, 10)
@@ -581,7 +583,7 @@ function InjectModal({
             </div>
           )}
 
-          {/* Post ID + Status */}
+          {/* Post ID + Status + Format */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">
@@ -622,6 +624,23 @@ function InjectModal({
                 </label>
               </div>
             </div>
+          </div>
+
+          {/* Format wpisu */}
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Format wpisu WordPress</label>
+            <select
+              value={postFormat}
+              onChange={(e) => setPostFormat(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+            >
+              <option value="video">🎬 Film (video)</option>
+              <option value="standard">📄 Standard</option>
+              <option value="gallery">🖼️ Galeria (gallery)</option>
+              <option value="quote">💬 Cytat (quote)</option>
+            </select>
+            <p className="text-xs text-gray-600 mt-1">Domyślnie: Film — optymalny dla treści video SEO</p>
           </div>
 
           {/* Publish button */}
