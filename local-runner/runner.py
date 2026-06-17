@@ -19,7 +19,7 @@ Instalacja:
   Skopiuj plik .env z LOCAL_RUNNER_TOKEN i VSE_API_BASE
   Uruchom install.bat jako administrator (wymaga NSSM)
 
-Log: %ProgramData%\VSELocalRunner\runner.log (lub stdout w trybie dev)
+Log: %ProgramData%\\VSELocalRunner\\runner.log (lub stdout w trybie dev)
 
 ## Format transkryptu (VTT-like)
 
@@ -30,7 +30,7 @@ To pozwala pipeline.py zamienić segmenty na prawdziwy plik .vtt który
 generator.py parsuje do anchor-matching rozdziałów. Bez timestampów
 generator nie może wyciągnąć rzeczywistych czasów → rozdziały = 0.
 
-## Strategia pobierania transkryptu (v3.1 — 2026-06-17)
+## Strategia pobierania transkryptu (v3.2 — 2026-06-18)
 
 YouTube coraz agresywniej blokuje requesty bez cookies — nawet na domowym IP.
 
@@ -40,9 +40,11 @@ Aktualna strategia (primary → fallback):
 3. yt-dlp --cookies-from-browser edge     ← fallback 2
 4. youtube-transcript-api (bez cookies)   ← last resort (może być zablokowane)
 
-Format json3 → konwertujemy do __VTT__ z timestampami.
+Fix v3.2: yt-dlp pobiera format 'vtt' zamiast 'json3'.
+Używamy glob do znalezienia pliku (yt-dlp może dodać sufiks -auto).
+WebVTT parsujemy bezpośrednio do segmentów [MM:SS].
 """
-import json
+import glob
 import logging
 import os
 import re
@@ -80,7 +82,7 @@ def _setup_logging() -> logging.Logger:
     """Konfiguruje logger: stdout + plik (jeśli LOG_DIR dostępny).
 
     Poziom kontrolowany przez zmienną LOG_LEVEL (domyślnie INFO).
-    Plik logu: {LOG_DIR}\runner.log
+    Plik logu: {LOG_DIR}\\runner.log
     """
     logger = logging.getLogger("vse_runner")
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
@@ -142,9 +144,9 @@ def extract_video_id(url: str) -> Optional[str]:
 
 
 def _format_segments_as_vtt(segments: list) -> str:
-    """Konwertuje segmenty youtube-transcript-api do formatu VTT-like z markerami.
+    """Konwertuje segmenty do formatu VTT-like z markerami [MM:SS].
 
-    CO: Zamienia listę [{text, start, duration}] na wieloliniowy string
+    CO: Zamienia listę [{text, start}] na wieloliniowy string
     z markerami [MM:SS] co segment.
 
     PO CO: generator.py (parse_vtt_full) oczekuje pliku .vtt z prawdziwymi
@@ -159,7 +161,7 @@ def _format_segments_as_vtt(segments: list) -> str:
         __VTT__\n[MM:SS] tekst\n[MM:SS] tekst...\n
 
     Args:
-        segments: Lista dictów z polami: text (str), start (float), duration (float).
+        segments: Lista dictów z polami: text (str), start (float).
 
     Returns:
         Wieloliniowy string z prefixem __VTT__ i markerami [MM:SS].
@@ -176,48 +178,53 @@ def _format_segments_as_vtt(segments: list) -> str:
     return "\n".join(lines)
 
 
-def _parse_json3_to_segments(json3_text: str) -> list:
-    """Parsuje format json3 (yt-dlp) do listy segmentów [{text, start}].
+def _parse_webvtt_to_segments(vtt_text: str) -> list:
+    """Parsuje WebVTT string (z yt-dlp) do listy segmentów [{text, start}].
 
-    CO: YouTube json3 zawiera tStartMs, dDurationMs i segs[{utf8, tOffsetMs}].
-    Konwertujemy do prostych [{text, start}] kompatybilnych z _format_segments_as_vtt.
+    CO: WebVTT z yt-dlp zawiera cue'y w formacie:
+        00:00:01.000 --> 00:00:04.000
+        tekst
+
+    Konwertujemy do [{text: str, start: float}] kompatybilnych z _format_segments_as_vtt.
+
+    Fix v3.2: zamiennik dla _parse_json3_to_segments — yt-dlp zapisuje VTT
+    niezależnie od tego czy to ręczne czy auto-generated napisy.
 
     Args:
-        json3_text: Zawartość pliku .json3 z yt-dlp.
+        vtt_text: Zawartość pliku .vtt z yt-dlp.
 
     Returns:
         Lista dictów [{text: str, start: float}] w sekundach.
     """
-    try:
-        data = json.loads(json3_text)
-    except json.JSONDecodeError as e:
-        log.error("Failed to parse json3: %s", e)
-        return []
-
-    events = data.get("events", [])
     segments = []
+    # Pattern: HH:MM:SS.mmm --> HH:MM:SS.mmm
+    cue_pattern = re.compile(
+        r'(\d{2}):(\d{2}):(\d{2})\.\d+ --> \d{2}:\d{2}:\d{2}\.\d+'
+    )
 
-    for event in events:
-        t_start_ms = event.get("tStartMs", 0)
-        segs = event.get("segs", [])
-        if not segs:
-            continue
+    lines = vtt_text.splitlines()
+    i = 0
+    while i < len(lines):
+        m = cue_pattern.match(lines[i].strip())
+        if m:
+            h, mn, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            start_sec = h * 3600 + mn * 60 + s
+            # Zbierz linie tekstu po timestampie
+            text_parts = []
+            i += 1
+            while i < len(lines) and lines[i].strip() and not cue_pattern.match(lines[i].strip()):
+                # Pomijamy linie z <c> (color tags) i numer cue
+                clean = re.sub(r'<[^>]+>', '', lines[i]).strip()
+                if clean and not clean.isdigit():
+                    text_parts.append(clean)
+                i += 1
+            text = " ".join(text_parts).strip()
+            if text:
+                segments.append({"text": text, "start": float(start_sec)})
+        else:
+            i += 1
 
-        # Składamy tekst z segmentów wewnątrz eventu
-        parts = []
-        for seg in segs:
-            utf8_text = seg.get("utf8", "").replace("\n", " ").strip()
-            if utf8_text:
-                parts.append(utf8_text)
-
-        full_text = " ".join(parts).strip()
-        if not full_text:
-            continue
-
-        start_sec = t_start_ms / 1000.0
-        segments.append({"text": full_text, "start": start_sec})
-
-    log.debug("Parsed %d segments from json3", len(segments))
+    log.debug("Parsed %d segments from WebVTT", len(segments))
     return segments
 
 
@@ -255,7 +262,7 @@ def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
             return result
         log.debug("Browser %s failed, trying next", browser)
 
-    log.warning("All browsers failed for yt-dlp, falling back to transcript-api")
+    log.warning("All browsers failed for yt-dlp")
     return None
 
 
@@ -270,6 +277,10 @@ _BROWSER_UA = {
 def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
     """Próbuje pobrać transkrypt przez yt-dlp z konkretną przeglądarką.
 
+    Fix v3.2: używa formatu 'vtt' zamiast 'json3' (json3 był niekompatybilny
+    z yt-dlp --write-auto-sub — plik zapisywany pod inną nazwą niż oczekiwana).
+    Używa glob do znalezienia pliku VTT niezależnie od sufiksu (-auto itp).
+
     Args:
         video_id: YouTube video ID (11 znaków).
         browser: Nazwa przeglądarki (firefox, chrome, edge, chromium).
@@ -280,21 +291,17 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Najpierw próbujemy pobrać napisy ręczne (pl), potem auto-generated
         for lang_spec in ["pl", "en"]:
-            json3_path = Path(tmpdir) / f"{video_id}.{lang_spec}.json3"
-
             cmd = [
                 "yt-dlp",
                 "--no-update",
                 "--cookies-from-browser", browser,
                 "--user-agent", _BROWSER_UA.get(browser, _BROWSER_UA["chrome"]),
-                "--sleep-subtitles", "5",
                 "--skip-download",
                 "--write-sub",
                 "--write-auto-sub",
                 "--sub-lang", lang_spec,
-                "--sub-format", "json3",
+                "--sub-format", "vtt",
                 "--output", str(Path(tmpdir) / f"{video_id}.%(ext)s"),
                 url,
             ]
@@ -304,41 +311,49 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=60,
+                    timeout=120,
                 )
 
                 if proc.returncode != 0:
                     stderr_short = proc.stderr[:300] if proc.stderr else ""
                     # Specyficzne błędy wskazujące że przeglądarka niedostępna
                     if any(x in stderr_short for x in [
-                        "Could not copy", "Failed to extract", "No cookies"
+                        "Could not copy", "Failed to extract", "No cookies",
+                        "Cookies from browser",
                     ]):
                         log.debug(
                             "Browser %s cookies unavailable: %s",
-                            browser, stderr_short[:100]
+                            browser, stderr_short[:150]
                         )
                         return None  # Ta przeglądarka niedostępna — stop próbowania
                     log.debug(
                         "yt-dlp %s lang=%s exit=%d: %s",
-                        browser, lang_spec, proc.returncode, stderr_short[:100]
+                        browser, lang_spec, proc.returncode, stderr_short[:150]
                     )
-                    continue
+                    # Kontynuuj — może inny lang zadziała
 
-                # Sprawdź czy plik json3 został pobrany
-                if json3_path.exists():
-                    json3_text = json3_path.read_text(encoding="utf-8")
-                    segments = _parse_json3_to_segments(json3_text)
+                # Fix v3.2: glob zamiast hardcoded path
+                # yt-dlp może zapisać jako: {id}.pl.vtt, {id}.pl-auto.vtt itp.
+                vtt_files = glob.glob(str(Path(tmpdir) / f"{video_id}*.vtt"))
+                if vtt_files:
+                    vtt_path = vtt_files[0]  # bierz pierwszy znaleziony
+                    vtt_text = Path(vtt_path).read_text(encoding="utf-8")
+                    segments = _parse_webvtt_to_segments(vtt_text)
                     if segments:
-                        vtt = _format_segments_as_vtt(segments)
+                        vtt_out = _format_segments_as_vtt(segments)
                         log.info(
-                            "yt-dlp OK: browser=%s lang=%s segments=%d chars=%d",
-                            browser, lang_spec, len(segments), len(vtt)
+                            "yt-dlp OK: browser=%s lang=%s file=%s segments=%d chars=%d",
+                            browser, lang_spec,
+                            Path(vtt_path).name,
+                            len(segments), len(vtt_out)
                         )
-                        return vtt
-                    log.debug("json3 parsed but 0 segments for lang=%s", lang_spec)
+                        return vtt_out
+                    log.debug("VTT parsed but 0 segments for lang=%s (file=%s)",
+                              lang_spec, Path(vtt_path).name)
                 else:
                     log.debug(
-                        "json3 file not found for lang=%s: %s", lang_spec, tmpdir
+                        "No VTT file found for lang=%s in tmpdir=%s stdout=%s",
+                        lang_spec, tmpdir, proc.stdout[:100] if proc.stdout else ""
                     )
 
             except subprocess.TimeoutExpired:
@@ -438,7 +453,7 @@ def fetch_transcript(video_url: str) -> Optional[str]:
 
     CO: Główna funkcja pobierania transkryptu z full fallback chain.
 
-    Strategia (v3.1 — 2026-06-17):
+    Strategia (v3.2 — 2026-06-18):
     1. yt-dlp + firefox cookies (PRIMARY — najniezawodniejsze)
     2. yt-dlp + chrome cookies (fallback 1)
     3. yt-dlp + edge cookies (fallback 2)
@@ -455,14 +470,14 @@ def fetch_transcript(video_url: str) -> Optional[str]:
     """
     log.info("Fetching transcript for: %s", video_url)
 
-    # FIRST: youtube-transcript-api (lekki, 0 ryzyka cookies)
-    result = fetch_transcript_api(video_url)
+    # PRIMARY: yt-dlp + browser cookies
+    result = fetch_transcript_ytdlp(video_url)
     if result:
         return result
-    
-    # FALLBACK: yt-dlp + browser cookies (cięższy, ale pewniejszy)
-    log.info("API failed — falling back to yt-dlp + cookies")
-    result = fetch_transcript_ytdlp(video_url)
+
+    # LAST RESORT: youtube-transcript-api bez cookies
+    log.info("yt-dlp failed — trying transcript-api as last resort")
+    result = fetch_transcript_api(video_url)
     if result:
         return result
 
@@ -597,11 +612,11 @@ def main() -> None:
         sys.exit(1)
 
     log.info("=" * 60)
-    log.info("VSE Local Transcript Runner started (v3.1 — yt-dlp+cookies)")
+    log.info("VSE Local Transcript Runner started (v3.2 — yt-dlp+vtt+glob)")
     log.info("API: %s", API_BASE)
     log.info("Poll interval: %ds", POLL_INTERVAL)
     log.info("Log dir: %s", LOG_DIR)
-    log.info("Transcript strategy: transcript-api → yt-dlp+firefox → yt-dlp+chrome → yt-dlp+edge")
+    log.info("Transcript strategy: yt-dlp+firefox → chrome → edge → transcript-api")
     log.info("=" * 60)
 
     while True:
