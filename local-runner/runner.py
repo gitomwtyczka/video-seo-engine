@@ -19,7 +19,7 @@ Instalacja:
   Skopiuj plik .env z LOCAL_RUNNER_TOKEN i VSE_API_BASE
   Uruchom install.bat jako administrator (wymaga NSSM)
 
-Log: %ProgramData%\\VSELocalRunner\\runner.log (lub stdout w trybie dev)
+Log: %ProgramData%\VSELocalRunner\runner.log (lub stdout w trybie dev)
 
 ## Format transkryptu (VTT-like)
 
@@ -30,7 +30,7 @@ To pozwala pipeline.py zamienić segmenty na prawdziwy plik .vtt który
 generator.py parsuje do anchor-matching rozdziałów. Bez timestampów
 generator nie może wyciągnąć rzeczywistych czasów → rozdziały = 0.
 
-## Strategia pobierania transkryptu (v3.0 — 2026-06-17)
+## Strategia pobierania transkryptu (v3.1 — 2026-06-17)
 
 YouTube coraz agresywniej blokuje requesty bez cookies — nawet na domowym IP.
 
@@ -50,6 +50,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import random
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -79,7 +80,7 @@ def _setup_logging() -> logging.Logger:
     """Konfiguruje logger: stdout + plik (jeśli LOG_DIR dostępny).
 
     Poziom kontrolowany przez zmienną LOG_LEVEL (domyślnie INFO).
-    Plik logu: {LOG_DIR}\\runner.log
+    Plik logu: {LOG_DIR}\runner.log
     """
     logger = logging.getLogger("vse_runner")
     logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
@@ -258,6 +259,14 @@ def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
     return None
 
 
+_BROWSER_UA = {
+    "firefox": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0",
+    "chrome": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+    "edge": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
+    "chromium": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+}
+
+
 def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
     """Próbuje pobrać transkrypt przez yt-dlp z konkretną przeglądarką.
 
@@ -279,6 +288,8 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
                 "yt-dlp",
                 "--no-update",
                 "--cookies-from-browser", browser,
+                "--user-agent", _BROWSER_UA.get(browser, _BROWSER_UA["chrome"]),
+                "--sleep-subtitles", "5",
                 "--skip-download",
                 "--write-sub",
                 "--write-auto-sub",
@@ -427,7 +438,7 @@ def fetch_transcript(video_url: str) -> Optional[str]:
 
     CO: Główna funkcja pobierania transkryptu z full fallback chain.
 
-    Strategia (v3.0 — 2026-06-17):
+    Strategia (v3.1 — 2026-06-17):
     1. yt-dlp + firefox cookies (PRIMARY — najniezawodniejsze)
     2. yt-dlp + chrome cookies (fallback 1)
     3. yt-dlp + edge cookies (fallback 2)
@@ -444,16 +455,14 @@ def fetch_transcript(video_url: str) -> Optional[str]:
     """
     log.info("Fetching transcript for: %s", video_url)
 
-    # PRIMARY: yt-dlp + browser cookies
-    result = fetch_transcript_ytdlp(video_url)
+    # FIRST: youtube-transcript-api (lekki, 0 ryzyka cookies)
+    result = fetch_transcript_api(video_url)
     if result:
         return result
-
-    # LAST RESORT: youtube-transcript-api (bez cookies — często blokowane)
-    log.warning(
-        "All yt-dlp methods failed — trying youtube-transcript-api (may be blocked)"
-    )
-    result = fetch_transcript_api(video_url)
+    
+    # FALLBACK: yt-dlp + browser cookies (cięższy, ale pewniejszy)
+    log.info("API failed — falling back to yt-dlp + cookies")
+    result = fetch_transcript_ytdlp(video_url)
     if result:
         return result
 
@@ -588,11 +597,11 @@ def main() -> None:
         sys.exit(1)
 
     log.info("=" * 60)
-    log.info("VSE Local Transcript Runner started (v3.0 — yt-dlp+cookies)")
+    log.info("VSE Local Transcript Runner started (v3.1 — yt-dlp+cookies)")
     log.info("API: %s", API_BASE)
     log.info("Poll interval: %ds", POLL_INTERVAL)
     log.info("Log dir: %s", LOG_DIR)
-    log.info("Transcript strategy: yt-dlp+firefox → yt-dlp+chrome → yt-dlp+edge → transcript-api")
+    log.info("Transcript strategy: transcript-api → yt-dlp+firefox → yt-dlp+chrome → yt-dlp+edge")
     log.info("=" * 60)
 
     while True:
@@ -602,6 +611,9 @@ def main() -> None:
                 log.info("%d pending job(s) found", len(jobs))
                 for job in jobs:
                     process_job(job)
+                    delay = random.uniform(5, 15)
+                    log.debug("Anti-burst delay: %.1fs", delay)
+                    time.sleep(delay)
             else:
                 log.debug("No pending jobs")
 
