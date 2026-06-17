@@ -30,19 +30,20 @@ To pozwala pipeline.py zamienić segmenty na prawdziwy plik .vtt który
 generator.py parsuje do anchor-matching rozdziałów. Bez timestampów
 generator nie może wyciągnąć rzeczywistych czasów → rozdziały = 0.
 
-## Strategia pobierania transkryptu (v3.2 — 2026-06-18)
+## Strategia pobierania transkryptu (v3.3 — 2026-06-18)
 
-YouTube coraz agresywniej blokuje requesty bez cookies — nawet na domowym IP.
+YouTube blokuje requesty bez cookies. Serwis Windows działa jako LocalSystem,
+które nie ma profilu przeglądarki — dlatego --cookies-from-browser failuje.
+
+Rozwiązanie: dual-strategy cookies.
 
 Aktualna strategia (primary → fallback):
-1. yt-dlp --cookies-from-browser firefox  ← PRIMARY (działa, pobiera auth z Firefox)
-2. yt-dlp --cookies-from-browser chrome   ← fallback 1
-3. yt-dlp --cookies-from-browser edge     ← fallback 2
-4. youtube-transcript-api (bez cookies)   ← last resort (może być zablokowane)
+1. yt-dlp --cookies COOKIES_FILE       ← PRIMARY (plik eksportowany przez Task Scheduler)
+2. yt-dlp --cookies-from-browser ...  ← fallback (gdy serwis NIE jest LocalSystem)
+3. youtube-transcript-api             ← last resort
 
-Fix v3.2: yt-dlp pobiera format 'vtt' zamiast 'json3'.
-Używamy glob do znalezienia pliku (yt-dlp może dodać sufiks -auto).
-WebVTT parsujemy bezpośrednio do segmentów [MM:SS].
+COOKIES_FILE odnawiany przez Task Scheduler (export_cookies.bat) jako zalogowany user.
+Plik w C:\ProgramData\VSELocalRunner\yt_cookies.txt (dostępny dla LocalSystem).
 """
 import glob
 import logging
@@ -73,6 +74,10 @@ LANG_PRIORITY = ["pl", "en", "en-US", "en-GB"]  # kolejność preferowanych jęz
 
 # Kolejność przeglądarek do cookies — zmień wg dostępności na PC
 BROWSER_PRIORITY = ["firefox", "chrome", "edge", "chromium"]
+
+# Plik cookies eksportowany przez Task Scheduler jako zalogowany użytkownik
+# Domyślna lokalizacja — tak samo jak LOG_DIR
+COOKIES_FILE = os.getenv("COOKIES_FILE", r"C:\ProgramData\VSELocalRunner\yt_cookies.txt")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -229,20 +234,16 @@ def _parse_webvtt_to_segments(vtt_text: str) -> list:
 
 
 def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
-    """Pobiera transkrypt przez yt-dlp z cookies przeglądarki (PRIMARY strategy).
+    """Pobiera transkrypt przez yt-dlp z cookies (PRIMARY strategy v3.3).
 
-    CO: Używa yt-dlp --cookies-from-browser do autentykacji YouTube.
-    Omija blokadę IP przez cookies z zalogowanej przeglądarki.
+    CO: Dual-strategy cookies:
+    1. Plik cookies (COOKIES_FILE) — eksportowany przez Task Scheduler jako user.
+       Działa gdy serwis = LocalSystem (brak profilu przeglądarki).
+    2. --cookies-from-browser — fallback gdy plik nie istnieje.
 
-    PO CO:
-    - youtube-transcript-api coraz częściej blokowane nawet na domowym IP
-    - YouTube wymaga cookies ("Sign in to confirm you're not a bot")
-    - yt-dlp + cookies z przeglądarki = najpewniejsza metoda
-
-    Strategia przeglądarek (BROWSER_PRIORITY):
-    firefox → chrome → edge → chromium
-
-    Format wyjściowy: __VTT__ z markerami [MM:SS] — identyczny jak v2.
+    PO CO: Serwis Windows (LocalSystem) nie ma dostępu do profili przeglądarek.
+    Plik cookies jest eksportowany przez oddzielny Task Scheduler task (jako user)
+    i zapisywany w miejscu dostępnym dla LocalSystem.
 
     Args:
         video_url: YouTube URL lub ID.
@@ -255,14 +256,93 @@ def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
         log.error("Cannot extract video ID from: %s", video_url)
         return None
 
-    # Próbuj kolejne przeglądarki
+    # STRATEGY 1: Plik cookies (działa dla LocalSystem)
+    cookies_file = Path(COOKIES_FILE)
+    if cookies_file.exists() and cookies_file.stat().st_size > 100:
+        log.info("Using cookies file: %s (%d bytes)", COOKIES_FILE, cookies_file.stat().st_size)
+        result = _try_ytdlp_with_cookies_file(video_id, str(cookies_file))
+        if result is not None:
+            return result
+        log.warning("Cookies file failed — trying browser cookies fallback")
+    else:
+        log.info("Cookies file not found or empty: %s — trying browser cookies", COOKIES_FILE)
+
+    # STRATEGY 2: --cookies-from-browser (działa gdy runner uruchomiony jako user)
     for browser in BROWSER_PRIORITY:
         result = _try_ytdlp_with_browser(video_id, browser)
         if result is not None:
             return result
         log.debug("Browser %s failed, trying next", browser)
 
-    log.warning("All browsers failed for yt-dlp")
+    log.warning("All yt-dlp cookie strategies failed")
+    return None
+
+
+def _try_ytdlp_with_cookies_file(video_id: str, cookies_path: str) -> Optional[str]:
+    """Próbuje pobrać transkrypt przez yt-dlp z plikiem cookies (Netscape format).
+
+    CO: Używa --cookies FILE zamiast --cookies-from-browser.
+    Działa dla każdego konta serwisu (LocalSystem, NetworkService itd.)
+    bo plik jest dostępny w C:\\ProgramData.
+
+    Args:
+        video_id: YouTube video ID.
+        cookies_path: Ŝieżka do pliku cookies (Netscape format).
+
+    Returns:
+        String __VTT__ lub None.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for lang_spec in ["pl", "en"]:
+            cmd = [
+                "yt-dlp",
+                "--no-update",
+                "--cookies", cookies_path,
+                "--skip-download",
+                "--write-sub",
+                "--write-auto-sub",
+                "--sub-lang", lang_spec,
+                "--sub-format", "vtt",
+                "--output", str(Path(tmpdir) / f"{video_id}.%(ext)s"),
+                url,
+            ]
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+
+                vtt_files = glob.glob(str(Path(tmpdir) / f"{video_id}*.vtt"))
+                if vtt_files:
+                    vtt_text = Path(vtt_files[0]).read_text(encoding="utf-8")
+                    segments = _parse_webvtt_to_segments(vtt_text)
+                    if segments:
+                        vtt_out = _format_segments_as_vtt(segments)
+                        log.info(
+                            "yt-dlp+cookies_file OK: lang=%s file=%s segments=%d chars=%d",
+                            lang_spec, Path(vtt_files[0]).name, len(segments), len(vtt_out)
+                        )
+                        return vtt_out
+                    log.debug("VTT parsed 0 segments for lang=%s", lang_spec)
+                else:
+                    log.debug(
+                        "cookies_file: No VTT for lang=%s exit=%d stderr=%s",
+                        lang_spec, proc.returncode, proc.stderr[:150] if proc.stderr else ""
+                    )
+
+            except subprocess.TimeoutExpired:
+                log.warning("yt-dlp+cookies_file timeout lang=%s", lang_spec)
+            except FileNotFoundError:
+                log.error("yt-dlp not found")
+                return None
+            except Exception as e:
+                log.error("yt-dlp+cookies_file error: %s", e)
+
     return None
 
 
@@ -612,11 +692,12 @@ def main() -> None:
         sys.exit(1)
 
     log.info("=" * 60)
-    log.info("VSE Local Transcript Runner started (v3.2 — yt-dlp+vtt+glob)")
+    log.info("VSE Local Transcript Runner started (v3.3 — cookies_file+browser fallback)")
     log.info("API: %s", API_BASE)
     log.info("Poll interval: %ds", POLL_INTERVAL)
     log.info("Log dir: %s", LOG_DIR)
-    log.info("Transcript strategy: yt-dlp+firefox → chrome → edge → transcript-api")
+    log.info("Cookies file: %s (exists=%s)", COOKIES_FILE, Path(COOKIES_FILE).exists())
+    log.info("Transcript strategy: cookies_file → yt-dlp+browser → transcript-api")
     log.info("=" * 60)
 
     while True:
