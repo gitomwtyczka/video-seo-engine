@@ -62,6 +62,7 @@ class InjectRequest(BaseModel):
     schema_data: dict
     site_config: SiteConfig
     post_status: str = "draft"  # "draft" | "publish" — dla nowych postów
+    post_format: str = "video"  # WordPress post format: "standard" | "video" | "gallery" | "quote"
 
 
 class MonitorStartRequest(BaseModel):

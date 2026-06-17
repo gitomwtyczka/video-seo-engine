@@ -31,15 +31,17 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
     - **Provided**: Updates the existing post (PATCH /wp/v2/posts/{id}).
     - **Omitted / null**: Creates a new WordPress post, then injects SEO schema.
       New post status is controlled by `post_status` field ('draft' by default).
+      Post format is controlled by `post_format` field ('video' by default).
 
     Use this when you already have schema_data from /v1/generate
     and want to push it to WP without re-running the full pipeline.
     """
     logger.info(
-        "[/v1/inject] wp_post_id=%s video_url=%s mode=%s",
+        "[/v1/inject] wp_post_id=%s video_url=%s mode=%s format=%s",
         req.wp_post_id,
         req.video_url,
         "create" if req.wp_post_id is None else "update",
+        req.post_format,
     )
     try:
         result = await run_inject(
@@ -48,6 +50,7 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
             schema_data=req.schema_data,
             site_config=req.site_config.model_dump(),
             post_status=req.post_status,
+            post_format=req.post_format,
         )
         return InjectResponse(**result)
     except ValueError as exc:

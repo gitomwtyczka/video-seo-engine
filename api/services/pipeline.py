@@ -434,6 +434,7 @@ def _create_wp_post(
     video_id: str,
     site_config: dict,
     post_status: str = "draft",
+    post_format: str = "video",
 ) -> dict:
     """Create a brand-new WordPress post via REST API and inject SEO schema.
 
@@ -453,6 +454,7 @@ def _create_wp_post(
         video_id: YouTube video ID (wyodrębniony z video_url).
         site_config: Dict z wp_base_url, wp_user, wp_app_password.
         post_status: 'draft' lub 'publish'.
+        post_format: WordPress post format ('standard', 'video', 'gallery', 'quote').
 
     Returns:
         Dict kompatybilny z InjectResponse.
@@ -467,7 +469,7 @@ def _create_wp_post(
     wp_app_pass = site_config["wp_app_password"]
     auth = _make_auth(wp_user, wp_app_pass)
 
-    # Build minimal post payload — title + status
+    # Build minimal post payload — title + status + format
     post_title = seo.get("post_title", "").strip() or seo.get("seo_title", "").strip() or video_id
     excerpt = _strip_html(seo.get("lead", ""))[:300] if seo.get("lead") else ""
 
@@ -475,6 +477,7 @@ def _create_wp_post(
         "title": post_title,
         "status": post_status,
         "content": "",  # zostanie nadpisany przez inject_video.update_post
+        "format": post_format,  # WordPress post format: video, standard, etc.
     }
     if excerpt:
         create_payload["excerpt"] = excerpt
@@ -497,7 +500,7 @@ def _create_wp_post(
 
     new_post_id: int = resp.json()["id"]
     post_link: str = resp.json().get("link", "")
-    logger.info("[inject] New WP post created: #%s | %s", new_post_id, post_link)
+    logger.info("[inject] New WP post created: #%s | %s | format=%s", new_post_id, post_link, post_format)
 
     # Full SEO injection on the freshly created post
     inject_result = inject_video(
@@ -531,6 +534,7 @@ async def run_inject(
     schema_data: dict,
     site_config: dict,
     post_status: str = "draft",
+    post_format: str = "video",
 ) -> dict:
     """Inject pre-generated schema into a WP post, or create a new post.
 
@@ -551,6 +555,8 @@ async def run_inject(
         site_config: Dict with wp_base_url, wp_user, wp_app_password.
         post_status: Status nowego posta ('draft' | 'publish'). Ignorowany
             przy aktualizacji istniejącego posta.
+        post_format: WordPress post format ('standard' | 'video' | 'gallery' | 'quote').
+            Używany tylko przy tworzeniu nowego posta.
 
     Returns:
         Dict compatible with InjectResponse.
@@ -559,19 +565,22 @@ async def run_inject(
 
     video_id = _extract_video_id(video_url)
     logger.info(
-        "[inject] wp_post_id=%s video_id=%s post_status=%s",
-        wp_post_id, video_id, post_status if wp_post_id is None else "n/a",
+        "[inject] wp_post_id=%s video_id=%s post_status=%s post_format=%s",
+        wp_post_id, video_id,
+        post_status if wp_post_id is None else "n/a",
+        post_format if wp_post_id is None else "n/a",
     )
 
     if wp_post_id is None:
         # Brak ID → utwórz nowy post na WordPress
-        logger.info("[inject] No wp_post_id — creating new WP post (status=%s)", post_status)
+        logger.info("[inject] No wp_post_id — creating new WP post (status=%s, format=%s)", post_status, post_format)
         result = await asyncio.to_thread(
             _create_wp_post,
             schema_data,
             video_id,
             site_config,
             post_status,
+            post_format,
         )
         return result
 
