@@ -43,7 +43,7 @@ Aktualna strategia (primary → fallback):
 3. youtube-transcript-api             ← last resort
 
 COOKIES_FILE odnawiany przez Task Scheduler (export_cookies.bat) jako zalogowany user.
-Plik w C:\ProgramData\VSELocalRunner\yt_cookies.txt (dostępny dla LocalSystem).
+Plik w C:\\ProgramData\\VSELocalRunner\\yt_cookies.txt (dostepny dla LocalSystem).
 """
 import glob
 import logging
