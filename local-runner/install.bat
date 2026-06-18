@@ -50,20 +50,25 @@ if not exist "%SCRIPT_DIR%.env" (
     exit /b 1
 )
 
-REM Sprawdz czy NSSM jest dostepny
-where nssm >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    if exist "%SCRIPT_DIR%nssm.exe" (
+REM Sprawdz czy NSSM jest dostepny — uzyj bezposrednio tools binary (nie Chocolatey shim)
+set NSSM_TOOLS=C:\ProgramData\chocolatey\lib\NSSM\tools\nssm.exe
+if exist "%NSSM_TOOLS%" (
+    set NSSM=%NSSM_TOOLS%
+    echo [*] NSSM znaleziony: %NSSM_TOOLS%
+) else (
+    where nssm >nul 2>&1
+    if %ERRORLEVEL% EQU 0 (
+        set NSSM=nssm
+        echo [*] NSSM z PATH
+    ) else if exist "%SCRIPT_DIR%nssm.exe" (
         set NSSM=%SCRIPT_DIR%nssm.exe
+        echo [*] NSSM lokalny: %SCRIPT_DIR%nssm.exe
     ) else (
         echo [ERROR] NSSM nie znaleziony!
         echo Pobierz ze: https://nssm.cc/download i skopiuj nssm.exe do tego katalogu
-        echo lub zainstaluj przez Chocolatey: choco install nssm
         pause
         exit /b 1
     )
-) else (
-    set NSSM=nssm
 )
 
 REM Zainstaluj wymagane pakiety Python
