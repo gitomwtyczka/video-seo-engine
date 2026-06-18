@@ -57,6 +57,19 @@ import random
 from pathlib import Path
 from typing import Optional, Tuple
 
+# Fix UnicodeEncodeError w Windows Service (cp1250 nie obsluguje strzalek Unicode)
+# Musi byc przed inicjalizacja loggera
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 import requests
 from dotenv import load_dotenv
 
@@ -697,7 +710,7 @@ def main() -> None:
     log.info("Poll interval: %ds", POLL_INTERVAL)
     log.info("Log dir: %s", LOG_DIR)
     log.info("Cookies file: %s (exists=%s)", COOKIES_FILE, Path(COOKIES_FILE).exists())
-    log.info("Transcript strategy: cookies_file → yt-dlp+browser → transcript-api")
+    log.info("Transcript strategy: cookies_file -> yt-dlp+browser -> transcript-api")
     log.info("=" * 60)
 
     while True:
