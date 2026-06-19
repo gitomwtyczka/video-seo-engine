@@ -4,6 +4,7 @@
 
 portal_id: "kurier365"
 display_name: "Kurier365.pl"
+site_brand: "Kurier365"
 active: true
 
 # ---- WordPress ----
