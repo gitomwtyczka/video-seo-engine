@@ -1,6 +1,48 @@
 # DISPATCH VSE-DEV — D1+D2+D3: Publication Quality Fix
 **Data:** 2026-06-19 | **Supervisor:** 01 | **Priorytet:** KRYTYCZNY + WYSOKI
 
+---
+
+## 🔴 WAZNA ZMIANA OPERACYJNA
+
+`run_command` jest ZABLOKOWANY na Windows sandbox permanentnie.
+
+**NIE uruchamiaj:** python, pytest, ruff, pip, git, npm ani zadnych komend shellowych.
+
+**Twoje zadanie:** TYLKO edytuj pliki przez:
+- `mcp_github_get_file_contents` — odczyt plikow z repo
+- `mcp_github_create_or_update_file` — zapis/aktualizacja plikow
+- PAMIETAJ o pobieraniu SHA przed kazdym update istniejacego pliku!
+
+Weryfikacja (testy, uruchomienie) bedzie zrobiona OSOBNO przez Supervisora po twoich zmianach.
+
+Jesli potrzebujesz komendy shellowej — STOP — zaraportuj do Supervisora.
+
+---
+
+## ⚠️ ZASADY DLA SSH I ZAGNIEZDZONE CUDZYSŁOWY
+
+Jesli musisz wydac komende przez SSH do VPS (np. git pull, docker restart) — nie robi tego worker sam.
+**Raportuj do Supervisora** z gotową komendą — Supervisor wykona przez run_command.
+
+Dla Supervisora: przy SSH z PowerShell uwazaj na zagniezdzone cudzyslowy.
+Bezpieczny wzorzec:
+```powershell
+# Prosta komenda:
+ssh root@147.224.162.100 "git pull origin main"
+
+# Komenda ze zmiennymi (uzyj here-string lub skryptu na VPS):
+$cmd = 'cd /opt/vse && git pull origin main && docker compose restart api'
+ssh root@147.224.162.100 $cmd
+
+# Jesli komenda zawiera cudzyslowy wewnetrzne — uzywaj apostrofow w bashu:
+ssh root@147.224.162.100 'bash -c "echo hello"'
+```
+
+NIGDY nie zagniezdzaj `"` w `"` bez escape. Testuj najpierw prosta komenda `echo ok`.
+
+---
+
 ## TWOJ CALLSIGN
 Uzyj: `vse-dev-17`
 
@@ -24,16 +66,17 @@ Gdy artykul idzie na inny portal (kurier365), branding jest zawsze Prawy TV.
 ```
 
 ### Fix
-1. Przeczytaj `core/generator.py` i `core/profile.py`
-2. Sprawdz strukture pliku profilu w katalogu `profiles/`
-3. Dodaj pole `site_brand` do profilu portalu
+1. Pobierz i przeczytaj `core/generator.py` i `core/profile.py` przez GitHub MCP
+2. Sprawdz strukture plikow profilu w katalogu `profiles/`
+3. Dodaj pole `site_brand` do profilu portalu (np. `"site_brand": "Prawy TV"`)
 4. W `generate_seo_v4()` dodaj parametr `site_brand: Optional[str] = None`
 5. W `process_video()` przekaz `site_brand` dalej
-6. W prompcie zamien hardcode: zamiast `"| Prawy TV"` uzywaj dynamicznego `site_brand` albo pomijaj branding jesli None
+6. W prompcie zamien hardcode: zamiast `"| Prawy TV"` uzywaj dynamicznego `site_brand`
+   albo pomijaj branding jesli None
 
-### Weryfikacja
-- Prompt nie zawiera slowa "Prawy TV" jako literal
-- Funkcja akceptuje `site_brand=None` i `site_brand="Kurier365"` bez bledu
+### Weryfikacja (bez uruchamiania kodu)
+- Grep po slowie "Prawy TV" w generator.py — nie powinno byc jako literal w stringu promptu
+- Sygnatura funkcji zawiera `site_brand: Optional[str] = None`
 
 ---
 
@@ -70,8 +113,8 @@ def _split_first_paragraph(html: str) -> tuple[str, str]:
 ```python
 first_p, rest_body = _split_first_paragraph(article_body)
 
-intro_block = """<!-- wp:html -->\n{first_p}\n<!-- /wp:html -->""".format(first_p=first_p) if first_p else ""
-body_rest_block = """<!-- wp:html -->\n{rest_body}\n<!-- /wp:html -->""".format(rest_body=rest_body) if rest_body else ""
+intro_block = """<!-- wp:html -->\n""" + first_p + """\n<!-- /wp:html -->""" if first_p else ""
+body_rest_block = """<!-- wp:html -->\n""" + rest_body + """\n<!-- /wp:html -->""" if rest_body else ""
 ```
 
 **Krok 3: Zmien heading cytatow**
@@ -99,9 +142,9 @@ return (
 Sprawdz czy nowy pipeline uzywa `core/injector.py`. Jesli tak — zastosuj te same zmiany
 w `core/injector.py`. Przeczytaj oba pliki i zdecyduj gdzie jest aktywny kod.
 
-### Weryfikacja
-- HTML zawiera `<p>` z article_body PRZED `<!-- wp:embed -->`
-- Sekcja cytatow ma heading "Podsumowanie" nie "Kluczowe cytaty"
+### Weryfikacja (bez uruchamiania kodu)
+- W kodzie `build_post_content`: `intro_block` wystepuje PRZED `embed_block`
+- Heading cytatow to string "Podsumowanie" nie "Kluczowe cytaty"
 
 ---
 
@@ -119,6 +162,11 @@ Kluczowe pliki:
   inject_rest_v5.py
   profiles/ (sprawdz co jest)
 ```
+
+**Workflow przy edycji pliku:**
+1. `get_file_contents` — pobierz plik + zanotuj pole `sha`
+2. Przygotuj nowa zawartosc
+3. `create_or_update_file` z parametrem `sha` (bez SHA — blad!)
 
 ## HEARTBEAT I RAPORT
 - Heartbeat start: `.agents/heartbeat.json` w `video-seo-engine` main
