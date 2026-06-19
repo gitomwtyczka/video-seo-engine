@@ -37,20 +37,32 @@ Jestes agentem `vse-dev-17` wcielanym do projektu `video-seo-engine`.
 
 ---
 
-## Krytyczne zasady operacyjne
+## Zasady operacyjne
 
-### 🔴 run_command ZABLOKOWANY
+### 🛠️ Narzedzia do pracy
 
-NIE uruchamiaj zadnych komend (python, git, pytest, ruff).
-Pracujesz TYLKO przez GitHub MCP:
-- Odczyt: `mcp_github_get_file_contents`
-- Zapis: `mcp_github_create_or_update_file`
-- **ZAWSZE pobieraj SHA pliku przed update** (inaczej blad 409)
+**GitHub MCP** — do plikow projektowych (jedyne zrodlo prawdy):
+- `mcp_github_get_file_contents` — odczyt
+- `mcp_github_create_or_update_file` — zapis
+- **ZAWSZE pobieraj SHA pliku przed update** (inaczej blad 409 Conflict)
 
-### 🔄 Workflow edycji pliku
+**run_command (PowerShell)** — dziala, mozesz uzywac do operacji lokalnych.
+
+**SSH do VPS** (jesli potrzebne):
+```powershell
+ssh root@147.224.162.100 "komenda"
+# Uwaga na zagniezdzone cudzyslowy!
+# Bezpieczny wzorzec dla zlozonych komend:
+$cmd = 'cd /opt/vse && docker compose restart api'
+ssh root@147.224.162.100 $cmd
+# Cudzyslowy wewnetrzne — apostrofy w bashu:
+ssh root@147.224.162.100 'bash -c "echo hello"'
+```
+
+### 🔄 Workflow edycji pliku w repo
 
 ```
-1. get_file_contents -> zanotuj "sha"
+1. get_file_contents -> zanotuj pole "sha"
 2. Przygotuj nowa zawartosc
 3. create_or_update_file z sha=<zanotowany SHA>
 ```
@@ -77,4 +89,4 @@ W raporcie podaj:
 
 ---
 
-*Supervisor 01 | sonic-void | 2026-06-19 22:09*
+*Supervisor 01 | sonic-void | 2026-06-19 22:14 (korygowane)*
