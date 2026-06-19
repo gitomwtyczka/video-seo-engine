@@ -44,14 +44,24 @@ Nie implementujesz — TYLKO czytasz i raportujesz.
 
 ---
 
-## Krytyczne zasady operacyjne
+## Zasady operacyjne
 
-### 🔴 run_command ZABLOKOWANY
+### 🛠️ Narzedzia do pracy
 
-NIE uruchamiaj zadnych komend.
-Pracujesz TYLKO przez:
-- `mcp_github_get_file_contents` — odczyt plikow
+**GitHub MCP** — do plikow projektowych:
+- `mcp_github_get_file_contents` — odczyt
 - `mcp_github_create_or_update_file` — zapis raportu
+- **ZAWSZE pobieraj SHA pliku przed update istniejacego pliku**
+
+**run_command (PowerShell)** — dziala, mozesz uzywac do operacji lokalnych.
+
+**SSH do VPS** (jesli potrzebne):
+```powershell
+ssh root@147.224.162.100 "komenda"
+# Dla zlozonych komend ze zmiennymi:
+$cmd = 'cd /opt/vse && docker compose restart api'
+ssh root@147.224.162.100 $cmd
+```
 
 ### 🔄 Workflow tworzenia raportu
 
@@ -64,7 +74,7 @@ Aktualizacja: get_file_contents -> SHA -> create_or_update_file z sha
 
 - Czy gdziekolwiek jest `from core.yt_admin import` lub `import yt_admin`?
 - Czy jest `yt_update` lub `update_youtube` jako flaga w pipeline?
-- Gdzie w pipeline nastepuje krok po `update_post()` (injector) — to wlasnie tam podlaczyc YT
+- Gdzie w pipeline nastepuje krok po `update_post()` — to wlasnie tam podlaczyc YT
 
 ---
 
@@ -81,4 +91,4 @@ W raporcie podaj:
 
 ---
 
-*Supervisor 01 | sonic-void | 2026-06-19 22:09*
+*Supervisor 01 | sonic-void | 2026-06-19 22:14 (korygowane)*
