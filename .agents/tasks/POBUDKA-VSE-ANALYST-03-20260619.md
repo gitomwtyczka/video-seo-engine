@@ -41,16 +41,18 @@ Nie implementujesz — TYLKO czytasz i raportujesz.
 
 ---
 
-## Krytyczne zasady operacyjne
+## Zasady operacyjne
 
-### 🔴 run_command ZABLOKOWANY
+### 🛠️ Narzedzia do pracy
 
-NIE uruchamiaj zadnych komend.
-Pracujesz TYLKO przez:
-- `mcp_github_get_file_contents` — odczyt plikow
+**GitHub MCP** — do plikow projektowych:
+- `mcp_github_get_file_contents` — odczyt
 - `mcp_github_create_or_update_file` — zapis raportu
-- `read_url_content` — zewnetrzna dokumentacja
-- `search_web` — jesli potrzebujesz znalezc cos w sieci
+- **ZAWSZE pobieraj SHA pliku przed update istniejacego pliku**
+
+**read_url_content / search_web** — do zewnetrznej dokumentacji (RankMath docs itp.)
+
+**run_command (PowerShell)** — dziala, mozesz uzywac jesli potrzebne.
 
 ### 🔄 Workflow tworzenia raportu
 
@@ -74,4 +76,4 @@ W raporcie podaj:
 
 ---
 
-*Supervisor 01 | sonic-void | 2026-06-19 22:09*
+*Supervisor 01 | sonic-void | 2026-06-19 22:14 (korygowane)*
