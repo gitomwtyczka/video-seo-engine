@@ -1,12 +1,31 @@
 # DISPATCH VSE-ANALYST — A3: YouTube Description — Audit integracji yt_admin.py
 **Data:** 2026-06-19 | **Supervisor:** 01 | **Priorytet:** WYSOKI
 
+---
+
+## 🔴 WAZNA ZMIANA OPERACYJNA
+
+`run_command` jest ZABLOKOWANY na Windows sandbox permanentnie.
+
+**NIE uruchamiaj** zadnych komend shellowych (python, curl, git, itp.).
+
+**Twoje zadanie:** TYLKO czytaj pliki i pisz raport:
+- Odczyt: `mcp_github_get_file_contents`
+- Zapis raportu: `mcp_github_create_or_update_file`
+- PAMIETAJ o SHA przy aktualizacji istniejacego pliku!
+- Zewnetrzne zasoby: `read_url_content` lub `search_web`
+
+Jesli potrzebujesz komendy shellowej (np. curl) —
+PRZECZYTAJ dokumentacje przez `read_url_content` lub `search_web`.
+
+---
+
 ## TWOJ CALLSIGN
 Uzyj: `vse-analyst-04`
 
 ## KONTEKST
 `core/yt_admin.py` to gotowy modul do aktualizacji opisow i tytulu na YouTube przez API.
-Modól istnieje i jest kompletny. Problem: NIE jest podlaczony do glownego pipeline'u.
+Modul istnieje i jest kompletny. Problem: NIE jest podlaczony do glownego pipeline'u.
 Twoim zadaniem jest zbadac dokladnie stan integracji i przygotowac plan dla dev.
 
 **Repo:** `gitomwtyczka/video-seo-engine` branch `main`
@@ -19,16 +38,14 @@ Modul `core/yt_admin.py` zawiera:
 - `update_video_title_and_description(video_id, seo, wp_url, dry_run)` - glowna funkcja
 - `build_description(seo, wp_url, original_description)` - builder opisu YouTube
   - Format: intro z article_body (2 akapity) + bullet points z FAQ + rozdzialy z timestampami
-  + link do artykułu WP + tematy/frazy + oryginalny opis YT (zachowany) + footer SOS + hashtagi
+  + link do artykulu WP + tematy/frazy + oryginalny opis YT (zachowany) + footer SOS + hashtagi
 - `batch_update_from_registry(registry_dir, seo_dir, wp_base_url)` - batch po registry/
 - OAuth 2.0 przez env: YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN
 - Idempotentnosc: `yt_desc_updated` timestamp w registry JSON
 
 HARDCODE DO POPRAWY w `YT_FOOTER` i `_build_hashtags()`:
-- `#PrawyTV`, `#Prawy`, `#Polska` sa hardcoded jako domyslne hashtagi
-- Social links (Facebook, Twitter) sa hardcoded dla prawy.pl
-- Podobnie w `_build_hashtags()` - linki SOS sa prawy.pl-specific
-To samo co w D1 (site_brand) — docelowo powinno byc w profilu portalu.
+- Prawy.pl, PrawyTV, SOS konto bankowe sa hardcoded
+- Docelowo powinno byc w profilu portalu
 
 ---
 
@@ -36,40 +53,37 @@ To samo co w D1 (site_brand) — docelowo powinno byc w profilu portalu.
 
 ### A3.1 — Sprawdz status integracji z pipeline
 
-1. Przeczytaj `core/injector.py` — czy wywoluje `yt_admin.update_video_title_and_description()` po wygenerowaniu i opublikowaniu artykułu WP?
-2. Przeczytaj `api/` directory — czy jest endpoint API ktory triggeruje YT update?
-3. Sprawdz `local-runner/service.py` lub `local-runner/runner.py` — czy w workflołie przetwarzania videa jest krok YT description update?
-4. Sprawdz `core/pipeline.py` jesli istnieje
+1. Przeczytaj `core/injector.py` — czy wywoluje `yt_admin.update_video_title_and_description()` po opublikowaniu artykulu WP?
+2. Przeczytaj zawartosc katalogu `api/` przez GitHub MCP
+3. Sprawdz `local-runner/service.py` lub `local-runner/runner.py` — czy jest krok YT description update?
 
-**Odpowiedz:** Czy yt_admin jest wywolywany gdziekolwiek w pipeline? Jesli tak — gdzie i z jakimi parametrami?
+**Odpowiedz:** Czy yt_admin jest wywolywany gdziekolwiek w pipeline? Jesli tak — gdzie?
 
 ### A3.2 — Sprawdz stan OAuth credentials
 
-1. Przeczytaj `.env.example` lub `.env.api.example` — czy `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` sa wymienione jako wymagane?
-2. Sprawdz `ARCHITECTURE.md` — czy jest opis Fazy 2B (YouTube Description Writer)?
-3. Czy jest plik `oauth_setup.py` lub `oauth_server.py` (wspomniany w docstringu yt_admin.py)?
+1. Przeczytaj `.env.api.example` — czy `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` sa wymienione?
+2. Czy jest plik `oauth_setup.py` lub `oauth_server.py` (wspomniany w docstringu yt_admin.py)?
+3. Sprawdz `ARCHITECTURE.md` sekcja Faza 2B
 
-### A3.3 — Sprawdz hardcody w yt_admin.py do poprawy
+### A3.3 — Hardcody do poprawy w yt_admin.py
 
-Zidentyfikuj WSZYSTKIE miejsca w `core/yt_admin.py` gdzie jest hardcoded:
+Zidentyfikuj WSZYSTKIE miejsca gdzie jest hardcoded:
 - Nazwa portalu (Prawy.pl, prawy.pl, PrawyTV)
-- Social media links (facebook.com/PortalPrawy, twitter.com/prawypl, youtube.com/user/portalprawypl)
-- Hashtagi (#PrawyTV, #Prawy, #Polska)
+- Social media links
+- Hashtagi domyslne (#PrawyTV, #Prawy, #Polska)
 - Numer konta SOS, KRS
 
 Przygotuj liste: linia kodu -> co jest hardcoded -> jak powinno byc (z profilu portalu)
 
-### A3.4 — Sprawdz `registry/` — format i stan
+### A3.4 — Sprawdz katalog registry/
 
 1. Przeczytaj zawartsc katalogu `registry/` (jesli nie pusty)
 2. Jak wyglada struktura jednego pliku registry JSON?
-3. Czy pole `yt_desc_updated` jest obecne w jakichs plikach (czy ktos juz uruchamial batch)?
+3. Czy pole `yt_desc_updated` jest obecne w jakichs plikach?
 
 ---
 
 ## OUTPUT — Format raportu
-
-Napisz raport z sekcjami:
 
 ```markdown
 ## A3: YouTube Description Integration Status
@@ -104,20 +118,22 @@ Szczegolowy opis co dev musi zrobic:
 ## DOSTEP
 ```
 GitHub MCP:
-  owner: gitomwtyczka
-  repo: video-seo-engine
-  branch: main
+  owner: gitomwtyczka, repo: video-seo-engine, branch: main
 
 Kluczowe pliki:
-  core/yt_admin.py (JUZZ ZNASZ)
+  core/yt_admin.py (JUZZ ZNASZ z kontekstu)
   core/injector.py
-  local-runner/service.py lub runner.py
+  local-runner/ (sprawdz co jest)
   api/ (sprawdz co jest)
   registry/ (sprawdz co jest)
   .env.api.example
   ARCHITECTURE.md
   profiles/ (sprawdz co jest)
 ```
+
+**Workflow przy tworzeniu raportu:**
+1. Nowy plik raportu: `create_or_update_file` BEZ parametru `sha`
+2. Aktualizacja: pobierz `sha` przez `get_file_contents`, potem `create_or_update_file` z `sha`
 
 ## HEARTBEAT I RAPORT
 - Heartbeat: `.agents/heartbeat.json` w `video-seo-engine` main
