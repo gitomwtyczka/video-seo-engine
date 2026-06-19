@@ -17,6 +17,14 @@ Safety rules:
   - Always verify WP REST API response code (check 200, not just no exception)
   - Dry-run mode: --dry-run flag skips actual PATCH
 
+Article structure (2026-06-19, vse-dev-17 — D2+D3 fix):
+  Build order: lead → first paragraph of article_body → YT embed → chapters →
+  rest of article_body → Podsumowanie (quotes) → FAQ → JSON-LD → player JS
+  Rationale: First paragraph before embed gives Google crawlable text above the fold
+  and improves UX — reader gets article context before the video player.
+  Quotes section renamed from 'Kluczowe cytaty' to 'Podsumowanie' for better
+  editorial framing.
+
 Dependencies:
   pip install requests python-dotenv
 """
@@ -289,7 +297,6 @@ def set_youtube_thumbnail(
     auth: HTTPBasicAuth,
     alt_text: str = "",
 ) -> Optional[int]:
-    """Download YouTube thumbnail, set as featured image, and set ALT text with focus keyphrase."""
     """Download YouTube thumbnail and set it as the WP post's featured image.
 
     Tries maxresdefault → hqdefault → mqdefault. Deduplicates uploads
@@ -301,6 +308,7 @@ def set_youtube_thumbnail(
         post_title: Post title (used for logging only).
         wp_base_url: Base URL of the WordPress site.
         auth: HTTPBasicAuth instance.
+        alt_text: ALT text for the thumbnail image (focus keyphrase + portal name).
 
     Returns:
         WP media ID (int) on success, or None on failure.
@@ -481,6 +489,37 @@ def build_schema_jsonld(
 
 
 # ============================================================
+# ARTICLE STRUCTURE HELPER — split first paragraph
+# ============================================================
+
+def _split_first_paragraph(html: str) -> tuple[str, str]:
+    """Extract the first <p> element from HTML body text.
+
+    CO: Wyodrębnia pierwszy akapit z HTML article_body.
+
+    PO CO: Potrzebujemy umieścić pierwszy akapit PRZED embedem YouTube,
+    żeby Google miało crawlowalny tekst nad foldą oraz żeby czytelnik dostał
+    kontekst artykułu zanim zobaczy player wideo. To ważny sygnał UX i SEO.
+
+    JAK: Szuka pierwszego <p>...</p> w HTML (DOTALL). Jeśli znaleziony —
+    zwraca go i resztę body. Jeśli HTML nie ma <p> — zwraca pusty string
+    i cały html jako rest (graceful fallback).
+
+    Args:
+        html: Full HTML string of article_body from LLM.
+
+    Returns:
+        Tuple of (first_p, rest_html). If no <p> found, returns ('', html).
+    """
+    match = re.search(r'(<p>.*?</p>)', html, re.DOTALL)
+    if match:
+        first_p = match.group(1)
+        rest = html[match.end():].strip()
+        return first_p, rest
+    return "", html
+
+
+# ============================================================
 # BUILD POST CONTENT — WP blocks + seekTo JS
 # ============================================================
 
@@ -493,8 +532,13 @@ def build_post_content(
 ) -> str:
     """Build full WordPress post content with blocks, schema JSON-LD, and seekTo JS.
 
-    Produces: lead paragraph → <!-- more --> → YT embed → chapters list →
-    article body → polished quotes → FAQ collapsible → JSON-LD schemas → player JS.
+    Produces (in order): lead paragraph → <!-- more --> → first paragraph of
+    article_body → YT embed → chapters list → rest of article_body →
+    Podsumowanie (polished quotes) → FAQ collapsible → JSON-LD schemas → player JS.
+
+    The first paragraph of article_body is placed before the embed so Google
+    has crawlable text above the fold and readers get article context before
+    the video player (D2 fix, 2026-06-19).
 
     Args:
         seo: SEO result dict from generator.process_video().
@@ -517,10 +561,19 @@ def build_post_content(
     faq = seo.get("faq", [])
     yt_url = seo.get("yt_url", f"https://www.youtube.com/watch?v={yt_id}")
 
+    # D2: Split article_body into first paragraph + rest
+    first_p, rest_body = _split_first_paragraph(article_body)
+
     # Lead block
     lead_block = (
         f"<!-- wp:paragraph -->\n<p>{lead_html}</p>\n<!-- /wp:paragraph -->\n\n"
         f"<!-- wp:more -->\n<!--more-->\n<!-- /wp:more -->"
+    )
+
+    # Intro block — first paragraph of article_body (before embed)
+    intro_block = (
+        f"<!-- wp:html -->\n{first_p}\n<!-- /wp:html -->"
+        if first_p else ""
     )
 
     # YouTube embed
@@ -555,10 +608,13 @@ def build_post_content(
             + "\n</ul>\n<!-- /wp:list -->"
         )
 
-    # Article body
-    article_block = f"<!-- wp:html -->\n{article_body}\n<!-- /wp:html -->"
+    # Rest of article body (after first paragraph)
+    body_rest_block = (
+        f"<!-- wp:html -->\n{rest_body}\n<!-- /wp:html -->"
+        if rest_body else ""
+    )
 
-    # Polished quotes with seekTo links
+    # D3: Polished quotes with seekTo links — heading renamed to 'Podsumowanie'
     quotes_blocks = []
     for q in quotes:
         t = q.get("time", 0)
@@ -574,7 +630,7 @@ def build_post_content(
     quotes_section = ""
     if quotes_blocks:
         quotes_section = (
-            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Kluczowe cytaty</h2>\n<!-- /wp:heading -->\n\n"
+            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Podsumowanie</h2>\n<!-- /wp:heading -->\n\n"
             + "\n".join(quotes_blocks)
         )
 
@@ -606,9 +662,11 @@ def build_post_content(
     player_js = _build_player_js(seek_fn=seek_fn, chapter_class=chapter_class)
     js_block = f"<!-- wp:html -->\n{player_js}\n<!-- /wp:html -->"
 
+    # D2: New article order
+    # lead → first_p → embed → chapters → rest_body → quotes (Podsumowanie) → faq → schema → js
     parts = [
-        lead_block, embed_block, chapters_block,
-        article_block, quotes_section, faq_section,
+        lead_block, intro_block, embed_block, chapters_block,
+        body_rest_block, quotes_section, faq_section,
         schema_block, js_block,
     ]
     return "\n\n".join(p for p in parts if p)
