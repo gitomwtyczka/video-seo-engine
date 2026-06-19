@@ -24,6 +24,12 @@ SAAS Enrichment (2026-06-17, vse-dev-14):
   - Internal links are top pages of the target portal
   - Integration is optional — if not provided, prompt is unchanged
 
+Branding fix (2026-06-19, vse-dev-17):
+  - generate_seo_v4() accepts optional site_brand parameter
+  - Replaces hardcoded '| Prawy TV' in seo_title prompt with dynamic value
+  - If site_brand is None, branding pipe is omitted from seo_title instruction
+  - process_video() passes site_brand from portal profile
+
 Dependencies:
   pip install google-genai anthropic python-dotenv
 """
@@ -281,6 +287,7 @@ def generate_seo_v4(
     provider: str = "gemini",
     priority_keywords: Optional[list[str]] = None,
     internal_links: Optional[list[dict]] = None,
+    site_brand: Optional[str] = None,
 ) -> dict:
     """Call LLM to generate full SEO package for a video.
 
@@ -293,6 +300,10 @@ def generate_seo_v4(
       an additional prompt section is appended instructing the LLM to naturally
       incorporate these keywords and links into the generated content.
 
+    Branding (2026-06-19):
+      site_brand controls the branding pipe in seo_title (e.g. '| Prawy TV').
+      If None, branding pipe is omitted — seo_title has no portal suffix.
+
     Args:
         title: WordPress post title.
         timestamped_text: VTT text with [MM:SS] markers from parse_vtt_full().
@@ -304,6 +315,8 @@ def generate_seo_v4(
             (via SAAS enrichment). If empty or None, prompt is unchanged.
         internal_links: Optional list of dicts with 'url' and 'title' keys
             for internal linking suggestions. If empty or None, prompt is unchanged.
+        site_brand: Optional portal brand name for seo_title branding pipe
+            (e.g. 'Prawy TV', 'Kurier365'). If None, no branding is added.
 
     Returns:
         Parsed JSON dict from LLM response.
@@ -328,6 +341,18 @@ def generate_seo_v4(
 
     # Build SAAS enrichment section (empty string if no data)
     saas_section = _build_saas_prompt_section(priority_keywords, internal_links)
+
+    # Build seo_title instruction based on site_brand availability
+    if site_brand:
+        seo_title_instruction = (
+            f"**seo_title** — max 60 znaków, dla tagu <title> i RankMath. "
+            f'Z branding pipe: "| {site_brand}". Może być krótsza wersja post_title.'
+        )
+    else:
+        seo_title_instruction = (
+            "**seo_title** — max 60 znaków, dla tagu <title> i RankMath. "
+            "Może być krótsza wersja post_title. Bez branding pipe."
+        )
 
     prompt = f"""Jestes ekspertem SEO i redaktorem portalu prawy.pl.
 
@@ -357,7 +382,7 @@ Rozdzialy musza:
 
 1. **focus_keyphrase** — 2-4 slowa, naturalna fraza Google.
 2. **post_title** — max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
-3. **seo_title** — max 60 znakow, dla tagu <title> i RankMath. Z branding pipe: "| Prawy TV". Moze byc krotsza wersja post_title.
+3. {seo_title_instruction}
 4. **yt_title** — KRYTYCZNE ZASADY:
    - Dlugosc: 40-65 znakow (HARD MAX: 100). Optymalna dlugosc to 50-62 znaki.
    - Zacznij od tematu glownego lub nazwiska goscia (front-loading dla suggest feed).
@@ -396,7 +421,7 @@ yt_title to OSOBNY, INNY tytul niz post_title — angazujacy, YouTubowy, wg form
 NIGDY nie zostawiaj ich pustych — to blokuje aktualizacje na YouTube.
 
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrase":"...","post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}"""
+{{"focus_keyphrase":"...","post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}""" 
 
     logger.info("Calling %s for: %s", provider, title[:60])
     if priority_keywords:
@@ -405,6 +430,8 @@ Odpowiedz TYLKO JSON (bez markdown):
             len(priority_keywords),
             len(internal_links) if internal_links else 0,
         )
+    if site_brand:
+        logger.info("site_brand: %r", site_brand)
     try:
         text = _call_llm(prompt, api_key, provider)
         text = text.strip()
@@ -432,6 +459,7 @@ def process_video(
     provider: str = "gemini",
     priority_keywords: Optional[list[str]] = None,
     internal_links: Optional[list[dict]] = None,
+    site_brand: Optional[str] = None,
 ) -> dict:
     """Run the full generation pipeline for a single video.
 
@@ -451,6 +479,8 @@ def process_video(
             (via SAAS enrichment). Passed through to generate_seo_v4().
         internal_links: Optional list of dicts with 'url' and 'title' for
             internal linking suggestions. Passed through to generate_seo_v4().
+        site_brand: Optional portal brand name for seo_title branding pipe
+            (e.g. 'Prawy TV'). Comes from profile['site_brand']. If None, no branding.
 
     Returns:
         SEO result dict with all fields + resolved chapters + duration metadata.
@@ -473,6 +503,7 @@ def process_video(
         post_title, timestamped, duration, yt_url, api_key, provider,
         priority_keywords=priority_keywords,
         internal_links=internal_links,
+        site_brand=site_brand,
     )
 
     # Fallback: post_title z seo_title jesli puste
@@ -547,9 +578,10 @@ def process_video(
 
     matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
-        "Done: %d chapters (%d/%d matched), focus=%s, saas=%s",
+        "Done: %d chapters (%d/%d matched), focus=%s, saas=%s, brand=%s",
         len(resolved_chapters), matched_count, len(resolved_chapters),
         result.get("focus_keyphrase", "?"),
         "enriched" if result.get("saas_enriched") else "standalone",
+        site_brand or "none",
     )
     return result
