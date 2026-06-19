@@ -1,14 +1,30 @@
 # DISPATCH VSE-ANALYST — A1+A2: Schema.org & RankMath Audit
-**Data:** 2026-06-19 | **Supervisor:** 01 | **Priorytet:** 🟡 Analiza przed implementacją
+**Data:** 2026-06-19 | **Supervisor:** 01 | **Priorytet:** Analiza przed implementacja
 
 ---
 
-## TWÓJ CALLSIGN
-Użyj: `vse-analyst-03`
+## 🔴 WAZNA ZMIANA OPERACYJNA
+
+`run_command` jest ZABLOKOWANY na Windows sandbox permanentnie.
+
+**NIE uruchamiaj** zadnych komend shellowych (python, curl, git, itp.).
+
+**Twoje zadanie:** TYLKO czytaj pliki i pisz raport:
+- Odczyt: `mcp_github_get_file_contents`
+- Zapis raportu: `mcp_github_create_or_update_file`
+- PAMIETAJ o SHA przy aktualizacji istniejacego pliku!
+
+Jesli potrzebujesz komendy shellowej (np. curl do RankMath docs) —
+PRZECZYTAJ dokumentacje przez `read_url_content` lub `search_web`.
+
+---
+
+## TWOJ CALLSIGN
+Uzyj: `vse-analyst-03`
 
 ## KONTEKST
-VSE publikuje artykuły wideo na WordPress. Generuje schema.org JSON-LD i ustawia meta SEO.
-Potrzebujemy audytu — czy schema i keywords trafiają prawidłowo do RankMath.
+VSE publikuje artykuly wideo na WordPress. Generuje schema.org JSON-LD i ustawia meta SEO.
+Potrzebujemy audytu — czy schema i keywords trafiaja prawidlowo do RankMath.
 
 **Repo:** `gitomwtyczka/video-seo-engine` branch `main`
 
@@ -19,28 +35,28 @@ Potrzebujemy audytu — czy schema i keywords trafiają prawidłowo do RankMath.
 ### Pytania do odpowiedzi
 
 1. **Gdzie trafia schema.org?**
-   - Przeczytaj `inject_rest_v5.py` → `build_schema_jsonld()` i `build_post_content()`
+   - Przeczytaj `inject_rest_v5.py` via GitHub MCP
    - Czy schema JSON-LD jest wstrzykiwana jako `<!-- wp:html --><script type="application/ld+json">` w content?
-   - Czy jest też ustawiana przez `yoast_head_json` lub RankMath REST field?
+   - Czy jest tez ustawiana przez `yoast_head_json` lub RankMath REST field?
 
 2. **Czy VideoObject schema jest kompletna?**
-   - Sprawdź czy zawiera: `name`, `description`, `thumbnailUrl`, `uploadDate`, `contentUrl`, `embedUrl`, `duration`, `hasPart` (Clip)
-   - Google wymaga: `name`, `description`, `thumbnailUrl`, `uploadDate` — czy wszystkie są zawsze wypełnione?
+   - Sprawdz czy zawiera: `name`, `description`, `thumbnailUrl`, `uploadDate`, `contentUrl`, `embedUrl`, `duration`, `hasPart` (Clip)
+   - Google wymaga: `name`, `description`, `thumbnailUrl`, `uploadDate` — czy wszystkie sa zawsze wypelnione?
 
 3. **Quotation schema — status**
    - Google oficjalnie nie renderuje Quotation w rich results
-   - Ale czy jej obecność szkodzi? Sprawdź via Google Rich Results Test guidelines
-   - Rekomendacja: zostawić czy usunąć?
+   - Rekomendacja: zostawic czy usunac?
+   - Jesli usunac — opisz gdzie w kodzie jest generowana
 
-4. **RankMath REST API — jak ustawiane są meta SEO?**
-   - Przeczytaj `core/injector.py` — czy jest tam ustawianie `rankmath_title`, `rankmath_description`, `rankmath_focus_keyword`?
-   - Jakie pola REST API WP obsługuje RankMath dla: focus keyword, seo title, meta description?
+4. **RankMath REST API — jak ustawiane sa meta SEO?**
+   - Przeczytaj `core/injector.py` via GitHub MCP
+   - Czy jest tam ustawianie `rankmath_title`, `rankmath_description`, `rankmath_focus_keyword`?
    - Format dla wielu fraz: `"fraza1,fraza2"` czy tablica?
+   - Mozesz sprawdzic dokumentacje: `read_url_content` na https://rankmath.com/kb/rest-api/
 
-### Źródła do sprawdzenia
+### Zrodla do sprawdzenia
 - `core/injector.py` (GitHub MCP)
 - `inject_rest_v5.py` (GitHub MCP)
-- Dokumentacja RankMath REST API: https://rankmath.com/kb/rest-api/
 
 ---
 
@@ -53,41 +69,45 @@ Potrzebujemy audytu — czy schema i keywords trafiają prawidłowo do RankMath.
    - Format: `"fraza1,fraza2,fraza3"` (przecinki) czy JSON array?
    - Limit: ile fraz maksymalnie?
 
-2. Sprawdź czy w screenie z RankMath (opisanym przez usera) widać:
-   - Ile aktualnie jest focus keywords?
-   - Jakie błędy dokładnie zgłasza RankMath (lista po prawej stronie)
+2. Czy generator.py produkuje pole `focus_keyphrase` (singular) czy `focus_keyphrases` (plural)?
+   - Sprawdz `core/generator.py` — co zwraca LLM i co trafia do REST API
 
-3. Czy generator.py produkuje pole `focus_keyphrase` (singular) czy `focus_keyphrases` (plural)?
-   - Sprawdź `core/generator.py` — co zwraca LLM i co trafia do REST API
+3. Czy pole z generatora jest faktycznie wysylane do RankMath w injector?
 
 ---
 
 ## OUTPUT — Format raportu
 
-Napisz raport `.agents/reports/2026-06-19_vse-analyst-03_schema-rankmath-audit.md` z sekcjami:
+Napisz raport z sekcjami:
 
 ```markdown
 ## A1: Schema.org
 - Gdzie trafia: [content raw / RankMath meta / oba]
-- VideoObject kompletność: [OK / brakuje: X, Y]
-- Quotation schema: [rekomendacja: zostaw/usuń]
+- VideoObject kompletnosc: [OK / brakuje: X, Y]
+- Quotation schema: [rekomendacja: zostaw/usun]
 
 ## A2: RankMath API
 - Format focus_keyword: [format]
 - Limit fraz: [N]
 - Aktualne pole w generatorze: [focus_keyphrase/focus_keyphrases]
-- Gap: [co trzeba zmienić]
+- Gap: [co trzeba zmienic]
 
 ## Rekomendacje dla Supervisora
 [lista actionable items dla D5 dispatcha]
 ```
 
-## DOSTĘP
+---
+
+## DOSTEP
 ```
 GitHub MCP:
   owner: gitomwtyczka, repo: video-seo-engine, branch: main
 Pliki: core/injector.py, core/generator.py, inject_rest_v5.py
 ```
+
+**Workflow przy edycji pliku raportu:**
+1. Jesli raport jeszcze nie istnieje — `create_or_update_file` bez `sha` (nowy plik)
+2. Jesli aktualizujesz — pobierz `sha` najpierw przez `get_file_contents`
 
 ## HEARTBEAT I RAPORT
 - Heartbeat: `.agents/heartbeat.json` w `video-seo-engine` main
