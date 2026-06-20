@@ -1,12 +1,13 @@
 """SAAS SEO Data Enricher — fetches keywords & top pages from PressAI SAAS.
 
-CO: Moduł pobierający dane SEO (frazy kluczowe z GSC, top pages) z SAAS
-PressAI (crimson-void) poprzez dedykowany endpoint zewnętrzny.
+CO: Moduł pobierający dane SEO (frazy kluczowe z GSC, top pages, Google Trends)
+z SAAS PressAI (crimson-void) poprzez dedykowany endpoint zewnętrzny.
 
 PO CO: Integracja SAAS↔VSE — generator artykułów SEO dostaje kontekst
-z Google Search Console portalu docelowego. Dzięki temu generowane
-artykuły zawierają frazy, które portal już rankuje + propozycje
-linków wewnętrznych do istniejących artykułów.
+z Google Search Console portalu docelowego + trendy Google Trends.
+Dzięki temu generowane artykuły zawierają frazy, które portal już rankuje
++ propozycje linków wewnętrznych do istniejących artykułów
++ aktualnie popularne frazy z Google Trends.
 
 JAK:
 - Async HTTP GET do SAAS /api/external/seo-data?site_url=<portal_url>
@@ -19,6 +20,11 @@ GSC Status Propagation (2026-06-17, sup-worker-01, KROK 3):
   Zamiast połykania błędów HTTP cicho, enricher propaguje gsc_status z SAAS.
   Pipeline i UI mogą poinformować usera o rzeczywistym stanie integracji GSC.
   Stany: ok | not_connected | tier_locked | unavailable
+
+D5 Trends Keywords (2026-06-20, vse-dev-19):
+  Endpoint SAAS zwraca teraz pole trends_keywords: list[str].
+  enricher propaguje je dalej do pipeline'u. Helper extract_trends_keywords()
+  wyciąga same frazy tekstowe z danych SAAS.
 
 Zmienne .env:
   SAAS_API_URL  — bazowy URL SAAS (np. http://localhost:8001)
@@ -82,7 +88,7 @@ async def get_saas_seo_data(
 ) -> dict:
     """Fetch SEO enrichment data from SAAS for a given portal.
 
-    CO: Główna funkcja modułu — pobiera frazy kluczowe i top pages z SAAS.
+    CO: Główna funkcja modułu — pobiera frazy kluczowe, top pages i Trends z SAAS.
 
     PO CO: Pipeline wywołuje ją przed generowaniem artykułu. Jeśli SAAS
     zwraca dane, generator dostaje priorytetowe frazy i propozycje linków.
@@ -91,8 +97,8 @@ async def get_saas_seo_data(
     JAK:
     1. Sprawdź cache → jeśli fresh → zwróć bez HTTP
     2. GET /api/external/seo-data?site_url=<url>
-    3. Parse response z gsc_status propagation
-    4. Exception → log + zwroć puste dane z gsc_status='unavailable'
+    3. Parse response z gsc_status propagation + trends_keywords
+    4. Exception → log + zwróć puste dane z gsc_status='unavailable'
 
     KROK 3 — GSC status propagation:
     - HTTP 200 z gsc_status: propaguje status (ok / not_connected / tier_locked)
@@ -109,6 +115,7 @@ async def get_saas_seo_data(
         Dict z kluczami:
           - keywords: list[dict] — frazy z GSC
           - top_pages: list[dict] — top strony portalu
+          - trends_keywords: list[str] — Google Trends PL (D5)
           - gsc_status: str — 'ok' | 'not_connected' | 'tier_locked' | 'unavailable'
           - gsc_message: str | None
           - gsc_connect_url: str | None
@@ -118,6 +125,7 @@ async def get_saas_seo_data(
     empty_result = {
         "keywords": [],
         "top_pages": [],
+        "trends_keywords": [],  # D5
         "gsc_status": "unavailable",
         "gsc_message": None,
         "gsc_connect_url": None,
@@ -162,9 +170,11 @@ async def get_saas_seo_data(
         if response.status_code == 200:
             data = response.json()
             # KROK 3: Propagate gsc_status from SAAS response
+            # D5: Propagate trends_keywords from SAAS response
             result = {
                 "keywords": data.get("keywords", []),
                 "top_pages": data.get("top_pages", []),
+                "trends_keywords": data.get("trends_keywords", []),  # D5
                 "gsc_status": data.get("gsc_status", "ok"),
                 "gsc_message": data.get("gsc_message"),
                 "gsc_connect_url": data.get("gsc_connect_url"),
@@ -173,12 +183,13 @@ async def get_saas_seo_data(
 
             kw_count = len(result["keywords"])
             tp_count = len(result["top_pages"])
+            tr_count = len(result["trends_keywords"])
             logger.info(
-                "[saas_enricher] SAAS data received: %d keywords, %d top_pages for %s (gsc_status=%s)",
-                kw_count, tp_count, site_url, result["gsc_status"],
+                "[saas_enricher] SAAS data received: %d keywords, %d top_pages, %d trends for %s (gsc_status=%s)",
+                kw_count, tp_count, tr_count, site_url, result["gsc_status"],
             )
 
-            # Cache the result (including gsc_status)
+            # Cache the result (including gsc_status and trends_keywords)
             _set_cache(cache_key, result)
             return result
 
@@ -192,11 +203,16 @@ async def get_saas_seo_data(
                 detail = response.json().get("detail", {})
             except Exception:  # noqa: BLE001
                 pass
+            # D5: even tier_locked response may carry trends_keywords
+            trends_from_402 = []
+            if isinstance(detail, dict):
+                trends_from_402 = detail.get("trends_keywords", [])
             return {
                 **empty_result,
                 "gsc_status": "tier_locked",
                 "gsc_message": detail.get("gsc_message") if isinstance(detail, dict) else "Upgrade planu aby używać GSC.",
                 "gsc_upgrade_url": detail.get("gsc_upgrade_url") if isinstance(detail, dict) else "/pricing",
+                "trends_keywords": trends_from_402,  # D5
             }
 
         elif response.status_code in (403, 404):
@@ -266,6 +282,26 @@ def extract_priority_keywords(saas_data: dict, max_keywords: int = 15) -> list[s
     )
 
     return [kw.get("query", kw.get("keyword", "")) for kw in sorted_kw[:max_keywords] if kw.get("query") or kw.get("keyword")]
+
+
+def extract_trends_keywords(saas_data: dict) -> list[str]:
+    """Extract Google Trends keywords from SAAS data.
+
+    CO: Konwerter — wyciąga frazy z Google Trends z odpowiedzi SAAS.
+
+    PO CO: Injector merguje frazy z trzech źródeł (GSC + Trends + LLM)
+    do rank_math_focus_keyword. Ta funkcja wyciąga samą listę trendów.
+
+    JAK: Proste get() na kluczu trends_keywords. Graceful: zwraca []
+    jeśli pole nie istnieje lub jest puste.
+
+    Args:
+        saas_data: Dict z get_saas_seo_data().
+
+    Returns:
+        Lista stringów z trending queries. Pusta lista jeśli brak.
+    """
+    return saas_data.get("trends_keywords", [])
 
 
 def extract_internal_links(saas_data: dict, max_links: int = 10) -> list[dict]:
