@@ -33,6 +33,14 @@ D4: External links (2026-06-20, vse-dev-18):
        z target="_blank" rel="noopener noreferrer". Wstawia po article_body,
        przed sekcją Podsumowanie. Graceful skip gdy pole nieobecne w profilu.
 
+D5: Multi-keyword RankMath (2026-06-20, vse-dev-19):
+  CO: Merguje frazy z 3 źródeł (GSC + Trends + LLM) do rank_math_focus_keyword.
+  PO CO: RankMath akceptuje do 5 fraz oddzielonych przecinkami. Dotychczas
+         używano tylko 1 frazy z LLM. Teraz: top2 GSC + top2 Trends + LLM
+         keyphrases → dedupe → max 5 → comma-separated.
+  JAK: build_focus_keywords() przyjmuje seo_data + saas_data, buduje
+       merged listę, _build_rankmath_meta() używa jej zamiast prostego get().
+
 Dependencies:
   pip install requests python-dotenv
 """
@@ -139,13 +147,89 @@ def _make_auth(wp_user: str, wp_app_pass: str) -> HTTPBasicAuth:
     return HTTPBasicAuth(wp_user, wp_app_pass)
 
 
-def _build_rankmath_meta(seo: dict) -> dict:
+# ============================================================
+# D5: MULTI-KEYWORD MERGE (vse-dev-19)
+# ============================================================
+
+def build_focus_keywords(seo_data: dict, saas_data: Optional[dict] = None) -> str:
+    """Merge keywords from 3 sources: GSC + Trends + LLM → comma-separated for RankMath.
+
+    CO: Buduje string comma-separated z frazami kluczowymi z trzech źródeł.
+
+    PO CO: RankMath akceptuje do 5 fraz oddzielonych przecinkami w polu
+    rank_math_focus_keyword. Dotychczas używano tylko 1 frazy z LLM.
+    Teraz łączymy: top2 GSC + top2 Trends + LLM keyphrases, deduplikujemy,
+    i zwracamy max 5 — co daje lepszy scoring SEO.
+
+    JAK:
+    1. GSC priority keywords (top 2) — z saas_data
+    2. Google Trends keywords (top 2) — z saas_data
+    3. LLM-generated keyphrases — z seo_data
+    4. Dedupe (case-insensitive), max 5
+    5. Join z przecinkami
+
+    Args:
+        seo_data: SEO result dict from generator.process_video().
+        saas_data: Optional dict from saas_enricher.get_saas_seo_data().
+            If None, only LLM keyphrases are used.
+
+    Returns:
+        Comma-separated string of up to 5 unique keyphrases.
+        Empty string if no keyphrases available.
+    """
+    from api.services.saas_enricher import extract_priority_keywords, extract_trends_keywords
+
+    keywords: list[str] = []
+
+    if saas_data:
+        # 1. GSC priority (top 2)
+        gsc_kw = extract_priority_keywords(saas_data, max_keywords=2)
+        keywords.extend(gsc_kw)
+
+        # 2. Trends (top 2)
+        trends_kw = extract_trends_keywords(saas_data)
+        keywords.extend(trends_kw[:2])
+
+    # 3. LLM-generated keyphrases
+    llm_kw = seo_data.get("focus_keyphrases", [])
+    if isinstance(llm_kw, str):  # backward compat: old single string format
+        llm_kw = [llm_kw] if llm_kw.strip() else []
+    keywords.extend(llm_kw)
+
+    # Fallback: try old focus_keyphrase field
+    if not keywords:
+        old_kp = seo_data.get("focus_keyphrase", "").strip()
+        if old_kp:
+            keywords.append(old_kp)
+
+    # Dedupe (case-insensitive), preserve order, max 5
+    seen: set[str] = set()
+    unique: list[str] = []
+    for kw in keywords:
+        kw_lower = kw.strip().lower()
+        if kw_lower and kw_lower not in seen:
+            seen.add(kw_lower)
+            unique.append(kw.strip())
+
+    result = ",".join(unique[:5])
+    logger.info(
+        "  D5 focus_keywords merged: %d sources → %d unique → %r",
+        len(keywords), len(unique), result[:80],
+    )
+    return result
+
+
+def _build_rankmath_meta(seo: dict, saas_data: Optional[dict] = None) -> dict:
     """Build RankMath SEO meta fields dict (used for update_rankmath_meta).
+
+    D5 (vse-dev-19): Now uses build_focus_keywords() to merge GSC + Trends + LLM
+    keyphrases instead of just using single focus_keyphrase from LLM.
 
     Returns a dict with keys: rank_math_focus_keyword, rank_math_description,
     rank_math_title. Empty values are omitted.
     """
-    focus_keyword = seo.get("focus_keyphrase", "").strip()
+    # D5: Multi-keyword merge
+    focus_keyword = build_focus_keywords(seo, saas_data)
     lead_plain = _strip_html(seo.get("lead", ""))
     meta_desc = lead_plain[:157] + "..." if len(lead_plain) > 160 else lead_plain
     seo_title = seo.get("seo_title", "").strip()
@@ -157,7 +241,7 @@ def _build_rankmath_meta(seo: dict) -> dict:
     if seo_title:
         meta["rank_math_title"] = seo_title
     if meta:
-        logger.info("  RankMath: keyphrase=%r title=%r", focus_keyword[:40], seo_title[:40])
+        logger.info("  RankMath: keyphrase=%r title=%r", focus_keyword[:60], seo_title[:40])
     return meta
 
 
@@ -206,6 +290,7 @@ def update_rankmath_meta(
     seo: dict,
     wp_base_url: str,
     auth: HTTPBasicAuth,
+    saas_data: Optional[dict] = None,
 ) -> bool:
     """Push SEO meta to RankMath via its dedicated REST endpoint.
 
@@ -216,16 +301,21 @@ def update_rankmath_meta(
     Verified live on prawy.pl: POST rankmath/v1/updateMeta returns
     ``{"slug": true, ...}`` on success.
 
+    D5 (vse-dev-19): Now accepts optional saas_data parameter for multi-keyword
+    merge. If saas_data is provided, build_focus_keywords() merges GSC + Trends
+    + LLM keyphrases into rank_math_focus_keyword.
+
     Args:
         wp_id: WordPress post ID.
         seo: SEO result dict from generator.process_video().
         wp_base_url: WordPress site base URL.
         auth: HTTPBasicAuth instance.
+        saas_data: Optional SAAS enrichment data for multi-keyword merge.
 
     Returns:
         True if RankMath accepted the update, False otherwise.
     """
-    rankmath_meta = _build_rankmath_meta(seo)
+    rankmath_meta = _build_rankmath_meta(seo, saas_data)
     if not rankmath_meta:
         logger.warning("  RankMath: no meta to update for WP#%s (empty focus_keyphrase?)", wp_id)
         return False
@@ -242,7 +332,7 @@ def update_rankmath_meta(
         if resp.status_code == 200 and data.get("slug") is True:
             logger.info(
                 "  RankMath OK: WP#%s | keyphrase=%r",
-                wp_id, rankmath_meta.get("rank_math_focus_keyword", "-")[:40],
+                wp_id, rankmath_meta.get("rank_math_focus_keyword", "-")[:60],
             )
             return True
         logger.error(
@@ -654,7 +744,7 @@ def build_post_content(
     chapters_block = ""
     if ch_items:
         chapters_block = (
-            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Rozdziały nagrania</h2>\n<!-- /wp:heading -->\n\n"
+            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Rozdzia\u0142y nagrania</h2>\n<!-- /wp:heading -->\n\n"
             f"<!-- wp:list -->\n<ul class=\"{chapter_class}s-list\">\n"
             + "\n".join(ch_items)
             + "\n</ul>\n<!-- /wp:list -->"
@@ -699,7 +789,7 @@ def build_post_content(
     faq_section = ""
     if faq_blocks:
         faq_section = (
-            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Najczęściej zadawane pytania</h2>\n<!-- /wp:heading -->\n\n"
+            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Najcz\u0119\u015bciej zadawane pytania</h2>\n<!-- /wp:heading -->\n\n"
             f"<!-- wp:html -->\n" + "\n".join(faq_blocks) + "\n<!-- /wp:html -->"
         )
 
@@ -740,6 +830,7 @@ def update_post(
     yt_api_key: Optional[str] = None,
     dry_run: bool = False,
     profile: Optional[dict] = None,
+    saas_data: Optional[dict] = None,
 ) -> tuple[int, str]:
     """Fetch uploadDate and inject full content to a WordPress post.
 
@@ -752,6 +843,7 @@ def update_post(
         yt_api_key: Optional YouTube Data API key for view count.
         dry_run: If True, skip actual PATCH and return (0, 'DRY_RUN').
         profile: Optional portal profile dict for multi-tenant customization.
+        saas_data: Optional SAAS enrichment data for D5 multi-keyword merge.
 
     Returns:
         Tuple of (http_status_code, post_url_or_message).
@@ -763,7 +855,7 @@ def update_post(
     excerpt = _strip_html(seo["lead"])
 
     if dry_run:
-        rankmath_meta = _build_rankmath_meta(seo)
+        rankmath_meta = _build_rankmath_meta(seo, saas_data)
         logger.info("  DRY RUN — skipping PATCH for WP#%s", wp_id)
         logger.info("  Would set: keyphrase=%r", rankmath_meta.get("rank_math_focus_keyword", "-"))
         return 0, "DRY_RUN"
@@ -818,12 +910,17 @@ def inject_video(
     dry_run: bool = False,
     skip_thumbnail: bool = False,
     profile: Optional[dict] = None,
+    saas_data: Optional[dict] = None,
 ) -> dict:
     """Run the full injection pipeline for a single video post.
 
     Steps: thumbnail → WP content/excerpt → RankMath meta → YT description.
     YT description update is skipped gracefully if OAuth not configured or
     the video does not belong to the authenticated channel (403).
+
+    D5 (vse-dev-19): Accepts optional saas_data parameter. If provided,
+    build_focus_keywords() merges GSC + Trends + LLM keyphrases into
+    rank_math_focus_keyword (comma-separated, max 5 phrases).
 
     Args:
         wp_id: WordPress post ID.
@@ -836,6 +933,7 @@ def inject_video(
         dry_run: If True, skip actual API write calls.
         skip_thumbnail: If True, skip thumbnail upload.
         profile: Optional portal profile dict for multi-tenant customization.
+        saas_data: Optional SAAS enrichment data for D5 multi-keyword merge.
 
     Returns:
         Dict with keys: wp_id, yt_id, ok, status, link,
@@ -857,16 +955,17 @@ def inject_video(
         )
 
     status, link = update_post(
-        wp_id, seo, yt_id, wp_base_url, auth, yt_api_key, dry_run, profile=profile
+        wp_id, seo, yt_id, wp_base_url, auth, yt_api_key, dry_run,
+        profile=profile, saas_data=saas_data,
     )
 
     # RankMath SEO meta — via dedicated rankmath/v1/updateMeta endpoint
-    # (WP REST 'meta' field silently ignores rank_math_* keys)
+    # D5: pass saas_data for multi-keyword merge
     rankmath_ok = False
     if not dry_run and status == 200:
-        rankmath_ok = update_rankmath_meta(wp_id, seo, wp_base_url, auth)
+        rankmath_ok = update_rankmath_meta(wp_id, seo, wp_base_url, auth, saas_data=saas_data)
     elif dry_run:
-        rankmath_meta = _build_rankmath_meta(seo)
+        rankmath_meta = _build_rankmath_meta(seo, saas_data)
         logger.info(
             "  DRY RUN RankMath — would set keyphrase=%r",
             rankmath_meta.get("rank_math_focus_keyword", "-"),
