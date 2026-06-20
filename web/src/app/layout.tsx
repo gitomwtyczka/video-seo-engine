@@ -6,6 +6,7 @@ import { Providers } from './providers'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXTAUTH_URL || 'https://vse.impresjapr.pl'),
   title: 'VSE — Video SEO Engine | Najlepsze Video SEO',
   description: 'Automatyzuj optymalizację SEO swoich filmów YouTube. Schema VideoObject, rozdziały AI, FAQ — gotowe w sekundy.',
   keywords: ['video seo', 'youtube seo', 'schema.org', 'video schema', 'seo wordpress'],
