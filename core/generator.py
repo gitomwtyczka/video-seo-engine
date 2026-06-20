@@ -452,10 +452,15 @@ Rozdzialy musza:
      D \u2014 POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
    - Cel: widz klika nawet nie znajac goscia z imienia.
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
-5. **wp_slug** \u2014 max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj), bez stop-words. Musi zawierac slowa kluczowe z focus_keyphrases.
+5. **wp_slug** \u2014 max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj), bez stop-words. SLUG MUSI ZACZYNAC SIE od transliterowanych slow z focus_keyphrases[0]. Np. fraza "polityka obronna" \u2192 slug "polityka-obronna-...".
 6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa.
-7. **lead** \u2014 2-3 zdania, max 300 znakow, z fraza kluczowa.
+7. **lead** \u2014 2-3 zdania, max 300 znakow. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
 8. **article_body** \u2014 HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
+   KRYTYCZNE DLA SEO: Uzyj glownej frazy z focus_keyphrases[0] MINIMUM 3-5 RAZY naturalnie w tekscie
+   (w tym co najmniej raz w <h2>). Gestosc frazy kluczowej musi wynosic 1-1.5%.
+   Nie upychaj sztucznie \u2014 fraza musi brzmiec naturalnie w kontekscie zdania.
+   POZYCJA: Pierwszy akapit article_body MUSI zaczynac sie od zdania zawierajacego
+   glowna fraze z focus_keyphrases[0].
 9. **quotes** \u2014 {qt_range} cytatow z rozmowy:
    - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania, powtorzenia.
    - "speaker": imie i nazwisko

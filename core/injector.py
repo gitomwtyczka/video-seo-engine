@@ -30,7 +30,7 @@ D4: External links (2026-06-20, vse-dev-18):
   PO CO: RankMath wymaga co najmniej jednego linku zewnętrznego w artykule,
          żeby dać zielony wynik SEO. Bez niego scoring jest obniżany.
   JAK: Czyta seo_external_link.url + .anchor z profilu YAML, buduje <p><a> tag
-       z target="_blank" rel="noopener noreferrer". Wstawia po article_body,
+       z target="_blank" rel="noopener". Wstawia po article_body,
        przed sekcją Podsumowanie. Graceful skip gdy pole nieobecne w profilu.
 
 D5: Multi-keyword RankMath (2026-06-20, vse-dev-19):
@@ -40,6 +40,15 @@ D5: Multi-keyword RankMath (2026-06-20, vse-dev-19):
          keyphrases → dedupe → max 5 → comma-separated.
   JAK: build_focus_keywords() przyjmuje seo_data + saas_data, buduje
        merged listę, _build_rankmath_meta() używa jej zamiast prostego get().
+
+D7: SEO Scoring Fix (2026-06-20, vse-dev-22):
+  CO: Naprawia 6 problemów RankMath scoring (57→90+).
+  PO CO: RankMath dawał 57/100 zamiast 90+. Root cause: meta_description
+         z LLM ignorowana, noreferrer na external links, brak walidacji slug.
+  JAK: 1) meta_desc z seo.get("meta_description") zamiast obcinania lead
+       2) rel="noopener" zamiast "noopener noreferrer"
+       3) Slug keyphrase validation z fallback na _sanitize_slug(focus_kp)
+       4) Meta desc keyphrase check z append jeśli brak
 
 D6a: yt_update_enabled flag (2026-06-20, vse-dev-20):
   CO: Dodaje flagę yt_update_enabled do profilu — steruje czy YT update jest wywoływany.
@@ -237,8 +246,30 @@ def _build_rankmath_meta(seo: dict, saas_data: Optional[dict] = None) -> dict:
     """
     # D5: Multi-keyword merge
     focus_keyword = build_focus_keywords(seo, saas_data)
-    lead_plain = _strip_html(seo.get("lead", ""))
-    meta_desc = lead_plain[:157] + "..." if len(lead_plain) > 160 else lead_plain
+
+    # D7: Use LLM-generated meta_description first (has keyphrase by prompt design)
+    meta_desc = seo.get("meta_description", "").strip()
+    if not meta_desc:
+        # Fallback: strip lead to 160 chars
+        lead_plain = _strip_html(seo.get("lead", ""))
+        meta_desc = lead_plain[:157] + "..." if len(lead_plain) > 160 else lead_plain
+
+    # D7: Validate meta_desc contains at least one word from focus keyphrase
+    focus_kp = seo.get("focus_keyphrase", "").strip()
+    if meta_desc and focus_kp:
+        kp_words = {w.lower() for w in focus_kp.split() if len(w) > 2}
+        desc_lower = meta_desc.lower()
+        if kp_words and not any(w in desc_lower for w in kp_words):
+            # Keyphrase missing from meta_desc — append it (max 160 chars)
+            suffix = f" — {focus_kp}"
+            if len(meta_desc) + len(suffix) <= 160:
+                meta_desc = meta_desc.rstrip(".") + suffix
+            else:
+                max_len = 160 - len(suffix)
+                if max_len > 20:
+                    meta_desc = meta_desc[:max_len].rstrip() + suffix
+            logger.warning("  D7 meta_desc: keyphrase appended → %r", meta_desc[:80])
+
     seo_title = seo.get("seo_title", "").strip()
     meta: dict = {}
     if focus_keyword:
@@ -263,7 +294,7 @@ def _build_external_link_block(profile: Optional[dict] = None) -> str:
 
     JAK: Czyta profile['seo_external_link']['url'] i ['anchor']. Jeśli pole
     nie istnieje lub jest puste — zwraca pusty string (graceful skip).
-    Buduje <a> tag z target="_blank" rel="noopener noreferrer" wewnątrz
+    Buduje <a> tag z target="_blank" rel="noopener" wewnątrz
     WP paragraph block.
 
     Args:
@@ -287,7 +318,7 @@ def _build_external_link_block(profile: Optional[dict] = None) -> str:
     return (
         f'<!-- wp:paragraph -->\n'
         f'<p>Więcej informacji: <a href="{url}" target="_blank" '
-        f'rel="noopener noreferrer">{anchor}</a></p>\n'
+        f'rel="noopener">{anchor}</a></p>\n'
         f'<!-- /wp:paragraph -->'
     )
 
@@ -886,6 +917,16 @@ def update_post(
     if not wp_slug and post_title_val:
         wp_slug = _sanitize_slug(post_title_val)
         logger.info("  WP slug derived (fallback): %r", wp_slug)
+
+    # D7 Faza 3.1: Validate slug contains keyphrase words
+    focus_kp = seo.get("focus_keyphrase", "").strip()
+    if wp_slug and focus_kp:
+        kp_words = set(_sanitize_slug(focus_kp).split("-"))
+        slug_words = set(wp_slug.split("-"))
+        if not kp_words.intersection(slug_words):
+            wp_slug = _sanitize_slug(focus_kp)
+            logger.warning("  D7 wp_slug overridden: keyphrase words missing → %r", wp_slug)
+
     if wp_slug:
         payload["slug"] = wp_slug
         logger.info("  WP slug -> %r", wp_slug)
