@@ -1,98 +1,169 @@
-# DISPATCH-VSE-DEV-19-20260619-MULTI-KEYWORD-D5
+---
+dispatch_id: "VSE-DEV-19-D5-MULTI-KEYWORD"
+created: "2026-06-19"
+updated: "2026-06-20 — rev.2 po analizie kodu i decyzjach usera"
+supervisor: "Supervisor 01"
+assigned_to: "[vse-dev-19]"
+repo: "video-seo-engine + crimson-void (cross-repo)"
+branch: "main"
+priority: "HIGH"
+status: "dispatched"
+---
 
-**Data:** 2026-06-19  
-**Supervisor:** Supervisor 01  
-**Agent:** `vse-dev-19`  
-**Projekt:** video-seo-engine | branch: main  
-**Priorytet:** HIGH  
-**Podstawa:** Raport `vse-analyst-03` — A2: RankMath API Focus Keywords
+# DISPATCH D5 — Multi-keyword RankMath + Trends (cross-repo)
+
+## Kontekst
+
+### Problem
+- Generator LLM produkuje **jeden** `focus_keyphrase` (singular)
+- RankMath akceptuje **do 5 fraz** oddzielonych przecinkami
+- SAAS (PressAI) posiada `priority_keywords` z GSC — trafiają do promptu LLM, ale **NIE** do `rank_math_focus_keyword`
+- Google Trends jest zaimplementowany w SAAS (`backend/context_intelligence.py` — klasa `ContextIntelligenceLayer`, metoda `_fetch_trends_context`) ale NIE jest eksponowany przez endpoint `/api/external/seo-data`
+
+### Cel
+RankMath widzi 3-5 fraz z trzech źródeł: GSC → Trends → LLM.
 
 ---
 
-## Cel
+## Zadanie — 4 kroki
 
-Aktualnie VSE wysyła do RankMath tylko jeden focus keyword. Analiza (vse-analyst-03) wykazała:
-1. RankMath akceptuje comma-separated string: `"fraza1,fraza2,fraza3"` — pierwsza = Primary
-2. Generator produkuje tylko `focus_keyphrase` (singular) — brak multi-keyword
-3. SAAS `priority_keywords` trafiają do promptu LLM ale NIE do `rank_math_focus_keyword`
+### Krok 1: SAAS (crimson-void) — rozszerz endpoint o Trends
 
----
+**Repo:** `crimson-void` | branch: `main`
 
-## Zadanie D5 — Multiple Focus Keywords
-
-### D5.1 — Generator: rozszerz output
-
-**Plik:** `core/generator.py` → `generate_seo_v4()`
-
-Zmień odpowiedź JSON z:
+Endpoint `/api/external/seo-data` aktualnie zwraca:
 ```json
-{ "focus_keyphrase": "fraza główna" }
+{"keywords": [...], "top_pages": [...], "gsc_status": "ok"}
 ```
-Na:
+
+Dodaj pole `trends_keywords`:
 ```json
-{ 
-  "focus_keyphrase": "fraza główna",
-  "focus_keyphrases": ["fraza główna", "fraza2", "fraza3"]
+{"keywords": [...], "top_pages": [...], "gsc_status": "ok", "trends_keywords": ["fraza1", "fraza2"]}
+```
+
+**Jak:**
+- Znajdź router/endpoint dla `/api/external/seo-data` w `backend/`
+- Wywołaj `ContextIntelligenceLayer._fetch_trends_context(topic)` (już istnieje)
+- Parsuj wynik (format: `"- fraza1\n- fraza2"`) na listę stringów
+- Dorzuć jako `trends_keywords: []` do response
+- Graceful: jeśli Trends nie zwróci danych → `trends_keywords: []`
+- **~15 linii kodu**
+
+---
+
+### Krok 2: VSE — saas_enricher odczytuje Trends
+
+**Repo:** `video-seo-engine` | branch: `main`  
+**Plik:** `api/services/saas_enricher.py`
+
+W `get_saas_seo_data()` — dodaj odczyt nowego pola:
+```python
+result = {
+    "keywords": data.get("keywords", []),
+    "top_pages": data.get("top_pages", []),
+    "trends_keywords": data.get("trends_keywords", []),  # NOWE
+    "gsc_status": data.get("gsc_status", "ok"),
+    ...
 }
 ```
 
-W prompcie LLM: poproś o 2-4 dodatkowe frazy kluczowe powiązane tematycznie. Max 5 łącznie.
-Backward compat: `focus_keyphrase` (singular) musi pozostać jako primary.
-
-### D5.2 — Injector: multi-keyword do RankMath
-
-**Plik:** `core/injector.py` → funkcja wysyłająca `rank_math_focus_keyword`
-
-Logika:
+Dodaj helper:
 ```python
-keyphrases = seo.get('focus_keyphrases', [seo.get('focus_keyphrase', '')])
-# Doklejamy priority_keywords z SAAS jeśli są dostępne
-if priority_keywords:  # lista ze SEO Package / pipeline.py
-    keyphrases = priority_keywords[:2] + keyphrases  # SAAS keywords na czoło
-rankmath_kw = ','.join(keyphrases[:5])  # max 5, comma-separated
+def extract_trends_keywords(saas_data: dict) -> list[str]:
+    return saas_data.get("trends_keywords", [])
 ```
 
-Następnie `rankmath_kw` trafia do `rank_math_focus_keyword` w payloadzie `updateMeta`.
-
-### D5.3 — Pipeline: przekazanie priority_keywords
-
-**Plik:** `core/pipeline.py` (lub odpowiednik wywołujący inject_video)
-
-Sprawdź czy `priority_keywords` (z SAAS enrichment) jest dostępne w tym momencie pipeline'u. Jeśli tak — przekaż do `inject_video()`. Jeśli nie — dokumentuj jako NEXTSTEP.
-
-### D5.4 — Fix: Quotation schema (bonus, niski koszt)
-
-Według raportu vse-analyst-03 (R3): Quotation schema jest zbędna — Google NIE renderuje jej w rich results. Usuń ~10 linii z `build_schema_jsonld()` w `core/injector.py`.
-
-**Warunek:** Wykonaj D5.4 TYLKO jeśli nie ryzykuje to regresji w innych testach. Jeśli ryzykuje — pomiń i zanotuj.
+**~10 linii.**
 
 ---
 
-## Uwagi dotyczące duplikatu VideoObject (R1 z raportu)
+### Krok 3: VSE — Generator zwraca listę keyphrases
 
-> **Nie implementuj tego w kodzie.** To jest kwestia konfiguracji WordPress.
+**Plik:** `core/generator.py`
 
-Zapisz notatkę w raporcie: "RankMath Auto-detect video wymaga wyłączenia w panelu WP → RankMath → Schema → Video → Auto-detect". Administrator WP wykonuje ręcznie.
+Aktualnie LLM prompt żąda:
+```
+"focus_keyphrase": "jedna fraza"
+```
+
+Zmień na:
+```
+"focus_keyphrases": ["fraza główna", "fraza 2", "fraza 3"]
+```
+
+- Backward compat: jeśli LLM zwróci stary format `focus_keyphrase` (string) — wrap w listę
+- Max 3 frazy od LLM (GSC i Trends dorzucają resztę)
+
+---
+
+### Krok 4: VSE — Injector merge → RankMath
+
+**Plik:** `core/injector.py`
+
+Aktualna logika:
+```python
+rank_math_focus_keyword = seo_data.get("focus_keyphrase", "")
+```
+
+Nowa logika:
+```python
+def build_focus_keywords(seo_data: dict, saas_data: dict) -> str:
+    """Merge keywords: GSC top2 + Trends + LLM → comma-separated for RankMath."""
+    keywords = []
+    
+    # 1. GSC priority (top 2)
+    gsc_kw = extract_priority_keywords(saas_data, max_keywords=2)
+    keywords.extend(gsc_kw)
+    
+    # 2. Trends (top 2)
+    trends_kw = extract_trends_keywords(saas_data)
+    keywords.extend(trends_kw[:2])
+    
+    # 3. LLM-generated
+    llm_kw = seo_data.get("focus_keyphrases", [])
+    if isinstance(llm_kw, str):  # backward compat
+        llm_kw = [llm_kw]
+    keywords.extend(llm_kw)
+    
+    # Dedupe, max 5
+    seen = set()
+    unique = []
+    for kw in keywords:
+        kw_lower = kw.strip().lower()
+        if kw_lower and kw_lower not in seen:
+            seen.add(kw_lower)
+            unique.append(kw.strip())
+    
+    return ",".join(unique[:5])
+```
+
+**~25 linii.**
+
+---
+
+## ⚠️ Quotation schema
+
+**NIE usuwaj Quotation schema.** Zostaje — będzie używana w D6b do budowania opisu YT z cytatami i timestampami.
 
 ---
 
 ## Weryfikacja
 
-- `generate_seo_v4()` zwraca `focus_keyphrases: []` (lista)
-- `rank_math_focus_keyword` w payloadzie to comma-separated string z ≥2 frazami
-- Backward compat: `focus_keyphrase` (singular) nadal istnieje w output
-- Graceful degradation: jeśli `focus_keyphrases` absent — fallback do singular
-- (opcjonalnie) Quotation schema usunięta bez błędów
+- [ ] SAAS endpoint zwraca `trends_keywords` (lub puste `[]`)
+- [ ] VSE `saas_enricher.py` czyta `trends_keywords`
+- [ ] Generator produkuje `focus_keyphrases: []` (lista)
+- [ ] Backward compat: stary `focus_keyphrase` (string) nadal działa
+- [ ] Injector merguje GSC + Trends + LLM → max 5 fraz
+- [ ] `rank_math_focus_keyword` zawiera comma-separated frazy
+- [ ] Serwis działa po deploy (user weryfikuje)
 
 ---
 
 ## Raportowanie
 
-Po zakończeniu:
-1. Raport do `video-seo-engine/.agents/reports/2026-06-19_vse-dev-19_multi-keyword-d5.md`
-2. Kopia do `sonic-void/.agents/reports/inbox/2026-06-19_vse-dev-19_multi-keyword-d5.md`
-3. Heartbeat `status: done`
+1. `video-seo-engine/.agents/reports/2026-06-20_vse-dev-19_multi-keyword-d5.md`
+2. `sonic-void/.agents/reports/inbox/2026-06-20_vse-dev-19_multi-keyword-d5.md`
 
 ---
 
-*Supervisor 01 | video-seo-engine | 2026-06-19*
+*Supervisor 01 | video-seo-engine | 2026-06-20 rev.2*
