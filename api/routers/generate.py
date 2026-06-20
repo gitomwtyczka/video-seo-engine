@@ -11,6 +11,10 @@ zwraca GenerateResponse z pełnym schema_data.
 
 D6b (2026-06-20, vse-dev-21):
   - Passes publication_type from request to pipeline.run_generate()
+
+D9 (2026-06-20, vse-dev-23):
+  - Passes profile_id from request to pipeline.run_generate()
+  - Profile determines site_url for SAAS enrichment and site_brand for generator
 """
 import json
 import logging
@@ -91,10 +95,11 @@ async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
     Saves schema_data to transcript_jobs for /historia access.
 
     D6b: Accepts publication_type to control article format.
+    D9: Accepts profile_id to select server-side YAML profile.
     """
     logger.info(
-        "[/v1/generate] video_url=%s provider=%s type=%s",
-        req.video_url, req.llm_provider, req.publication_type,
+        "[/v1/generate] video_url=%s provider=%s type=%s profile=%s",
+        req.video_url, req.llm_provider, req.publication_type, req.profile_id,
     )
     start = time.time()
     try:
@@ -104,6 +109,7 @@ async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
             lang=req.lang,
             post_title_override=req.post_title,
             publication_type=req.publication_type,  # D6b
+            profile_id=req.profile_id,  # D9
         )
 
         schema_data = result["seo"]
