@@ -1,1 +1,1 @@
-{"callsign": "vse-dev-22", "status": "working", "current_task": "D7 SEO Scoring Fix — Fazy 1-3 (meta_desc, noreferrer, prompt engineering, slug/meta validation)", "timestamp": "2026-06-20T22:49:00+02:00"}
+{"callsign": "vse-dev-22", "status": "done", "current_task": "D7 SEO Scoring Fix — COMPLETE", "timestamp": "2026-06-20T23:13:00+02:00", "last_completed": ["D7 SEO Scoring Fix — commit 0e0fd31 (2026-06-20)"], "pending": ["D6b linki wewnętrzne (zależność)", "Weryfikacja RankMath ustawień w WP admin"]}
