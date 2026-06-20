@@ -60,6 +60,49 @@ ssh ... "cd /home/ubuntu/video-seo-engine && touch .deploy_lock && git pull orig
 
 ---
 
+## ⚠️ KRYTYCZNE: SSH z PowerShell — problem zagnieżdżonych cudzysłowów
+
+Pracujesz na Windows w PowerShell. Komendy SSH z zmiennymi bash ($VAR), cudzysłowami, pipe'ami **ZAWSZE SIĘ PSUJĄ** jeśli wpiszesz je inline w `run_command`. PowerShell interpretuje `$` i cudzysłowy ZANIM dotrą do SSH.
+
+### ❌ NIE RÓB TAK (inline — będzie błąd):
+```
+run_command: ssh ... "cd /app && echo $HOME && docker logs app 2>&1 | grep 'error'"
+```
+PowerShell zamieni `$HOME` na wartość lokalną, cudzysłowy się pogubią.
+
+### ✅ RÓB TAK (write → scp → ssh):
+
+**Krok 1:** Zapisz skrypt bash lokalnie:
+```python
+write_to_file:
+  path: c:\Users\tomas2\.gemini\antigravity\playground\video-seo-engine\tmp_cmd.sh
+  content: |
+    #!/bin/bash
+    cd /home/ubuntu/video-seo-engine
+    echo "Home: $HOME"
+    docker logs vse-app 2>&1 | grep 'error' | tail -20
+```
+
+**Krok 2:** Wyślij na VPS:
+```
+run_command: scp -i ~/.ssh/oracle-crimson.key -o StrictHostKeyChecking=no c:\Users\tomas2\.gemini\antigravity\playground\video-seo-engine\tmp_cmd.sh ubuntu@147.224.162.100:/tmp/tmp_cmd.sh
+```
+
+**Krok 3:** Wykonaj na VPS:
+```
+run_command: ssh -i ~/.ssh/oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100 "bash /tmp/tmp_cmd.sh"
+```
+
+### Kiedy INLINE jest OK:
+Proste komendy bez `$`, bez zagnieżdżonych cudzysłowów, bez pipe’ów:
+```
+ssh ... "ls -la /home/ubuntu/video-seo-engine/profiles/"
+ssh ... "cat /home/ubuntu/video-seo-engine/profiles/prawy.yaml"
+ssh ... "docker ps"
+```
+
+---
+
 ## Zasady
 
 - ✅ Zachowaj wsteczną kompatybilność — pipeline bez parametru = działa jak dotychczas
@@ -67,7 +110,6 @@ ssh ... "cd /home/ubuntu/video-seo-engine && touch .deploy_lock && git pull orig
 - ✅ Test na VPS po deploy
 - VPS: `ssh -i ~/.ssh/oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100`
 - Pliki repo: GitHub MCP
-- Złożone komendy SSH z $zmiennymi: write_to_file → scp → ssh (NIGDY inline PowerShell!)
 - ⛔ NIE UŻYWAJ: file bridge, Wetty, stellar-relay
 
 ---
