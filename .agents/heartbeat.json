@@ -1,1 +1,1 @@
-{"callsign": "vse-dev-23", "status": "working", "current_task": "D9 Dashboard Portal Selector — planning phase", "timestamp": "2026-06-20T23:52:00+02:00", "last_completed": [], "pending": ["Backend: GET /v1/profiles endpoint", "Frontend: profile + pub_type selectors", "Deploy + test"]}
+{"callsign": "vse-dev-24", "status": "working", "current_task": "D8: Internal links fallback via WP REST API — deploying", "timestamp": "2026-06-20T22:08:00Z", "last_completed": [], "pending": ["D8 deploy verification", "D8 test article generation", "D8 dual-write report"]}
