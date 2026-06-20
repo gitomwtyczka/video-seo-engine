@@ -41,6 +41,13 @@ D5: Multi-keyword RankMath (2026-06-20, vse-dev-19):
   JAK: build_focus_keywords() przyjmuje seo_data + saas_data, buduje
        merged listę, _build_rankmath_meta() używa jej zamiast prostego get().
 
+D6a: yt_update_enabled flag (2026-06-20, vse-dev-20):
+  CO: Dodaje flagę yt_update_enabled do profilu — steruje czy YT update jest wywoływany.
+  PO CO: Portale bez OAuth (np. kurier365) generowały EnvironmentError przy każdej
+         publikacji, zaśmiecając logi i maskując prawdziwe błędy.
+  JAK: inject_video() czyta profile.get('yt_update_enabled', False). Jeśli False
+       — pomija YT update z logiem debug. Jeśli True — wywołuje jak dotychczas.
+
 Dependencies:
   pip install requests python-dotenv
 """
@@ -915,12 +922,16 @@ def inject_video(
     """Run the full injection pipeline for a single video post.
 
     Steps: thumbnail → WP content/excerpt → RankMath meta → YT description.
-    YT description update is skipped gracefully if OAuth not configured or
-    the video does not belong to the authenticated channel (403).
+    YT description update is controlled by the 'yt_update_enabled' flag
+    in the portal profile. Portals without OAuth (e.g. kurier365) should set
+    yt_update_enabled: false to avoid EnvironmentError noise in logs.
 
     D5 (vse-dev-19): Accepts optional saas_data parameter. If provided,
     build_focus_keywords() merges GSC + Trends + LLM keyphrases into
     rank_math_focus_keyword (comma-separated, max 5 phrases).
+
+    D6a (vse-dev-20): YT update gated by profile['yt_update_enabled'] flag.
+    Default: False — no YT update unless explicitly enabled in portal profile.
 
     Args:
         wp_id: WordPress post ID.
@@ -971,10 +982,14 @@ def inject_video(
             rankmath_meta.get("rank_math_focus_keyword", "-"),
         )
 
-    # YouTube title + description update — single API call (quota optimization)
-    # Skipped gracefully if OAuth not configured or video not on our channel (403)
+    # D6a: YouTube title + description update — gated by yt_update_enabled flag
+    # CO: Aktualizuje tytuł i opis na YouTube po publikacji na portalu.
+    # PO CO: Portale bez OAuth (kurier365) generowały EnvironmentError przy każdej
+    #        publikacji. Flaga pozwala wyłączyć YT update per portal.
+    # JAK: Czyta profile['yt_update_enabled']. Domyślnie False.
     yt_update_ok = False
-    if not dry_run and status == 200:
+    yt_enabled = (profile or {}).get('yt_update_enabled', False)
+    if yt_enabled and not dry_run and status == 200:
         try:
             from core.yt_admin import update_video_title_and_description  # type: ignore
             yt_update_ok = update_video_title_and_description(yt_id, seo, link, dry_run=False)
@@ -982,11 +997,13 @@ def inject_video(
             logger.info("  YT update skipped — OAuth not configured: %s", exc)
         except Exception as exc:
             logger.warning("  YT title+desc update failed for %s: %s", yt_id, exc)
-    elif dry_run:
+    elif yt_enabled and dry_run:
         logger.info(
             "  DRY RUN YT — would update title=%r desc for %s",
             seo.get("yt_title", "?")[:60], yt_id,
         )
+    else:
+        logger.debug("  YT update disabled for portal %s", (profile or {}).get('portal_id', '?'))
 
     # Resolve wp_slug for return dict (same logic as in update_post)
     _wp_slug_ret = seo.get("wp_slug", "").strip()
