@@ -1,6 +1,7 @@
 # profiles/prawy.yaml
 # Portal: Prawy.pl — ImpresjaAI Video SEO Engine
 # Wygenerowany: 2026-05-20 | vse-architect-01
+# Refaktor D6b: 2026-06-20 | vse-dev-21 — dane kanału przeniesione do channels/prawy-tv.yaml
 #
 # UWAGA: Sekrety (hasła, klucze API) NIE są tu wpisywane bezpośrednio.
 # Używaj ${NAZWA_ZMIENNEJ} — wartości ładowane z .env lub środowiska.
@@ -15,24 +16,15 @@ wp_base_url: "${WP_BASE_URL}"
 wp_user: "${WP_USER}"
 wp_app_password: "${WP_APP_PASSWORD}"
 
-# ---- YouTube kanały ----
-channel_ids:
-  - "${CHANNEL_ID}"          # Prawy TV główny
-
-# ---- YouTube OAuth (opis + rozdziały) ----
-yt_oauth:
-  client_id: "${YT_CLIENT_ID}"
-  client_secret: "${YT_CLIENT_SECRET}"
-  refresh_token: "${YT_REFRESH_TOKEN}"
-
-yt_api_key: "${YT_API_KEY}"
-
-# ---- YouTube update flag (D6a) ----
-# CO: Flaga sterująca czy po publikacji na portalu aktualizować opis i tytuł na YouTube.
-# PO CO: Portale z OAuth (prawy) aktualizują tytuł+opis na YT. Portale bez OAuth
-#        (kurier365) mają false — brak EnvironmentError w logach.
-# JAK: injector.py sprawdza tę flagę przed wywołaniem yt_admin.
-yt_update_enabled: true
+# ---- Kanały źródłowe (D6b) ----
+# CO: Mapowanie kanałów YouTube na tę witrynę z domyślnym typem publikacji.
+# PO CO: Jeden kanał YT → wiele witryn. Każda witryna może mieć inny
+#        domyślny typ artykułu (full_analysis vs watching_page).
+# JAK: core/channel.py ładuje channels/prawy-tv.yaml, profile.py
+#      rozpoznaje source_channels i łączy dane kanału z witryną.
+source_channels:
+  - channel: "prawy-tv"
+    default_type: "full_analysis"  # watching_page | full_analysis | discover
 
 # ---- Gemini AI ----
 gemini_api_key: "${GEMINI_API_KEY}"
