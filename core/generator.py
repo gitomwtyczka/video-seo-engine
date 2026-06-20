@@ -31,6 +31,11 @@ D6b Publication types (2026-06-20, vse-dev-21):
   - Three types: full_analysis (default), watching_page, discover
   - Each type modifies the LLM prompt for article_body length/format
 
+D10 Smart External Links (2026-06-21, vse-dev-25):
+  - LLM prompt requests external_links (2-3 authority DoFollow links)
+  - article_body MUST contain woven <a> tags to authority sources
+  - Sources: Wikipedia PL, .gov.pl, PAP, Reuters, AP, think-tanks
+
 Dependencies:
   pip install google-genai anthropic python-dotenv
 """
@@ -336,7 +341,7 @@ Zastosuj ZMODYFIKOWANE reguły:
 
 
 # ============================================================
-# SEO GENERATION — prompt v5.5 multi-keyphrases + YT title formats
+# SEO GENERATION — prompt v5.6 multi-keyphrases + external links
 # ============================================================
 
 def generate_seo_v4(
@@ -358,6 +363,9 @@ def generate_seo_v4(
       - 'full_analysis': full SEO article (default, unchanged)
       - 'watching_page': short article with embed focus
       - 'discover': Google Discover optimized format
+
+    D10: LLM prompt now requests external_links (2-3 authority DoFollow links)
+    and instructs article_body to weave in <a> tags to authority sources.
 
     Args:
         title: WordPress post title.
@@ -461,6 +469,12 @@ Rozdzialy musza:
    Nie upychaj sztucznie \u2014 fraza musi brzmiec naturalnie w kontekscie zdania.
    POZYCJA: Pierwszy akapit article_body MUSI zaczynac sie od zdania zawierajacego
    glowna fraze z focus_keyphrases[0].
+   LINKI ZEWNETRZNE (DoFollow): W article_body MUSISZ wplesc MINIMUM 2 linki DoFollow
+   do zewnetrznych zrodel authority. Uzyj anchor textow z pola external_links.
+   Format: <a href="URL" target="_blank">naturalny anchor text</a>
+   Linki musza brzmiec naturalnie w kontekscie zdania, np.:
+   "jak informuje <a href="https://..." target="_blank">Polska Agencja Prasowa</a>"
+   lub "wedlug danych <a href="https://..." target="_blank">Ministerstwa Obrony Narodowej</a>".
 9. **quotes** \u2014 {qt_range} cytatow z rozmowy:
    - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania, powtorzenia.
    - "speaker": imie i nazwisko
@@ -472,13 +486,28 @@ Rozdzialy musza:
 12. **youtube_description** \u2014 max 500 zn, z hashtagami.
 13. **video_description** \u2014 max 200 zn, dla schema.
 14. **tags** \u2014 5-8 tagow lowercase.
+15. **external_links** \u2014 lista 2-3 linkow zewnetrznych DoFollow do zrodel wysokiego autorytetu.
+    Kazdy link to dict: {{"url": "...", "anchor_text": "...", "reason": "..."}}
+    ZASADY:
+    a) Zrodla ktore Google wysoko wazy (E-E-A-T):
+       - Wikipedia (polski artykul tematyczny, np. https://pl.wikipedia.org/wiki/...)
+       - Strony .gov.pl (oficjalne zrodla rzadowe: sejm.gov.pl, gov.pl, prezydent.pl, mon.gov.pl)
+       - PAP (pap.pl), Reuters (reuters.com), AP (apnews.com) \u2014 agencje prasowe
+       - Instytucje naukowe/think-tanki (PISM, OSW, uniwersytety)
+       - YouTube (link do oryginalnego wideo: {yt_url})
+    b) Linki MUSZA byc tematycznie powiazane z trescia artykulu
+    c) anchor_text to naturalny tekst w ktory jest wpleciony link
+       (np. "Polska Agencja Prasowa", "Ministerstwo Obrony Narodowej")
+    d) Nie wymyslaj URL-i \u2014 podaj REALNE adresy stron, ktore ISTNIEJA
+    e) reason: krotkie uzasadnienie dlaczego to zrodlo jest authority
+    f) Jeden z linkow MOZE byc do oryginalnego wideo YouTube ({yt_url})
 
 KRYTYCZNE: Pola post_title, seo_title, yt_title MUSZA byc niepuste.
 yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}""" 
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}]}}""" 
 
     logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
     if priority_keywords:
@@ -614,6 +643,15 @@ def process_video(
             result["yt_title"][:60],
         )
 
+    # D10: Log external links from LLM output
+    ext_links = result.get("external_links", [])
+    if ext_links:
+        logger.info("D10 external_links: %d authority links generated", len(ext_links))
+        for el in ext_links:
+            logger.info("  -> %s (%s)", el.get("url", "?")[:60], el.get("reason", "?")[:40])
+    else:
+        logger.warning("D10 external_links: LLM returned 0 links (expected 2-3)")
+
     # Anchor-match chapters to exact VTT timestamps
     resolved_chapters: list[dict] = []
     for ch in result.get("chapters", []):
@@ -671,10 +709,11 @@ def process_video(
 
     matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
-        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s",
+        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d",
         len(resolved_chapters), matched_count, len(resolved_chapters),
         keyphrases, publication_type,
         "enriched" if result.get("saas_enriched") else "standalone",
         site_brand or "none",
+        len(ext_links),
     )
     return result
