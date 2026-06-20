@@ -1,142 +1,83 @@
-# DISPATCH-VSE-DEV-20-20260619-YT-ADMIN-D6
-
-**Data:** 2026-06-19  
-**Supervisor:** Supervisor 01  
-**Agent:** `vse-dev-20`  
-**Projekt:** video-seo-engine | branch: main  
-**Priorytet:** HIGH  
-**Podstawa:** Raport `vse-analyst-04` — A3: YouTube Description Integration Status
-
 ---
+dispatch_id: "VSE-DEV-20-D6a-HOTFIX"
+created: "2026-06-19"
+updated: "2026-06-20 — rozbity z D6 na D6a (hotfix) + D6b (architektura)"
+supervisor: "Supervisor 01"
+assigned_to: "[vse-dev-20]"
+repo: "video-seo-engine"
+branch: "main"
+priority: "HIGH"
+status: "dispatched"
+---
+
+# DISPATCH D6a — yt_admin Hotfix (flaga enabled + deprecated fix)
 
 ## Cel
 
-`core/yt_admin.py` jest kompletnym modułem (21KB) ale posiada:
-1. Hardcoded wartości Prawy.pl (footer, hashtagi, categoryId, thumbnail nazwa)
-2. OAuth z `os.environ` globalnie — brak per-portal
-3. Brak flagi `yt_update_enabled` — każdy portal wywołuje `EnvironmentError` gdy bez OAuth
-4. `batch_update_from_registry()` używa deprecated `update_video_description` zamiast `update_video_title_and_description`
-5. `tools/oauth_setup.py` nie istnieje
+Natychmiastowy fix: każda publikacja na portalu bez OAuth (kurier365) generuje `EnvironmentError` w logach. To nie jest bug krytyczny, ale zaśmieca logi i maskuje prawdziwe błędy.
+
+**Czas: 1-2h. Dwa punktowe fixy, zero zmian w architekturze.**
 
 ---
 
-## Zadanie D6 — Parametryzacja yt_admin + integracja per-portal
+## Zadanie 1: Flaga `yt_update_enabled`
 
-### D6.1 — Parametryzacja funkcji
+**Plik:** `core/injector.py` — w miejscu gdzie wywoływany jest `yt_admin`
 
-**Plik:** `core/yt_admin.py`
-
-Wszystkie publiczne funkcje (`update_video_title_and_description`, `update_video_description`, `build_description`, `_build_hashtags`, `update_video_*`) muszą przyjmować opcjonalny parametr `profile: dict = None`.
-
-Logika wewnętrzna:
-```python
-# Przykład dla footer
-footer_text = (profile or {}).get('yt_footer', YT_FOOTER)  # fallback do legacy constant
-```
-
-Hardcody które należy sparametryzować:
-- `YT_FOOTER` — pole `yt_footer` w profilu (lub `display_name` + `wp_base_url` + `social.*`)
-- `_build_hashtags()` — pole `yt_hashtags: []` w profilu
-- `categoryId` `"25"` — pole `yt_category_id` w profilu
-- thumbnail filename `prawy-tv-{yt_id}.jpg` → `{portal_id}-{yt_id}.jpg`
-
-### D6.2 — OAuth z profilu (z fallback env)
-
-**Plik:** `core/yt_admin.py` → `_get_access_token()`
-
-```python
-def _get_access_token(profile: dict = None) -> str:
-    yt_oauth = (profile or {}).get('yt_oauth', {})
-    client_id = yt_oauth.get('client_id') or os.environ.get('YT_CLIENT_ID')
-    client_secret = yt_oauth.get('client_secret') or os.environ.get('YT_CLIENT_SECRET')
-    refresh_token = yt_oauth.get('refresh_token') or os.environ.get('YT_REFRESH_TOKEN')
-    if not all([client_id, client_secret, refresh_token]):
-        raise EnvironmentError("YouTube OAuth not configured for this profile")
-    # ... reszta bez zmian
-```
-
-### D6.3 — Flaga `yt_update_enabled` w injector.py
-
-**Plik:** `core/injector.py` → `inject_video()`
-
-Aktualnie: zawsze próbuje wywołać yt_admin → EnvironmentError dla portali bez OAuth.
+Aktualnie: `injector.py` zawsze próbuje wywołać yt_admin po publikacji.
 
 Fix:
 ```python
 yt_enabled = (profile or {}).get('yt_update_enabled', False)
-if yt_enabled and not dry_run and status == 200:
+if yt_enabled and not dry_run:
     try:
         from core.yt_admin import update_video_title_and_description
-        yt_update_ok = update_video_title_and_description(yt_id, seo, link, profile=profile, dry_run=False)
+        # ... wywołanie
     except EnvironmentError as exc:
         logger.info("  YT update skipped — OAuth not configured: %s", exc)
     except Exception as exc:
-        logger.warning("  YT title+desc update failed for %s: %s", yt_id, exc)
+        logger.warning("  YT update failed for %s: %s", yt_id, exc)
+else:
+    logger.debug("  YT update disabled for portal %s", (profile or {}).get('portal_id', '?'))
 ```
 
-### D6.4 — Fix batch deprecated call
+## Zadanie 2: Fix deprecated batch call
 
 **Plik:** `core/yt_admin.py` → `batch_update_from_registry()`
 
-Zmień: `update_video_description(...)` → `update_video_title_and_description(...)`
+Zmień wywołanie `update_video_description(...)` na `update_video_title_and_description(...)`.
 
-### D6.5 — Pola profilu w template + prawy.yaml + kurier365.yaml
+## Zadanie 3: Pola w profilach
 
-**Plik:** `profiles/prawy.yaml`, `profiles/kurier365.yaml`, `profiles/template.yaml` (jeśli istnieje)
+**Pliki:** `profiles/prawy.yaml`, `profiles/kurier365.yaml`, `profiles/template.yaml`
 
-Dodaj sekcję:
 ```yaml
-yt_update_enabled: true  # prawy.yaml — ma OAuth
-# yt_update_enabled: false  # kurier365.yaml — brak OAuth, domyślnie pomiń
+# prawy.yaml — ma OAuth, włącz YT update
+yt_update_enabled: true
 
-yt_category_id: "25"  # News & Politics
-yt_hashtags:
-  - "#PrawyTV"
-  - "#Polska"
-  - "#Wiadomości"
-yt_footer: |  # opcjonalnie — jeśli brak, generowany z display_name + wp_base_url + social
-  ...
+# kurier365.yaml — brak OAuth
+yt_update_enabled: false
+
+# template.yaml — domyślnie wyłączony
+yt_update_enabled: false
 ```
-
-### D6.6 — tools/oauth_setup.py (narzędzie pomocnicze)
-
-Utwórz `tools/oauth_setup.py` — skrypt do jednorazowego generowania refresh tokenu OAuth 2.0 dla YouTube:
-- Wczytuje `YT_CLIENT_ID` i `YT_CLIENT_SECRET` z `.env` lub stdin
-- Uruchamia OAuth flow (device flow lub loopback)
-- Drukuje `refresh_token` do skopiowania do `.env`
-- Minimal implementation, ~50 linii
-
----
-
-## Kolejność implementacji (risk-first)
-
-1. D6.3 (flaga enabled) — eliminuje EnvironmentError na produkcji ✅
-2. D6.4 (fix deprecated) — jednoliniowy fix ✅
-3. D6.1 (parametryzacja) — core refactor
-4. D6.2 (OAuth z profilu) — po D6.1
-5. D6.5 (pola YAML) — po D6.1 i D6.2
-6. D6.6 (oauth_setup.py) — ostatnie, standalone
 
 ---
 
 ## Weryfikacja
 
-- `kurier365` pipeline: YT update NIE jest wywoływany (flaga `False`)
-- `prawy` pipeline: YT update wywoływany tylko gdy `yt_update_enabled: True` i OAuth dostępne
-- `update_video_title_and_description(profile=prawy_profile)` używa prawy-specyficznych wartości
-- Brak literalu `"PRAWY.PL"` ani `"#PrawyTV"` hardcoded w `yt_admin.py` (za wyjątkiem fallback stałych)
-- `batch_update_from_registry()` używa `update_video_title_and_description`
-- `tools/oauth_setup.py` istnieje i uruchamia się bez błędów
+- [ ] `kurier365` pipeline: YT update NIE jest wywoływany, brak EnvironmentError w logach
+- [ ] `prawy` pipeline: YT update wywoływany tylko gdy `yt_update_enabled: true`
+- [ ] `batch_update_from_registry()` używa `update_video_title_and_description`
+- [ ] Serwis działa po deploy (user weryfikuje)
 
 ---
 
 ## Raportowanie
 
-Po zakończeniu:
-1. Raport do `video-seo-engine/.agents/reports/2026-06-19_vse-dev-20_yt-admin-d6.md`
-2. Kopia do `sonic-void/.agents/reports/inbox/2026-06-19_vse-dev-20_yt-admin-d6.md`
-3. Heartbeat `status: done`
+1. `video-seo-engine/.agents/reports/2026-06-20_vse-dev-20_yt-admin-d6a-hotfix.md`
+2. `sonic-void/.agents/reports/inbox/2026-06-20_vse-dev-20_yt-admin-d6a-hotfix.md`
 
 ---
 
-*Supervisor 01 | video-seo-engine | 2026-06-19*
+*Supervisor 01 | video-seo-engine | 2026-06-20*
