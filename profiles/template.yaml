@@ -24,6 +24,13 @@ yt_oauth:
 
 yt_api_key: "${YT_API_KEY}"
 
+# ---- YouTube update flag (D6a) ----
+# CO: Flaga sterująca czy po publikacji na portalu aktualizować opis i tytuł na YouTube.
+# PO CO: Portale bez OAuth powinny mieć false — brak EnvironmentError w logach.
+#        Portale z własnym kanałem YouTube i OAuth — true.
+# JAK: injector.py sprawdza tę flagę przed wywołaniem yt_admin.
+yt_update_enabled: false
+
 # ---- Gemini AI ----
 gemini_api_key: "${GEMINI_API_KEY}"
 gemini_model: "gemini-2.5-flash"
