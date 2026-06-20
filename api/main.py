@@ -24,6 +24,7 @@ Endpoints:
   GET  /v1/portals/{id}/credentials — portal with password
   PATCH /v1/portals/{id}      — update portal
   DELETE /v1/portals/{id}     — delete portal
+  GET  /v1/profiles           — list active YAML profiles (D9)
   GET  /v1/admin/users        — [ADMIN] list all users
   GET  /v1/admin/users/{id}   — [ADMIN] user details
   PATCH /v1/admin/users/{id}/plan — [ADMIN] change user plan
@@ -45,6 +46,7 @@ from api.routers.users import router as users_router
 from api.routers.jobs import router as jobs_router
 from api.routers.admin import router as admin_router
 from api.routers.portals import router as portals_router
+from api.routers.profiles import router as profiles_router
 from api.models.response import HealthResponse
 from api.middleware.error_logging import ErrorLoggingMiddleware
 from api.db import engine, Base, AsyncSessionLocal
@@ -96,6 +98,9 @@ app.include_router(admin_router)
 
 # Portal management router (requires authenticated user)
 app.include_router(portals_router)
+
+# Profile listing router (public — D9)
+app.include_router(profiles_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
