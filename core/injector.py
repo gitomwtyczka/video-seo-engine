@@ -19,11 +19,19 @@ Safety rules:
 
 Article structure (2026-06-19, vse-dev-17 — D2+D3 fix):
   Build order: lead → first paragraph of article_body → YT embed → chapters →
-  rest of article_body → Podsumowanie (quotes) → FAQ → JSON-LD → player JS
+  rest of article_body → external link → Podsumowanie (quotes) → FAQ → JSON-LD → player JS
   Rationale: First paragraph before embed gives Google crawlable text above the fold
   and improves UX — reader gets article context before the video player.
   Quotes section renamed from 'Kluczowe cytaty' to 'Podsumowanie' for better
   editorial framing.
+
+D4: External links (2026-06-20, vse-dev-18):
+  CO: Wstrzykuje jeden stały link zewnętrzny per profil do treści artykułu.
+  PO CO: RankMath wymaga co najmniej jednego linku zewnętrznego w artykule,
+         żeby dać zielony wynik SEO. Bez niego scoring jest obniżany.
+  JAK: Czyta seo_external_link.url + .anchor z profilu YAML, buduje <p><a> tag
+       z target="_blank" rel="noopener noreferrer". Wstawia po article_body,
+       przed sekcją Podsumowanie. Graceful skip gdy pole nieobecne w profilu.
 
 Dependencies:
   pip install requests python-dotenv
@@ -151,6 +159,46 @@ def _build_rankmath_meta(seo: dict) -> dict:
     if meta:
         logger.info("  RankMath: keyphrase=%r title=%r", focus_keyword[:40], seo_title[:40])
     return meta
+
+
+def _build_external_link_block(profile: Optional[dict] = None) -> str:
+    """Build an external link HTML block from profile's seo_external_link config.
+
+    CO: Generuje blok <p><a> z linkiem zewnętrznym zdefiniowanym w profilu YAML.
+
+    PO CO: RankMath wymaga co najmniej jednego linku zewnętrznego w artykule,
+    żeby dać zielony wynik SEO. Bez tego pola RankMath obniża scoring za każdy post.
+    Link jest stały per profil — nie wymaga logiki LLM.
+
+    JAK: Czyta profile['seo_external_link']['url'] i ['anchor']. Jeśli pole
+    nie istnieje lub jest puste — zwraca pusty string (graceful skip).
+    Buduje <a> tag z target="_blank" rel="noopener noreferrer" wewnątrz
+    WP paragraph block.
+
+    Args:
+        profile: Portal profile dict loaded from YAML. May be None.
+
+    Returns:
+        WP block HTML string with external link, or empty string if not configured.
+    """
+    if not profile:
+        return ""
+    ext_link = profile.get("seo_external_link", {})
+    if not ext_link:
+        return ""
+    url = ext_link.get("url", "").strip()
+    anchor = ext_link.get("anchor", "").strip()
+    if not url:
+        return ""
+    if not anchor:
+        anchor = "Źródło zewnętrzne"
+    logger.info("  D4 external link: %s -> %r", url, anchor)
+    return (
+        f'<!-- wp:paragraph -->\n'
+        f'<p>Więcej informacji: <a href="{url}" target="_blank" '
+        f'rel="noopener noreferrer">{anchor}</a></p>\n'
+        f'<!-- /wp:paragraph -->'
+    )
 
 
 def update_rankmath_meta(
@@ -534,11 +582,15 @@ def build_post_content(
 
     Produces (in order): lead paragraph → <!-- more --> → first paragraph of
     article_body → YT embed → chapters list → rest of article_body →
-    Podsumowanie (polished quotes) → FAQ collapsible → JSON-LD schemas → player JS.
+    external link (D4) → Podsumowanie (polished quotes) → FAQ collapsible →
+    JSON-LD schemas → player JS.
 
     The first paragraph of article_body is placed before the embed so Google
     has crawlable text above the fold and readers get article context before
     the video player (D2 fix, 2026-06-19).
+
+    External link is injected from profile's seo_external_link config to satisfy
+    RankMath's requirement for at least one external link (D4, 2026-06-20).
 
     Args:
         seo: SEO result dict from generator.process_video().
@@ -602,7 +654,7 @@ def build_post_content(
     chapters_block = ""
     if ch_items:
         chapters_block = (
-            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Rozdzia\u0142y nagrania</h2>\n<!-- /wp:heading -->\n\n"
+            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Rozdziały nagrania</h2>\n<!-- /wp:heading -->\n\n"
             f"<!-- wp:list -->\n<ul class=\"{chapter_class}s-list\">\n"
             + "\n".join(ch_items)
             + "\n</ul>\n<!-- /wp:list -->"
@@ -613,6 +665,9 @@ def build_post_content(
         f"<!-- wp:html -->\n{rest_body}\n<!-- /wp:html -->"
         if rest_body else ""
     )
+
+    # D4: External link block — RankMath requires at least 1 external link
+    external_link_block = _build_external_link_block(profile)
 
     # D3: Polished quotes with seekTo links — heading renamed to 'Podsumowanie'
     quotes_blocks = []
@@ -644,7 +699,7 @@ def build_post_content(
     faq_section = ""
     if faq_blocks:
         faq_section = (
-            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Najcz\u0119\u015bciej zadawane pytania</h2>\n<!-- /wp:heading -->\n\n"
+            "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Najczęściej zadawane pytania</h2>\n<!-- /wp:heading -->\n\n"
             f"<!-- wp:html -->\n" + "\n".join(faq_blocks) + "\n<!-- /wp:html -->"
         )
 
@@ -662,11 +717,11 @@ def build_post_content(
     player_js = _build_player_js(seek_fn=seek_fn, chapter_class=chapter_class)
     js_block = f"<!-- wp:html -->\n{player_js}\n<!-- /wp:html -->"
 
-    # D2: New article order
-    # lead → first_p → embed → chapters → rest_body → quotes (Podsumowanie) → faq → schema → js
+    # D2+D4: Article order
+    # lead → first_p → embed → chapters → rest_body → external_link → quotes (Podsumowanie) → faq → schema → js
     parts = [
         lead_block, intro_block, embed_block, chapters_block,
-        body_rest_block, quotes_section, faq_section,
+        body_rest_block, external_link_block, quotes_section, faq_section,
         schema_block, js_block,
     ]
     return "\n\n".join(p for p in parts if p)
