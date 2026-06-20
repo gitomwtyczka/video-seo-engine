@@ -19,22 +19,17 @@ Schema standards (Google 2026):
 
 SAAS Enrichment (2026-06-17, vse-dev-14):
   - generate_seo_v4() accepts optional priority_keywords and internal_links
-  - If provided, appends SAAS context section to the LLM prompt
-  - Keywords come from GSC via SAAS /api/external/seo-data
-  - Internal links are top pages of the target portal
-  - Integration is optional — if not provided, prompt is unchanged
 
 Branding fix (2026-06-19, vse-dev-17):
   - generate_seo_v4() accepts optional site_brand parameter
-  - Replaces hardcoded '| Prawy TV' in seo_title prompt with dynamic value
-  - If site_brand is None, branding pipe is omitted from seo_title instruction
-  - process_video() passes site_brand from portal profile
 
 D5 Multi-keyword (2026-06-20, vse-dev-19):
-  - LLM prompt now requests focus_keyphrases (list of 2-3 phrases) instead of
-    single focus_keyphrase. Backward compat: if LLM returns string, wrap in list.
-  - process_video() normalizes output to always have focus_keyphrases as list.
-  - Injector merges GSC + Trends + LLM keyphrases into comma-separated RankMath field.
+  - LLM prompt now requests focus_keyphrases (list of 2-3 phrases)
+
+D6b Publication types (2026-06-20, vse-dev-21):
+  - generate_seo_v4() and process_video() accept publication_type parameter
+  - Three types: full_analysis (default), watching_page, discover
+  - Each type modifies the LLM prompt for article_body length/format
 
 Dependencies:
   pip install google-genai anthropic python-dotenv
@@ -281,6 +276,66 @@ powiązany z omawianym materiałem wideo, wstaw link w article_body jako natural
 
 
 # ============================================================
+# D6b.6: PUBLICATION TYPE PROMPT OVERRIDES
+# ============================================================
+
+def _get_publication_type_override(publication_type: str) -> str:
+    """Get prompt override section for a specific publication type.
+
+    CO: Zwraca nadpisanie promptu zależne od typu publikacji.
+
+    PO CO: Różne witryny potrzebują różnych formatów artykułów:
+           - full_analysis: pełny artykuł SEO (domyślny)
+           - watching_page: krótki z embedem i chapterami
+           - discover: format pod Google Discover
+
+    JAK: Zwraca sekcję promptu która nadpisuje instrukcje
+         dot. article_body i związanych pól.
+
+    Args:
+        publication_type: 'full_analysis', 'watching_page', or 'discover'.
+
+    Returns:
+        Prompt override string (appended to main prompt).
+        Empty string for 'full_analysis' (no changes needed).
+    """
+    if publication_type == "watching_page":
+        return """
+
+## UWAGA — TYP PUBLIKACJI: WATCHING PAGE
+
+To jest krótki artykuł typu "strona oglądania" z embedem wideo.
+Zastosuj ZMODYFIKOWANE reguły:
+- **article_body**: MAX 2 krótkie akapity <p> (300-500 zn). Skup się na
+  krótkim opisie o czym jest materiał i dlaczego warto obejrzeć.
+  NIE pisz rozbudowanej analizy.
+- **chapters**: generuj normalnie (pełna lista)
+- **faq**: MAX 2 pytania (krótkie, najważniejsze)
+- **quotes**: MAX 2 cytaty
+- Reszta pól (tytuły, meta, lead) — bez zmian
+"""
+    elif publication_type == "discover":
+        return """
+
+## UWAGA — TYP PUBLIKACJI: GOOGLE DISCOVER
+
+To jest artykuł zoptymalizowany pod Google Discover.
+Zastosuj ZMODYFIKOWANE reguły:
+- **article_body**: 3-4 krótkie akapity (każdy max 2-3 zdania).
+  Pierwszy akapit to HOOK — przyciągający uwagę, emocjonalny.
+  Reszta: krótkie fakty, konkrety, bez akademickiego stylu.
+  Formatuj pod mobile: krótkie zdania, dużo enterów.
+- **post_title**: max 65 zn, z emocjonalnym hakiem (Discover lubi klikalne tytuły)
+- **faq**: POMIŃ (nie generuj FAQ dla Discover)
+- **quotes**: MAX 2 krótkie cytaty
+- **chapters**: generuj normalnie
+- **lead**: 1-2 zdania, MAX 150 zn, hook style
+"""
+    else:  # full_analysis or unknown — no override
+        return ""
+
+
+# ============================================================
 # SEO GENERATION — prompt v5.5 multi-keyphrases + YT title formats
 # ============================================================
 
@@ -294,26 +349,15 @@ def generate_seo_v4(
     priority_keywords: Optional[list[str]] = None,
     internal_links: Optional[list[dict]] = None,
     site_brand: Optional[str] = None,
+    publication_type: str = "full_analysis",
 ) -> dict:
     """Call LLM to generate full SEO package for a video.
 
-    Generates: focus_keyphrases (list), post_title, seo_title, yt_title, wp_slug,
-    meta_description, lead, article_body, quotes (with anchor_text),
-    chapters (with anchor_text), faq, youtube_description, video_description, tags.
-
-    D5 Multi-keyword (2026-06-20, vse-dev-19):
-      LLM now returns focus_keyphrases as a list of 2-3 natural phrases.
-      Backward compat: if LLM returns old focus_keyphrase (string), it's wrapped
-      in a list by process_video().
-
-    SAAS Enrichment (2026-06-17):
-      If priority_keywords or internal_links are provided (from SAAS GSC data),
-      an additional prompt section is appended instructing the LLM to naturally
-      incorporate these keywords and links into the generated content.
-
-    Branding (2026-06-19):
-      site_brand controls the branding pipe in seo_title (e.g. '| Prawy TV').
-      If None, branding pipe is omitted — seo_title has no portal suffix.
+    D6b.6: publication_type parameter controls article format/length.
+    Three types supported:
+      - 'full_analysis': full SEO article (default, unchanged)
+      - 'watching_page': short article with embed focus
+      - 'discover': Google Discover optimized format
 
     Args:
         title: WordPress post title.
@@ -322,12 +366,10 @@ def generate_seo_v4(
         yt_url: Full YouTube watch URL.
         api_key: API key for the selected LLM provider.
         provider: LLM provider: 'gemini' (default) or 'claude'.
-        priority_keywords: Optional list of priority keyword phrases from GSC
-            (via SAAS enrichment). If empty or None, prompt is unchanged.
-        internal_links: Optional list of dicts with 'url' and 'title' keys
-            for internal linking suggestions. If empty or None, prompt is unchanged.
-        site_brand: Optional portal brand name for seo_title branding pipe
-            (e.g. 'Prawy TV', 'Kurier365'). If None, no branding is added.
+        priority_keywords: Optional list of priority keyword phrases from GSC.
+        internal_links: Optional list of dicts with 'url' and 'title' for linking.
+        site_brand: Optional portal brand name for seo_title branding pipe.
+        publication_type: Article type: 'full_analysis', 'watching_page', 'discover'.
 
     Returns:
         Parsed JSON dict from LLM response.
@@ -356,14 +398,17 @@ def generate_seo_v4(
     # Build seo_title instruction based on site_brand availability
     if site_brand:
         seo_title_instruction = (
-            f"**seo_title** — max 60 znakow, dla tagu <title> i RankMath. "
+            f"**seo_title** \u2014 max 60 znakow, dla tagu <title> i RankMath. "
             f'Z branding pipe: "| {site_brand}". Moze byc krotsza wersja post_title.'
         )
     else:
         seo_title_instruction = (
-            "**seo_title** — max 60 znakow, dla tagu <title> i RankMath. "
+            "**seo_title** \u2014 max 60 znakow, dla tagu <title> i RankMath. "
             "Moze byc krotsza wersja post_title. Bez branding pipe."
         )
+
+    # D6b.6: Publication type override
+    pub_type_section = _get_publication_type_override(publication_type)
 
     prompt = f"""Jestes ekspertem SEO i redaktorem portalu prawy.pl.
 
@@ -379,9 +424,9 @@ Transkrypt z markerami [MM:SS]:
 {saas_section}
 ## KLUCZOWE ZASADY DLA ROZDZIALOW
 
-Dla kazdego rozdzialu MUSISZ podac pole "anchor_text" — jest to DOKLADNY CYTAT 8-15 slow z transkryptu, ktore sa PIERWSZYMI slowami wypowiadanymi na poczatku danego tematu/rozdzialu.
+Dla kazdego rozdzialu MUSISZ podac pole "anchor_text" \u2014 jest to DOKLADNY CYTAT 8-15 slow z transkryptu, ktore sa PIERWSZYMI slowami wypowiadanymi na poczatku danego tematu/rozdzialu.
 Ten cytat musi byc DOKLADNIE TAKI jak w transkrypcie powyzej (dokladny tekst, male/wielkie litery bez znaczenia).
-NIE parafrazuj, NIE streszczaj — kopiuj dokladny fragment.
+NIE parafrazuj, NIE streszczaj \u2014 kopiuj dokladny fragment.
 
 Rozdzialy musza:
 - Pokrywac CALY material od poczatku do konca (~{total_min} min)
@@ -391,50 +436,46 @@ Rozdzialy musza:
 
 ## CO WYGENEROWAC
 
-1. **focus_keyphrases** — lista 2-3 naturalnych fraz kluczowych Google (kazda 2-4 slowa). Pierwsza fraza to glowna, reszta to warianty tematyczne. Format: lista stringow.
-2. **post_title** — max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac glowna focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
+1. **focus_keyphrases** \u2014 lista 2-3 naturalnych fraz kluczowych Google (kazda 2-4 slowa). Pierwsza fraza to glowna, reszta to warianty tematyczne. Format: lista stringow.
+2. **post_title** \u2014 max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac glowna focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
 3. {seo_title_instruction}
-4. **yt_title** — KRYTYCZNE ZASADY:
+4. **yt_title** \u2014 KRYTYCZNE ZASADY:
    - Dlugosc: 40-65 znakow (HARD MAX: 100). Optymalna dlugosc to 50-62 znaki.
    - Zacznij od tematu glownego lub nazwiska goscia (front-loading dla suggest feed).
-   - MUSI byc INNY niz post_title i seo_title — inne ustawienie slow, inny ton.
-   - NIE dodawaj brandingu ("| prawy.pl", "Prawy TV") — YouTube dodaje kanal automatycznie.
+   - MUSI byc INNY niz post_title i seo_title \u2014 inne ustawienie slow, inny ton.
+   - NIE dodawaj brandingu ("| prawy.pl", "Prawy TV") \u2014 YouTube dodaje kanal automatycznie.
    - NIE uzywaj ogolnikow: "wazne", "ciekawe", "cos szokujacego".
    - Wybierz jeden z formatow:
-     A — NAPIECIE:    [Nazwisko/Temat]: [akcja] — [stawka/skutek]
-         przyklad: "Sumlinski: Nie dam sie zamknac ws. Jedwabnego"
-     B — UJAWNIENIE:  [Temat]: [co ujawnia] — [kulisy]
-         przyklad: "Jedwabne: ekshumacja przerwana na rozkaz. Kulisy"
-     C — PYTANIE:     Dlaczego [podmiot] milczy o [temat]?
-         przyklad: "Dlaczego milcza o Jedwabnem? Sumlinski ujawnia"
-     D — POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
-         przyklad: "KULISY Jedwabnego: Sumlinski buduje centrum prawdy"
+     A \u2014 NAPIECIE:    [Nazwisko/Temat]: [akcja] \u2014 [stawka/skutek]
+     B \u2014 UJAWNIENIE:  [Temat]: [co ujawnia] \u2014 [kulisy]
+     C \u2014 PYTANIE:     Dlaczego [podmiot] milczy o [temat]?
+     D \u2014 POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
    - Cel: widz klika nawet nie znajac goscia z imienia.
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
-5. **wp_slug** — max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj: a->a, e->e, s->s, o->o, etc.), bez stop-words (i, w, z, na, do, ze, sie). Musi zawierac slowa kluczowe z focus_keyphrases. Optymalna dlugosc 40-60 znakow.
-6. **meta_description** — max 155 znakow, z fraza kluczowa.
-7. **lead** — 2-3 zdania, max 300 znakow, z fraza kluczowa.
-8. **article_body** — HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
-9. **quotes** — {qt_range} cytatow z rozmowy:
-   - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania (yyy, eee), powtorzenia, urwane zdania. Zachowaj SENS i STYL mowcy ale napisz to poprawna, plynna polszczyzna. Cytat musi brzmiec jak profesjonalny wywiad w prasie — nie jak surowy transkrypt.
+5. **wp_slug** \u2014 max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj), bez stop-words. Musi zawierac slowa kluczowe z focus_keyphrases.
+6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa.
+7. **lead** \u2014 2-3 zdania, max 300 znakow, z fraza kluczowa.
+8. **article_body** \u2014 HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
+9. **quotes** \u2014 {qt_range} cytatow z rozmowy:
+   - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania, powtorzenia.
    - "speaker": imie i nazwisko
-   - "anchor_text": DOKLADNE 8-15 pierwszych slow ORYGINALNEGO transkryptu (surowe, bez edycji!) z tego fragmentu — potrzebne do odnalezienia momentu w nagraniu
-10. **chapters** — {ch_range} rozdzialow:
+   - "anchor_text": DOKLADNE 8-15 pierwszych slow ORYGINALNEGO transkryptu
+10. **chapters** \u2014 {ch_range} rozdzialow:
     - "label": tytul (max 60 zn)
-    - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow tego fragmentu z transkryptu
-11. **faq** — {faq_range} pytan i odpowiedzi z tresci. Pytania musza byc naturalne, zorientowane na search intent — tak jak wpisuje je uzytkownik w Google. NIE pytania akademickie/definicyjne.
-12. **youtube_description** — max 500 zn, z hashtagami.
-13. **video_description** — max 200 zn, dla schema.
-14. **tags** — 5-8 tagow lowercase.
+    - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow
+11. **faq** \u2014 {faq_range} pytan i odpowiedzi. Naturalne, zorientowane na search intent.
+12. **youtube_description** \u2014 max 500 zn, z hashtagami.
+13. **video_description** \u2014 max 200 zn, dla schema.
+14. **tags** \u2014 5-8 tagow lowercase.
 
 KRYTYCZNE: Pola post_title, seo_title, yt_title MUSZA byc niepuste.
-yt_title to OSOBNY, INNY tytul niz post_title — angazujacy, YouTubowy, wg formatow powyzej.
-NIGDY nie zostawiaj ich pustych — to blokuje aktualizacje na YouTube.
-
+yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
+NIGDY nie zostawiaj ich pustych.
+{pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
 {{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}""" 
 
-    logger.info("Calling %s for: %s", provider, title[:60])
+    logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
     if priority_keywords:
         logger.info(
             "SAAS enrichment active: %d keywords, %d links",
@@ -443,6 +484,8 @@ Odpowiedz TYLKO JSON (bez markdown):
         )
     if site_brand:
         logger.info("site_brand: %r", site_brand)
+    if publication_type != "full_analysis":
+        logger.info("Publication type override: %s", publication_type)
     try:
         text = _call_llm(prompt, api_key, provider)
         text = text.strip()
@@ -460,17 +503,6 @@ Odpowiedz TYLKO JSON (bez markdown):
 
 def _normalize_keyphrases(result: dict) -> list[str]:
     """Normalize LLM output to always have focus_keyphrases as a list.
-
-    CO: Zapewnia backward compat między starym focus_keyphrase (string)
-    a nowym focus_keyphrases (list).
-
-    PO CO: LLM może zwrócić stary format (string) lub nowy (lista).
-    Injector potrzebuje zawsze listy do merge z GSC + Trends.
-
-    JAK:
-    1. Preferuj focus_keyphrases (lista) jeśli istnieje
-    2. Fallback: focus_keyphrase (string) → wrap w listę
-    3. Jeśli oba puste → pusta lista
 
     Args:
         result: Raw LLM JSON output dict.
@@ -508,10 +540,11 @@ def process_video(
     priority_keywords: Optional[list[str]] = None,
     internal_links: Optional[list[dict]] = None,
     site_brand: Optional[str] = None,
+    publication_type: str = "full_analysis",
 ) -> dict:
     """Run the full generation pipeline for a single video.
 
-    Parses VTT, calls LLM (Gemini or Claude), resolves anchor timestamps, saves JSON.
+    D6b.6: publication_type parameter controls article format.
 
     Args:
         youtube_id: YouTube video ID.
@@ -523,12 +556,10 @@ def process_video(
         out_dir: Directory to save the result JSON. If None, does not save.
         sleep_between: Seconds to sleep after the LLM call (rate-limit guard).
         provider: LLM provider: 'gemini' (default) or 'claude'.
-        priority_keywords: Optional list of priority keyword phrases from GSC
-            (via SAAS enrichment). Passed through to generate_seo_v4().
-        internal_links: Optional list of dicts with 'url' and 'title' for
-            internal linking suggestions. Passed through to generate_seo_v4().
-        site_brand: Optional portal brand name for seo_title branding pipe
-            (e.g. 'Prawy TV'). Comes from profile['site_brand']. If None, no branding.
+        priority_keywords: Optional list of priority keyword phrases from GSC.
+        internal_links: Optional list of dicts with 'url' and 'title' for linking.
+        site_brand: Optional portal brand name for seo_title branding pipe.
+        publication_type: Article type: 'full_analysis', 'watching_page', 'discover'.
 
     Returns:
         SEO result dict with all fields + resolved chapters + duration metadata.
@@ -537,7 +568,7 @@ def process_video(
         FileNotFoundError: If vtt_path does not exist.
         json.JSONDecodeError: If LLM returns malformed JSON.
     """
-    logger.info("Processing video: %s (WP#%s) via %s", youtube_id, wp_id, provider)
+    logger.info("Processing video: %s (WP#%s) via %s [type=%s]", youtube_id, wp_id, provider, publication_type)
 
     timestamped, segments, duration = parse_vtt_full(vtt_path)
     dur_min = int(duration // 60)
@@ -552,6 +583,7 @@ def process_video(
         priority_keywords=priority_keywords,
         internal_links=internal_links,
         site_brand=site_brand,
+        publication_type=publication_type,
     )
 
     # D5: Normalize keyphrases — always store as list
@@ -565,7 +597,7 @@ def process_video(
     if not result.get("post_title", "").strip():
         result["post_title"] = result.get("seo_title", post_title)
         logger.warning(
-            "post_title missing — fallback to seo_title: %r",
+            "post_title missing \u2014 fallback to seo_title: %r",
             result["post_title"][:60],
         )
 
@@ -573,7 +605,7 @@ def process_video(
     if not result.get("yt_title", "").strip():
         result["yt_title"] = result.get("post_title", post_title)[:100]
         logger.warning(
-            "yt_title missing — fallback to post_title: %r",
+            "yt_title missing \u2014 fallback to post_title: %r",
             result["yt_title"][:60],
         )
 
@@ -613,6 +645,7 @@ def process_video(
     result["duration_seconds"] = int(duration)
     result["duration_iso"] = format_duration_iso(duration)
     result["llm_provider"] = provider
+    result["publication_type"] = publication_type  # D6b.6: track type in output
 
     # Track SAAS enrichment in result metadata
     if priority_keywords:
@@ -633,9 +666,9 @@ def process_video(
 
     matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
-        "Done: %d chapters (%d/%d matched), keyphrases=%r, saas=%s, brand=%s",
+        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s",
         len(resolved_chapters), matched_count, len(resolved_chapters),
-        keyphrases,
+        keyphrases, publication_type,
         "enriched" if result.get("saas_enriched") else "standalone",
         site_brand or "none",
     )
