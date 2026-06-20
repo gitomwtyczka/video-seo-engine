@@ -1,1 +1,1 @@
-{"callsign": "vse-dev-24", "status": "working", "current_task": "D8: Internal links fallback via WP REST API — deploying", "timestamp": "2026-06-20T22:08:00Z", "last_completed": [], "pending": ["D8 deploy verification", "D8 test article generation", "D8 dual-write report"]}
+{"callsign": "vse-dev-24", "status": "done", "current_task": "D8: Internal links fallback via WP REST API", "timestamp": "2026-06-20T22:10:00Z", "last_completed": ["D8 internal links fallback — commit 3a26aa48 (2026-06-20)"], "pending": []}
