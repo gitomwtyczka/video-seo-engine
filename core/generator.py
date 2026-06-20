@@ -30,6 +30,12 @@ Branding fix (2026-06-19, vse-dev-17):
   - If site_brand is None, branding pipe is omitted from seo_title instruction
   - process_video() passes site_brand from portal profile
 
+D5 Multi-keyword (2026-06-20, vse-dev-19):
+  - LLM prompt now requests focus_keyphrases (list of 2-3 phrases) instead of
+    single focus_keyphrase. Backward compat: if LLM returns string, wrap in list.
+  - process_video() normalizes output to always have focus_keyphrases as list.
+  - Injector merges GSC + Trends + LLM keyphrases into comma-separated RankMath field.
+
 Dependencies:
   pip install google-genai anthropic python-dotenv
 """
@@ -247,7 +253,7 @@ def _build_saas_prompt_section(
     sections = []
 
     if priority_keywords:
-        kw_list = ", ".join(f'"{kw}"' for kw in priority_keywords[:15])
+        kw_list = ", ".join(f'"{ kw}"' for kw in priority_keywords[:15])
         sections.append(f"""## PRIORYTETOWE FRAZY KLUCZOWE Z GSC PORTALU
 
 Poniższe frazy są faktycznie wyszukiwane przez użytkowników Google i portal już na nie rankuje.
@@ -275,7 +281,7 @@ powiązany z omawianym materiałem wideo, wstaw link w article_body jako natural
 
 
 # ============================================================
-# SEO GENERATION — prompt v5.4 anchor-based chapters + YT title formats
+# SEO GENERATION — prompt v5.5 multi-keyphrases + YT title formats
 # ============================================================
 
 def generate_seo_v4(
@@ -291,9 +297,14 @@ def generate_seo_v4(
 ) -> dict:
     """Call LLM to generate full SEO package for a video.
 
-    Generates: focus_keyphrase, post_title, seo_title, yt_title, wp_slug,
+    Generates: focus_keyphrases (list), post_title, seo_title, yt_title, wp_slug,
     meta_description, lead, article_body, quotes (with anchor_text),
     chapters (with anchor_text), faq, youtube_description, video_description, tags.
+
+    D5 Multi-keyword (2026-06-20, vse-dev-19):
+      LLM now returns focus_keyphrases as a list of 2-3 natural phrases.
+      Backward compat: if LLM returns old focus_keyphrase (string), it's wrapped
+      in a list by process_video().
 
     SAAS Enrichment (2026-06-17):
       If priority_keywords or internal_links are provided (from SAAS GSC data),
@@ -345,13 +356,13 @@ def generate_seo_v4(
     # Build seo_title instruction based on site_brand availability
     if site_brand:
         seo_title_instruction = (
-            f"**seo_title** — max 60 znaków, dla tagu <title> i RankMath. "
-            f'Z branding pipe: "| {site_brand}". Może być krótsza wersja post_title.'
+            f"**seo_title** — max 60 znakow, dla tagu <title> i RankMath. "
+            f'Z branding pipe: "| {site_brand}". Moze byc krotsza wersja post_title.'
         )
     else:
         seo_title_instruction = (
-            "**seo_title** — max 60 znaków, dla tagu <title> i RankMath. "
-            "Może być krótsza wersja post_title. Bez branding pipe."
+            "**seo_title** — max 60 znakow, dla tagu <title> i RankMath. "
+            "Moze byc krotsza wersja post_title. Bez branding pipe."
         )
 
     prompt = f"""Jestes ekspertem SEO i redaktorem portalu prawy.pl.
@@ -380,8 +391,8 @@ Rozdzialy musza:
 
 ## CO WYGENEROWAC
 
-1. **focus_keyphrase** — 2-4 slowa, naturalna fraza Google.
-2. **post_title** — max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
+1. **focus_keyphrases** — lista 2-3 naturalnych fraz kluczowych Google (kazda 2-4 slowa). Pierwsza fraza to glowna, reszta to warianty tematyczne. Format: lista stringow.
+2. **post_title** — max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac glowna focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
 3. {seo_title_instruction}
 4. **yt_title** — KRYTYCZNE ZASADY:
    - Dlugosc: 40-65 znakow (HARD MAX: 100). Optymalna dlugosc to 50-62 znaki.
@@ -400,7 +411,7 @@ Rozdzialy musza:
          przyklad: "KULISY Jedwabnego: Sumlinski buduje centrum prawdy"
    - Cel: widz klika nawet nie znajac goscia z imienia.
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
-5. **wp_slug** — max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj: a->a, e->e, s->s, o->o, etc.), bez stop-words (i, w, z, na, do, ze, sie). Musi zawierac slowa kluczowe z focus_keyphrase. Optymalna dlugosc 40-60 znakow.
+5. **wp_slug** — max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj: a->a, e->e, s->s, o->o, etc.), bez stop-words (i, w, z, na, do, ze, sie). Musi zawierac slowa kluczowe z focus_keyphrases. Optymalna dlugosc 40-60 znakow.
 6. **meta_description** — max 155 znakow, z fraza kluczowa.
 7. **lead** — 2-3 zdania, max 300 znakow, z fraza kluczowa.
 8. **article_body** — HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
@@ -421,7 +432,7 @@ yt_title to OSOBNY, INNY tytul niz post_title — angazujacy, YouTubowy, wg form
 NIGDY nie zostawiaj ich pustych — to blokuje aktualizacje na YouTube.
 
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrase":"...","post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}""" 
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."]}}""" 
 
     logger.info("Calling %s for: %s", provider, title[:60])
     if priority_keywords:
@@ -441,6 +452,43 @@ Odpowiedz TYLKO JSON (bez markdown):
     except Exception as exc:
         logger.error("%s call failed: %s", provider, exc)
         raise
+
+
+# ============================================================
+# KEYPHRASES NORMALIZATION (D5, vse-dev-19)
+# ============================================================
+
+def _normalize_keyphrases(result: dict) -> list[str]:
+    """Normalize LLM output to always have focus_keyphrases as a list.
+
+    CO: Zapewnia backward compat między starym focus_keyphrase (string)
+    a nowym focus_keyphrases (list).
+
+    PO CO: LLM może zwrócić stary format (string) lub nowy (lista).
+    Injector potrzebuje zawsze listy do merge z GSC + Trends.
+
+    JAK:
+    1. Preferuj focus_keyphrases (lista) jeśli istnieje
+    2. Fallback: focus_keyphrase (string) → wrap w listę
+    3. Jeśli oba puste → pusta lista
+
+    Args:
+        result: Raw LLM JSON output dict.
+
+    Returns:
+        List of keyphrase strings (1-3 items typically).
+    """
+    # New format: focus_keyphrases (list)
+    keyphrases = result.get("focus_keyphrases", [])
+    if isinstance(keyphrases, list) and keyphrases:
+        return [kp.strip() for kp in keyphrases if isinstance(kp, str) and kp.strip()]
+
+    # Old format: focus_keyphrase (string) — backward compat
+    keyphrase = result.get("focus_keyphrase", "").strip()
+    if keyphrase:
+        return [keyphrase]
+
+    return []
 
 
 # ============================================================
@@ -505,6 +553,13 @@ def process_video(
         internal_links=internal_links,
         site_brand=site_brand,
     )
+
+    # D5: Normalize keyphrases — always store as list
+    keyphrases = _normalize_keyphrases(result)
+    result["focus_keyphrases"] = keyphrases
+    # Backward compat: keep focus_keyphrase (singular) as first item for old consumers
+    result["focus_keyphrase"] = keyphrases[0] if keyphrases else ""
+    logger.info("focus_keyphrases: %r", keyphrases)
 
     # Fallback: post_title z seo_title jesli puste
     if not result.get("post_title", "").strip():
@@ -578,9 +633,9 @@ def process_video(
 
     matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
-        "Done: %d chapters (%d/%d matched), focus=%s, saas=%s, brand=%s",
+        "Done: %d chapters (%d/%d matched), keyphrases=%r, saas=%s, brand=%s",
         len(resolved_chapters), matched_count, len(resolved_chapters),
-        result.get("focus_keyphrase", "?"),
+        keyphrases,
         "enriched" if result.get("saas_enriched") else "standalone",
         site_brand or "none",
     )
