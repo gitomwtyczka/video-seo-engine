@@ -13,8 +13,13 @@ Optional:
     YT_API_KEY       -- For read-only API calls (quota optimization)
 
 Usage:
-    from core.yt_admin import update_video_description, batch_update_from_registry
-    ok = update_video_description("dQw4w9WgXcQ", seo_dict, "https://prawy.pl/artykul/")
+    from core.yt_admin import update_video_title_and_description, batch_update_from_registry
+    ok = update_video_title_and_description("dQw4w9WgXcQ", seo_dict, "https://prawy.pl/artykul/")
+
+D6a (vse-dev-20, 2026-06-20):
+    - batch_update_from_registry() now calls update_video_title_and_description()
+      instead of deprecated update_video_description().
+    - update_video_description() kept for backward compat but marked deprecated.
 """
 
 import json
@@ -163,7 +168,7 @@ def _build_hashtags(seo: dict) -> str:
 
     title = seo.get("seo_title", "") or seo.get("original_title", "")
     for word in title.split():
-        word = word.strip(".,!?-:;()[]\\'"«»")
+        word = word.strip(".,!?-:;()[]\'\"«»")
         if (
             len(word) >= 4
             and word[0].isupper()
@@ -369,7 +374,7 @@ def get_video_data(video_id: str) -> dict:
 
 
 # ============================================================
-# UPDATE VIDEO DESCRIPTION ON YOUTUBE
+# UPDATE VIDEO DESCRIPTION ON YOUTUBE (DEPRECATED)
 # ============================================================
 
 def update_video_description(
@@ -380,7 +385,9 @@ def update_video_description(
 ) -> bool:
     """Fetch current snippet and write enriched description to YouTube.
 
-    Deprecated: prefer update_video_title_and_description() for quota efficiency.
+    .. deprecated::
+        Use update_video_title_and_description() instead for quota efficiency.
+        This function is kept for backward compatibility only.
 
     Preserves: title, categoryId, tags, defaultLanguage.
     Replaces: description (with enriched version including chapters + footer).
@@ -394,6 +401,9 @@ def update_video_description(
     Returns:
         True on success or dry_run, False on API failure.
     """
+    logger.warning(
+        "update_video_description() is deprecated — use update_video_title_and_description() instead"
+    )
     try:
         video_data = get_video_data(video_id)
     except Exception as exc:
@@ -557,11 +567,14 @@ def batch_update_from_registry(
     dry_run: bool = False,
     delay_between: float = 2.0,
 ) -> dict:
-    """Update YouTube descriptions for all videos in the registry.
+    """Update YouTube title + descriptions for all videos in the registry.
 
     Iterates registry/*.json, loads matching SEO JSON, and calls
-    update_video_description() for each. Marks updated entries with
+    update_video_title_and_description() for each. Marks updated entries with
     'yt_desc_updated' timestamp to enable idempotent re-runs.
+
+    D6a (vse-dev-20): Changed from deprecated update_video_description() to
+    update_video_title_and_description() for quota efficiency and consistency.
 
     YouTube Data API v3 quota: videos.update = 50 units.
     Daily limit: 10 000 units → max ~200 updates/day.
@@ -581,7 +594,7 @@ def batch_update_from_registry(
 
     registry_files = sorted(registry_dir.glob("*.json"))
     logger.info(
-        "Batch YT description update: %d registry entries | dry_run=%s",
+        "Batch YT title+description update: %d registry entries | dry_run=%s",
         len(registry_files), dry_run,
     )
 
@@ -629,7 +642,10 @@ def batch_update_from_registry(
             seo.get("seo_title", "")[:50],
         )
 
-        ok = update_video_description(video_id, seo, wp_url, dry_run)
+        # D6a: Use update_video_title_and_description instead of deprecated
+        # update_video_description for quota efficiency (single API call
+        # updates both title and description).
+        ok = update_video_title_and_description(video_id, seo, wp_url, dry_run)
 
         if ok:
             stats["success"] += 1
