@@ -31,6 +31,12 @@ GSC Status Surfacing (2026-06-17, sup-worker-01, KROK 4):
   run_generate() teraz zwraca pole "gsc" z status/message/connect_url/upgrade_url.
   Generowanie artykułu NIE jest blokowane przez brak GSC.
   Caller (UI / API klient) widzi jawnie czy GSC było dostępne.
+
+D5 Multi-keyword (2026-06-20, vse-dev-19):
+  _fetch_saas_enrichment() zwraca pełny saas_data dict (nie tylko keywords).
+  run_generate() zwraca saas_data w wynikowym dict.
+  run_process() i run_inject() przekazują saas_data do inject_video() →
+  build_focus_keywords() merguje GSC + Trends + LLM keyphrases.
 """
 import asyncio
 import logging
@@ -246,7 +252,7 @@ async def _fetch_transcript_local_runner(video_url: str) -> str:
     return transcript
 
 
-async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict], dict]:
+async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict], dict, dict]:
     """Fetch SAAS SEO enrichment data for a portal (keywords + internal links + gsc meta).
 
     CO: Wrapper — wywołuje saas_enricher i konwertuje wynik do formatu
@@ -260,16 +266,20 @@ async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict], 
       gsc_status, gsc_message, gsc_connect_url, gsc_upgrade_url
     Dzięki temu run_generate() może dołączyć "gsc" do swojej odpowiedzi.
 
+    D5 (vse-dev-19): Zwraca pełny raw saas_data dict (4th return value)
+    żeby pipeline mógł przekazać go do inject_video() → build_focus_keywords().
+
     JAK:
     1. Sprawdź czy SAAS_API_URL ustawiony w env
     2. Jeśli tak → pobierz dane z saas_enricher
-    3. Zwróć (priority_keywords, internal_links, gsc_meta)
+    3. Zwróć (priority_keywords, internal_links, gsc_meta, saas_data)
 
     Args:
         site_url: URL portalu docelowego (np. https://prawy.pl).
 
     Returns:
-        Tuple (priority_keywords: list[str], internal_links: list[dict], gsc_meta: dict)
+        Tuple (priority_keywords: list[str], internal_links: list[dict],
+               gsc_meta: dict, saas_data: dict)
     """
     _gsc_unavailable = {
         "status": "unavailable",
@@ -277,11 +287,12 @@ async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict], 
         "connect_url": None,
         "upgrade_url": None,
     }
+    _empty_saas: dict = {}
 
     saas_url = os.environ.get("SAAS_API_URL", "").strip()
     if not saas_url:
         logger.debug("[pipeline] SAAS_API_URL not set — skipping enrichment")
-        return [], [], _gsc_unavailable
+        return [], [], _gsc_unavailable, _empty_saas
 
     try:
         from api.services.saas_enricher import (
@@ -303,17 +314,18 @@ async def _fetch_saas_enrichment(site_url: str) -> tuple[list[str], list[dict], 
         }
 
         logger.info(
-            "[pipeline] SAAS enrichment for %s: %d keywords, %d links, gsc_status=%s",
-            site_url, len(priority_keywords), len(internal_links), gsc_meta["status"],
+            "[pipeline] SAAS enrichment for %s: %d keywords, %d links, %d trends, gsc_status=%s",
+            site_url, len(priority_keywords), len(internal_links),
+            len(saas_data.get("trends_keywords", [])), gsc_meta["status"],
         )
-        return priority_keywords, internal_links, gsc_meta
+        return priority_keywords, internal_links, gsc_meta, saas_data
 
     except Exception as exc:
         logger.warning(
             "[pipeline] SAAS enrichment failed for %s: %s — continuing without",
             site_url, exc,
         )
-        return [], [], _gsc_unavailable
+        return [], [], _gsc_unavailable, _empty_saas
 
 
 def _resolve_site_url_from_env() -> str:
@@ -349,6 +361,11 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
       Generowanie artykułu NIE jest blokowane przez brak GSC.
       UI/caller może poinformować usera o stanie integracji GSC.
 
+    D5 Multi-keyword (2026-06-20, vse-dev-19):
+      Wynik zawiera pole "saas_data" z pełnymi danymi SAAS (w tym trends_keywords).
+      run_inject() i run_process() przekazują saas_data do inject_video() →
+      build_focus_keywords() merguje GSC + Trends + LLM keyphrases.
+
     Args:
         video_url: YouTube video URL or ID.
         llm_provider: 'claude' or 'gemini'.
@@ -356,8 +373,9 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
         post_title_override: Optional title override instead of yt-dlp metadata.
 
     Returns:
-        Dict with 'video_id', 'meta', 'seo', 'gsc' keys.
+        Dict with 'video_id', 'meta', 'seo', 'gsc', 'saas_data' keys.
         'gsc': {'status': str, 'message': str|None, 'connect_url': str|None, 'upgrade_url': str|None}
+        'saas_data': raw SAAS enrichment dict (for inject_video multi-keyword merge)
 
     Raises:
         ValueError: On invalid URL or missing API key.
@@ -386,8 +404,9 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
     # Step 0: SAAS enrichment — fetch keywords + internal links from GSC
     # (optional, graceful degradation if SAAS unavailable)
     # KROK 4: now also returns gsc_meta for surfacing in response
+    # D5: now also returns raw saas_data for inject multi-keyword merge
     site_url = _resolve_site_url_from_env()
-    priority_keywords, internal_links, gsc_meta = await _fetch_saas_enrichment(site_url)
+    priority_keywords, internal_links, gsc_meta, saas_data = await _fetch_saas_enrichment(site_url)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         # 1. Fetch metadata + transcript
@@ -459,8 +478,8 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
             internal_links if internal_links else None,
         )
 
-    logger.info("[generate] done: video_id=%s keyphrase=%r saas=%s gsc_status=%s",
-                video_id, seo.get("focus_keyphrase", "?"),
+    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s",
+                video_id, seo.get("focus_keyphrases", seo.get("focus_keyphrase", "?")),
                 "enriched" if seo.get("saas_enriched") else "standalone",
                 gsc_meta["status"])
     return {
@@ -468,6 +487,7 @@ async def run_generate(video_url: str, llm_provider: str, lang: str,
         "meta": meta,
         "seo": seo,
         "gsc": gsc_meta,  # KROK 4: GSC status surfaced to caller
+        "saas_data": saas_data,  # D5: raw SAAS data for inject multi-keyword merge
     }
 
 
@@ -499,6 +519,7 @@ async def run_process(video_url: str, site_config: dict, options: dict,
     video_id = gen_result["video_id"]
     seo = gen_result["seo"]
     meta = gen_result["meta"]
+    saas_data = gen_result.get("saas_data")  # D5: raw SAAS data for inject
 
     # Determine WP post ID
     final_wp_id = wp_post_id
@@ -523,7 +544,7 @@ async def run_process(video_url: str, site_config: dict, options: dict,
     youtube_updated = False
 
     if options.get("auto_inject", True):
-        # Step 3: Inject (sync → thread)
+        # Step 3: Inject (sync → thread) — D5: pass saas_data for multi-keyword merge
         inject_result = await asyncio.to_thread(
             inject_video,
             final_wp_id,
@@ -536,6 +557,7 @@ async def run_process(video_url: str, site_config: dict, options: dict,
             False,  # dry_run
             False,  # skip_thumbnail
             None,   # profile
+            saas_data,  # D5: SAAS data for multi-keyword merge
         )
         injected = inject_result.get("ok", False)
         youtube_updated = inject_result.get("yt_update_ok", False)
@@ -561,6 +583,7 @@ def _create_wp_post(
     site_config: dict,
     post_status: str = "draft",
     post_format: str = "video",
+    saas_data: Optional[dict] = None,
 ) -> dict:
     """Create a brand-new WordPress post via REST API and inject SEO schema.
 
@@ -581,6 +604,7 @@ def _create_wp_post(
         site_config: Dict z wp_base_url, wp_user, wp_app_password.
         post_status: 'draft' lub 'publish'.
         post_format: WordPress post format ('standard', 'video', 'gallery', 'quote').
+        saas_data: Optional SAAS enrichment data for D5 multi-keyword merge.
 
     Returns:
         Dict kompatybilny z InjectResponse.
@@ -629,6 +653,7 @@ def _create_wp_post(
     logger.info("[inject] New WP post created: #%s | %s | format=%s", new_post_id, post_link, post_format)
 
     # Full SEO injection on the freshly created post
+    # D5: pass saas_data for multi-keyword merge
     inject_result = inject_video(
         new_post_id,
         video_id,
@@ -640,6 +665,7 @@ def _create_wp_post(
         False,  # dry_run
         False,  # skip_thumbnail
         None,   # profile
+        saas_data,  # D5: SAAS data for multi-keyword merge
     )
 
     return {
@@ -661,6 +687,7 @@ async def run_inject(
     site_config: dict,
     post_status: str = "draft",
     post_format: str = "video",
+    saas_data: Optional[dict] = None,
 ) -> dict:
     """Inject pre-generated schema into a WP post, or create a new post.
 
@@ -669,6 +696,10 @@ async def run_inject(
     PO CO: Pozwala dashboardowi pro/agency wywołać jeden endpoint niezależnie
     od tego czy artykuł już istnieje na WordPressie. Usuwa konieczność szukania
     ID przed publikacją — jeśli brak ID, WP sam tworzy nowy post.
+
+    D5 (vse-dev-19): Accepts optional saas_data parameter. If provided,
+    inject_video() uses build_focus_keywords() to merge GSC + Trends + LLM
+    keyphrases into rank_math_focus_keyword.
 
     JAK:
     - wp_post_id=None → _create_wp_post() → POST /wp/v2/posts + inject
@@ -683,6 +714,7 @@ async def run_inject(
             przy aktualizacji istniejącego posta.
         post_format: WordPress post format ('standard' | 'video' | 'gallery' | 'quote').
             Używany tylko przy tworzeniu nowego posta.
+        saas_data: Optional SAAS enrichment data for D5 multi-keyword merge.
 
     Returns:
         Dict compatible with InjectResponse.
@@ -707,10 +739,12 @@ async def run_inject(
             site_config,
             post_status,
             post_format,
+            saas_data,  # D5: pass saas_data for multi-keyword merge
         )
         return result
 
     # Podane ID → aktualizuj istniejący post
+    # D5: pass saas_data for multi-keyword merge
     result = await asyncio.to_thread(
         inject_video,
         wp_post_id,
@@ -723,6 +757,7 @@ async def run_inject(
         False,  # dry_run
         False,  # skip_thumbnail
         None,   # profile
+        saas_data,  # D5: SAAS data for multi-keyword merge
     )
     return {
         "status": "ok" if result.get("ok") else "error",
