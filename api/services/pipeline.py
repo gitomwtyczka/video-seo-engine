@@ -18,14 +18,14 @@ Local Runner Mode (LOCAL_RUNNER_MODE=true):
   Obsługa formatu __VTT__ (od v2.0, 2026-06-16):
   Runner wysyła segmenty z timestampami jako __VTT__ format.
   Pipeline konwertuje ten format do prawdziwego WebVTT (.vtt) pliku
-  który core.generator.parse_vtt_full() może sparsowarc do anchor-matchowania.
+  który core.generator.parse_vtt_full() może sparsować do anchor-matchowania.
   Bez tej konwersji chaptery pokazywały time=0.
 
 SAAS Enrichment (2026-06-17, vse-dev-14):
   Krok 0 w run_generate(): jeśli SAAS_API_URL skonfigurowany w .env,
   pipeline pobiera frazy kluczowe z GSC i top pages portalu docelowego.
   Dane są przekazywane do generatora jako priority_keywords + internal_links.
-  Integracja jest opcjonalna — jeśli SAAS niedostępny, pipeline działa jak dotać.
+  Integracja jest opcjonalna — jeśli SAAS niedostępny, pipeline działa jak dotąd.
 
 GSC Status Surfacing (2026-06-17, sup-worker-01, KROK 4):
   run_generate() teraz zwraca pole "gsc" z status/message/connect_url/upgrade_url.
@@ -41,6 +41,13 @@ D5 Multi-keyword (2026-06-20, vse-dev-19):
 D6b (2026-06-20, vse-dev-21):
   run_generate() accepts publication_type parameter and passes it to generator.
   run_process() reads publication_type from options dict.
+
+D9 (2026-06-20, vse-dev-23):
+  run_generate() accepts profile_id parameter.
+  When profile_id is provided, loads profiles/{id}.yaml to determine:
+    - site_url for SAAS enrichment (from wp_base_url)
+    - site_brand for generator
+  Backward compatible — without profile_id, falls back to env vars.
 """
 import asyncio
 import logging
@@ -245,17 +252,63 @@ def _resolve_site_url_from_env() -> str:
     return "https://prawy.pl/"
 
 
+def _load_profile_config(profile_id: str) -> Optional[dict]:
+    """Load a YAML profile by ID for pipeline configuration.
+
+    CO: Ładuje konfigurację profilu z pliku profiles/{id}.yaml.
+    PO CO: Pipeline używa danych profilu do określenia site_url (dla SAAS enrichment)
+           i site_brand (dla generatora — brand w tytule artykułu).
+    JAK: yaml.safe_load z profiles/{id}.yaml. Zwraca None jeśli plik nie istnieje.
+
+    D9 (2026-06-20, vse-dev-23): New function.
+    """
+    import yaml
+
+    profile_path = os.path.join(os.getcwd(), "profiles", f"{profile_id}.yaml")
+    if not os.path.isfile(profile_path):
+        logger.warning("[pipeline] Profile '%s' not found at %s", profile_id, profile_path)
+        return None
+
+    try:
+        with open(profile_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if isinstance(data, dict):
+            logger.info("[pipeline] Loaded profile '%s': %s", profile_id, data.get("display_name", "?"))
+            return data
+    except Exception as exc:
+        logger.error("[pipeline] Failed to load profile '%s': %s", profile_id, exc)
+
+    return None
+
+
+def _resolve_site_url_from_profile(profile: dict) -> str:
+    """Resolve site URL from profile config for SAAS enrichment.
+
+    D9 (2026-06-20, vse-dev-23): New function.
+    """
+    wp_url = profile.get("wp_base_url", "").strip().rstrip("/")
+    # wp_base_url may contain ${env_var} placeholders — resolve them
+    if wp_url.startswith("${") and wp_url.endswith("}"):
+        env_var = wp_url[2:-1]
+        wp_url = os.environ.get(env_var, "").strip().rstrip("/")
+    if wp_url:
+        return wp_url + "/"
+    return _resolve_site_url_from_env()
+
+
 async def run_generate(
     video_url: str,
     llm_provider: str,
     lang: str,
     post_title_override: Optional[str] = None,
     publication_type: str = "full_analysis",
+    profile_id: Optional[str] = None,
 ) -> dict:
     """Fetch transcript + generate SEO schema. No WP write.
 
     D6b: Accepts publication_type to control article format.
-    Passes it to core.generator.process_video().
+    D9: Accepts profile_id to select server-side YAML profile for
+        site_url resolution and site_brand.
 
     Args:
         video_url: YouTube video URL or ID.
@@ -263,6 +316,7 @@ async def run_generate(
         lang: Transcript language code (default 'pl').
         post_title_override: Optional title override instead of yt-dlp metadata.
         publication_type: Article type: 'full_analysis', 'watching_page', 'discover'.
+        profile_id: Optional profile ID from profiles/*.yaml (D9).
 
     Returns:
         Dict with 'video_id', 'meta', 'seo', 'gsc', 'saas_data' keys.
@@ -275,7 +329,16 @@ async def run_generate(
     from core.generator import process_video as generate_schema
 
     video_id = _extract_video_id(video_url)
-    logger.info("[generate] video_id=%s provider=%s type=%s", video_id, llm_provider, publication_type)
+    logger.info("[generate] video_id=%s provider=%s type=%s profile=%s",
+                video_id, llm_provider, publication_type, profile_id)
+
+    # D9: Load profile config if profile_id provided
+    profile_config = None
+    site_brand = None
+    if profile_id:
+        profile_config = _load_profile_config(profile_id)
+        if profile_config:
+            site_brand = profile_config.get("site_brand")
 
     # Determine API key based on provider
     if llm_provider == "claude":
@@ -291,8 +354,11 @@ async def run_generate(
 
     local_runner_mode = os.environ.get("LOCAL_RUNNER_MODE", "false").lower() == "true"
 
-    # Step 0: SAAS enrichment
-    site_url = _resolve_site_url_from_env()
+    # Step 0: SAAS enrichment — use profile's site URL if available (D9)
+    if profile_config:
+        site_url = _resolve_site_url_from_profile(profile_config)
+    else:
+        site_url = _resolve_site_url_from_env()
     priority_keywords, internal_links, gsc_meta, saas_data = await _fetch_saas_enrichment(site_url)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -341,7 +407,7 @@ async def run_generate(
         yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
         wp_id_placeholder = 0  # no WP ID for generate-only
 
-        # 2. Generate schema (sync → thread) with SAAS enrichment + publication_type
+        # 2. Generate schema (sync → thread) with SAAS enrichment + publication_type + site_brand
         seo = await asyncio.to_thread(
             generate_schema,
             video_id,
@@ -355,14 +421,14 @@ async def run_generate(
             llm_provider,
             priority_keywords if priority_keywords else None,
             internal_links if internal_links else None,
-            None,  # site_brand
+            site_brand,  # D9: from profile config (was None)
             publication_type,  # D6b: publication type
         )
 
-    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s",
+    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s profile=%s",
                 video_id, seo.get("focus_keyphrases", seo.get("focus_keyphrase", "?")),
                 "enriched" if seo.get("saas_enriched") else "standalone",
-                gsc_meta["status"], publication_type)
+                gsc_meta["status"], publication_type, profile_id)
     return {
         "video_id": video_id,
         "meta": meta,
