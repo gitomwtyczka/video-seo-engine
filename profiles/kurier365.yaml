@@ -36,6 +36,15 @@ seo:
   chapter_js_class: "kurier-chapter"
   seek_fn_name: "kurierSeek"
 
+# ---- SEO external link (RankMath wymaga min. 1 linku zewnętrznego) ----
+# CO: Stały link zewnętrzny wstawiany do artykułu.
+# PO CO: RankMath obniża scoring SEO gdy brak linków zewnętrznych.
+#        Jeden link per profil — wstawiany przez build_post_content().
+# JAK: injector.py czyta seo_external_link.url + .anchor, buduje <a> tag.
+seo_external_link:
+  url: "https://www.youtube.com"
+  anchor: "Źródło wideo na YouTube"
+
 # ---- Publish delay ----
 publish_delay:
   min: 5
