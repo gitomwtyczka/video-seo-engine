@@ -1,6 +1,7 @@
 # profiles/kurier365.yaml
 # Portal: Kurier365.pl — PressAI SaaS tenant
 # Utworzono: 2026-05-20 | vse-strateg-01
+# Refaktor D6b: 2026-06-20 | vse-dev-21 — dane kanału przeniesione do channels/
 
 portal_id: "kurier365"
 display_name: "Kurier365.pl"
@@ -12,26 +13,13 @@ wp_base_url: "https://kurier365.pl"
 wp_user: "${WP_KURIER365_USER}"
 wp_app_password: "${WP_KURIER365_APP_PASSWORD}"
 
-# ---- YouTube kanały ----
-# Brak własnego kanału — przetwarzamy zewnętrzne filmy (brak OAuth)
-channel_ids: []
-
-# ---- YouTube OAuth ----
-# BRAK — nie mamy dostępu do tych kanałów
-# Pipeline: VTT fetch → Gemini → WP inject ONLY (bez YT admin)
-yt_oauth:
-  client_id: ""
-  client_secret: ""
-  refresh_token: ""
-
-yt_api_key: "${YT_API_KEY}"
-
-# ---- YouTube update flag (D6a) ----
-# CO: Flaga sterująca czy po publikacji na portalu aktualizować opis i tytuł na YouTube.
-# PO CO: kurier365 nie ma OAuth do YouTube — próba update generowała EnvironmentError
-#        zaśmiecając logi i maskując prawdziwe błędy.
-# JAK: injector.py sprawdza tę flagę przed wywołaniem yt_admin.
-yt_update_enabled: false
+# ---- Kanały źródłowe (D6b) ----
+# CO: kurier365 używa kanału prawy-tv jako źródła, ale z innym typem publikacji.
+# PO CO: watching_page = krótki artykuł z embedem i chapterami (bez rozbudowanego body).
+# JAK: generator.py dostaje publication_type z tego mapowania.
+source_channels:
+  - channel: "prawy-tv"
+    default_type: "watching_page"
 
 # ---- Gemini AI ----
 gemini_api_key: "${GEMINI_API_KEY}"
@@ -46,7 +34,6 @@ seo:
 # ---- SEO external link (RankMath wymaga min. 1 linku zewnętrznego) ----
 # CO: Stały link zewnętrzny wstawiany do artykułu.
 # PO CO: RankMath obniża scoring SEO gdy brak linków zewnętrznych.
-#        Jeden link per profil — wstawiany przez build_post_content().
 # JAK: injector.py czyta seo_external_link.url + .anchor, buduje <a> tag.
 seo_external_link:
   url: "https://www.youtube.com"
