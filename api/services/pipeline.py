@@ -42,6 +42,14 @@ D6b (2026-06-20, vse-dev-21):
   run_generate() accepts publication_type parameter and passes it to generator.
   run_process() reads publication_type from options dict.
 
+D8 Internal Links (2026-06-20, vse-dev-24):
+  CO: Fallback internal links z WP REST API gdy SAAS nie zwraca top_pages.
+  PO CO: SAAS wymaga GSC (nie podłączony) → top_pages puste → LLM nie dostaje
+  linków wewnętrznych → RankMath obniża scoring. WP API jest zawsze dostępne.
+  JAK: _fetch_wp_internal_links() pobiera ostatnie posty z WP REST API,
+  filtruje self-links (ten sam video_id), i przekazuje do generatora.
+  Fallback aktywuje się TYLKO gdy SAAS nie zwrócił internal_links.
+
 D9 (2026-06-20, vse-dev-23):
   run_generate() accepts profile_id parameter.
   When profile_id is provided, loads profiles/{id}.yaml to determine:
@@ -57,6 +65,7 @@ import time
 import uuid
 from typing import Optional
 
+import httpx
 import requests
 from requests.auth import HTTPBasicAuth
 
@@ -296,6 +305,88 @@ def _resolve_site_url_from_profile(profile: dict) -> str:
     return _resolve_site_url_from_env()
 
 
+async def _fetch_wp_internal_links(
+    wp_base_url: str,
+    current_video_id: str = "",
+    max_links: int = 10,
+) -> list[dict]:
+    """Fetch recent published posts from WP REST API as internal link suggestions.
+
+    CO: Pobiera ostatnie artykuły z WP REST API jako propozycje linków wewnętrznych.
+
+    PO CO: Gdy SAAS nie zwraca top_pages (GSC not_connected), pipeline sam
+    pobiera ostatnie artykuły portalu aby LLM miał materiał do linkowania
+    wewnętrznego. To podnosi SEO scoring w RankMath (internal links check).
+
+    JAK: GET /wp-json/wp/v2/posts?per_page=N&orderby=date&status=publish
+    Filtruje self-links (jeśli current_video_id jest w URL posta).
+    Publiczne API — nie wymaga auth dla published posts.
+    Graceful: timeout/error → pusta lista (pipeline continues).
+
+    D8 (2026-06-20, vse-dev-24): New function.
+
+    Args:
+        wp_base_url: WordPress site base URL (e.g. 'https://prawy.pl/').
+        current_video_id: YouTube video ID to exclude from links (prevent self-linking).
+        max_links: Maximum number of links to return.
+
+    Returns:
+        List of dicts with 'url' and 'title' keys. Empty list on error.
+    """
+    endpoint = f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/posts"
+    params = {
+        "per_page": max_links + 5,  # fetch extra to account for self-link filtering
+        "orderby": "date",
+        "status": "publish",
+        "_fields": "id,title,link",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(endpoint, params=params)
+
+        if response.status_code != 200:
+            logger.warning(
+                "[pipeline] D8 WP internal links: HTTP %d from %s",
+                response.status_code, wp_base_url,
+            )
+            return []
+
+        posts = response.json()
+        links: list[dict] = []
+        for post in posts:
+            url = post.get("link", "")
+            title_obj = post.get("title", {})
+            title = (
+                title_obj.get("rendered", "")
+                if isinstance(title_obj, dict)
+                else str(title_obj)
+            )
+
+            if not url:
+                continue
+            # Skip self-link: if current video_id appears in post URL
+            if current_video_id and current_video_id in url:
+                continue
+
+            links.append({"url": url, "title": title})
+            if len(links) >= max_links:
+                break
+
+        logger.info(
+            "[pipeline] D8 WP internal links: %d links from %s (filtered from %d posts)",
+            len(links), wp_base_url, len(posts),
+        )
+        return links
+
+    except Exception as exc:
+        logger.warning(
+            "[pipeline] D8 WP internal links failed for %s: %s — continuing without",
+            wp_base_url, exc,
+        )
+        return []
+
+
 async def run_generate(
     video_url: str,
     llm_provider: str,
@@ -307,6 +398,7 @@ async def run_generate(
     """Fetch transcript + generate SEO schema. No WP write.
 
     D6b: Accepts publication_type to control article format.
+    D8: Fallback internal links from WP REST API when SAAS returns empty.
     D9: Accepts profile_id to select server-side YAML profile for
         site_url resolution and site_brand.
 
@@ -360,6 +452,18 @@ async def run_generate(
     else:
         site_url = _resolve_site_url_from_env()
     priority_keywords, internal_links, gsc_meta, saas_data = await _fetch_saas_enrichment(site_url)
+
+    # Step 0b (D8): Fallback internal links from WP REST API
+    # If SAAS didn't provide internal_links (e.g. GSC not connected),
+    # self-source recent published posts from the target portal.
+    if not internal_links:
+        wp_internal = await _fetch_wp_internal_links(site_url, video_id)
+        if wp_internal:
+            internal_links = wp_internal
+            logger.info(
+                "[generate] D8 internal links fallback: %d links from WP API",
+                len(internal_links),
+            )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         # 1. Fetch metadata + transcript
