@@ -8,6 +8,9 @@ aby był dostępny w historii.
 
 JAK: Wywołuje pipeline.run_generate(), zapisuje wynik do job'u w DB,
 zwraca GenerateResponse z pełnym schema_data.
+
+D6b (2026-06-20, vse-dev-21):
+  - Passes publication_type from request to pipeline.run_generate()
 """
 import json
 import logging
@@ -86,10 +89,12 @@ async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
     Does NOT write to WordPress. Returns the full schema_data dict
     which can be passed to /v1/inject later.
     Saves schema_data to transcript_jobs for /historia access.
+
+    D6b: Accepts publication_type to control article format.
     """
     logger.info(
-        "[/v1/generate] video_url=%s provider=%s",
-        req.video_url, req.llm_provider,
+        "[/v1/generate] video_url=%s provider=%s type=%s",
+        req.video_url, req.llm_provider, req.publication_type,
     )
     start = time.time()
     try:
@@ -98,6 +103,7 @@ async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
             llm_provider=req.llm_provider,
             lang=req.lang,
             post_title_override=req.post_title,
+            publication_type=req.publication_type,  # D6b
         )
 
         schema_data = result["seo"]
