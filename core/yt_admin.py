@@ -1,25 +1,29 @@
 """YouTube Admin — OAuth write operations on YouTube channel.
 
 Faza 2B: YouTube Description Writer.
-Writes enriched descriptions with chapters, keywords, and Prawy.pl/SOS footer
+Writes enriched descriptions with chapters, keywords, and channel-specific footer
 back to YouTube via YouTube Data API v3 (OAuth 2.0).
 
-Environment variables required:
-    YT_CLIENT_ID     -- OAuth 2.0 client ID
-    YT_CLIENT_SECRET -- OAuth 2.0 client secret
-    YT_REFRESH_TOKEN -- OAuth 2.0 refresh token (from oauth_setup.py / oauth_server.py)
-
-Optional:
-    YT_API_KEY       -- For read-only API calls (quota optimization)
-
-Usage:
-    from core.yt_admin import update_video_title_and_description, batch_update_from_registry
-    ok = update_video_title_and_description("dQw4w9WgXcQ", seo_dict, "https://prawy.pl/artykul/")
+D6b refactor (2026-06-20, vse-dev-21):
+  - All public functions accept optional `channel: dict` parameter
+  - Channel config loaded from channels/*.yaml via core.channel
+  - OAuth credentials from channel['yt_oauth'] instead of os.environ
+  - Hashtags from channel['yt_hashtags'] instead of hardcoded
+  - Footer from channel['yt_footer'] instead of hardcoded YT_FOOTER
+  - categoryId from channel['yt_category_id'] instead of hardcoded "25"
+  - D6b.5: build_description() adds “⏰ KLUCZOWE MOMENTY” from quotes
+  - Full backward compat: channel=None → env vars + legacy defaults
 
 D6a (vse-dev-20, 2026-06-20):
-    - batch_update_from_registry() now calls update_video_title_and_description()
-      instead of deprecated update_video_description().
-    - update_video_description() kept for backward compat but marked deprecated.
+  - batch_update_from_registry() now calls update_video_title_and_description()
+    instead of deprecated update_video_description().
+  - update_video_description() kept for backward compat but marked deprecated.
+
+Usage:
+    from core.yt_admin import update_video_title_and_description
+    from core.channel import load_channel
+    ch = load_channel("prawy-tv")
+    ok = update_video_title_and_description("dQw4w9WgXcQ", seo, "https://prawy.pl/art/", channel=ch)
 """
 
 import json
@@ -36,10 +40,10 @@ import requests  # type: ignore
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# SOCIAL FOOTER — Prawy.pl + Fundacja SOS
+# LEGACY FOOTER — fallback when channel has no yt_footer
 # ============================================================
 
-YT_FOOTER = """━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+_LEGACY_YT_FOOTER = """━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📺 PRAWY.PL — Niezależne media
 🌐 https://prawy.pl
 📘 Facebook: https://www.facebook.com/PortalPrawy/
@@ -52,6 +56,9 @@ YT_FOOTER = """━━━━━━━━━━━━━━━━━━━━━�
    KRS: 0000215438
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
 
+# Public alias for backward compat
+YT_FOOTER = _LEGACY_YT_FOOTER
+
 
 # ============================================================
 # OAUTH TOKEN MANAGEMENT
@@ -60,10 +67,14 @@ YT_FOOTER = """━━━━━━━━━━━━━━━━━━━━━�
 _token_cache: dict = {}
 
 
-def _get_access_token() -> str:
+def _get_access_token(channel: Optional[dict] = None) -> str:
     """Get a valid OAuth 2.0 access token, refreshing if expired.
 
-    Caches token until 60s before expiry. Reads credentials from env vars.
+    D6b: Reads credentials from channel['yt_oauth'] if provided,
+    falls back to environment variables for backward compat.
+
+    Args:
+        channel: Optional channel config dict from channels/*.yaml.
 
     Returns:
         Valid access token string.
@@ -74,18 +85,30 @@ def _get_access_token() -> str:
     """
     global _token_cache
 
-    now = time.time()
-    if _token_cache.get("expires_at", 0) > now + 60:
-        return _token_cache["access_token"]
+    # Use channel-specific cache key to support multiple channels
+    cache_key = (channel or {}).get("channel_id", "_default")
 
-    client_id = os.environ.get("YT_CLIENT_ID", "")
-    client_secret = os.environ.get("YT_CLIENT_SECRET", "")
-    refresh_token = os.environ.get("YT_REFRESH_TOKEN", "")
+    now = time.time()
+    cached = _token_cache.get(cache_key, {})
+    if cached.get("expires_at", 0) > now + 60:
+        return cached["access_token"]
+
+    # Resolve credentials: channel dict > env vars
+    if channel and channel.get("yt_oauth"):
+        oauth = channel["yt_oauth"]
+        client_id = oauth.get("client_id", "")
+        client_secret = oauth.get("client_secret", "")
+        refresh_token = oauth.get("refresh_token", "")
+    else:
+        client_id = os.environ.get("YT_CLIENT_ID", "")
+        client_secret = os.environ.get("YT_CLIENT_SECRET", "")
+        refresh_token = os.environ.get("YT_REFRESH_TOKEN", "")
 
     if not all([client_id, client_secret, refresh_token]):
         raise EnvironmentError(
             "Missing YouTube OAuth credentials. "
-            "Set YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN in .env"
+            "Set YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN in .env "
+            "or configure yt_oauth in channels/*.yaml"
         )
 
     resp = requests.post(
@@ -101,18 +124,18 @@ def _get_access_token() -> str:
     resp.raise_for_status()
 
     data = resp.json()
-    _token_cache = {
+    _token_cache[cache_key] = {
         "access_token": data["access_token"],
         "expires_at": now + data.get("expires_in", 3600),
     }
-    logger.debug("OAuth token refreshed (expires in %ds)", data.get("expires_in", 3600))
-    return _token_cache["access_token"]
+    logger.debug("OAuth token refreshed for %s (expires in %ds)", cache_key, data.get("expires_in", 3600))
+    return _token_cache[cache_key]["access_token"]
 
 
-def _auth_headers() -> dict:
+def _auth_headers(channel: Optional[dict] = None) -> dict:
     """Return Authorization headers for YouTube Data API v3 write operations."""
     return {
-        "Authorization": f"Bearer {_get_access_token()}",
+        "Authorization": f"Bearer {_get_access_token(channel)}",
         "Content-Type": "application/json",
     }
 
@@ -149,32 +172,40 @@ def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text).strip()
 
 
-def _build_hashtags(seo: dict) -> str:
+def _build_hashtags(seo: dict, channel: Optional[dict] = None) -> str:
     """Build #hashtag string from SEO data (max 8 tags).
+
+    D6b: Base tags from channel['yt_hashtags'] if provided,
+    falls back to legacy ["#PrawyTV", "#Prawy", "#Polska"].
 
     Args:
         seo: SEO result dict.
+        channel: Optional channel config dict.
 
     Returns:
         Space-separated hashtag string, e.g. "#PrawyTV #Polska #Polityka".
     """
-    tags = ["#PrawyTV", "#Prawy", "#Polska"]
+    # Base tags from channel config or legacy defaults
+    if channel and channel.get("yt_hashtags"):
+        tags = list(channel["yt_hashtags"])[:3]  # Copy first 3
+    else:
+        tags = ["#PrawyTV", "#Prawy", "#Polska"]
 
     keyphrase = seo.get("focus_keyphrase", "")
     if keyphrase:
-        tag = "#" + re.sub(r"[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]", "", keyphrase)
+        tag = "#" + re.sub(r"[^a-zA-Z0-9\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]", "", keyphrase)
         if 2 < len(tag) < 30 and tag not in tags:
             tags.append(tag)
 
     title = seo.get("seo_title", "") or seo.get("original_title", "")
     for word in title.split():
-        word = word.strip(".,!?-:;()[]\'\"«»")
+        word = word.strip(".,!?-:;()[]'\"\u00ab\u00bb")
         if (
             len(word) >= 4
             and word[0].isupper()
-            and word not in ("Prawy", "Studio", "Więcej", "Nowe", "Nowy")
+            and word not in ("Prawy", "Studio", "Wi\u0119cej", "Nowe", "Nowy")
         ):
-            tag = "#" + re.sub(r"[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]", "", word)
+            tag = "#" + re.sub(r"[^a-zA-Z0-9\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]", "", word)
             if tag not in tags and len(tag) < 25:
                 tags.append(tag)
                 if len(tags) >= 8:
@@ -230,13 +261,61 @@ def _build_intro_with_bullets(seo: dict) -> str:
             bullet = q.rstrip("?")
             if not bullet.endswith(":"):
                 bullet = bullet.rstrip(".")
-            bullets.append(f"• {bullet}")
+            bullets.append(f"\u2022 {bullet}")
 
     result = intro_text
     if bullets:
-        result += "\n\nKLUCZOWE WĄTKI:\n" + "\n".join(bullets[:5])
+        result += "\n\nKLUCZOWE W\u0104TKI:\n" + "\n".join(bullets[:5])
 
     return result
+
+
+# ============================================================
+# D6b.5: KEY MOMENTS — quotes with timestamps for YT description
+# ============================================================
+
+def _build_key_moments(seo: dict) -> str:
+    """Build '⏰ KLUCZOWE MOMENTY' section from quotes with timestamps.
+
+    CO: Generuje sekcję „KLUCZOWE MOMENTY” z cytatów i ich timestampów.
+
+    PO CO: YouTube i widzowie lubią mieć kluczowe cytaty z timestampami
+           w opisie. To te same dane co w JSON-LD na stronie (Clip schema).
+
+    JAK: Iteruje po seo['quotes'], każdy ma 'time' (sekundy) i 'text'.
+         Formatuje jako lista timestamp — „cytat...”. Max 5 momentów.
+
+    Args:
+        seo: SEO result dict from generator.process_video().
+
+    Returns:
+        Formatted string with key moments, or empty string if no quotes.
+    """
+    quotes = seo.get("quotes", [])
+    if not quotes:
+        return ""
+
+    moments = []
+    for q in quotes[:5]:
+        t = q.get("time", 0)
+        text = _strip_html(q.get("text", "")).strip()
+        if not text:
+            continue
+        # Truncate long quotes for YT description readability
+        if len(text) > 80:
+            cutoff = text.rfind(" ", 50, 80)
+            if cutoff > 0:
+                text = text[:cutoff] + "\u2026"
+            else:
+                text = text[:80] + "\u2026"
+        ts = seconds_to_timestamp(int(t))
+        # Pad timestamp to HH:MM:SS for consistency
+        moments.append(f"{ts} \u2014 \u201e{text}\u201d")
+
+    if not moments:
+        return ""
+
+    return "\u23f0 KLUCZOWE MOMENTY\n" + "\n".join(moments)
 
 
 # ============================================================
@@ -247,37 +326,38 @@ def build_description(
     seo: dict,
     wp_url: str,
     original_description: str = "",
+    channel: Optional[dict] = None,
 ) -> str:
     """Build enriched YouTube video description from SEO data.
 
+    D6b: Uses channel config for footer and hashtags if provided.
+    D6b.5: Adds '⏰ KLUCZOWE MOMENTY' section from quotes.
+
     Format:
-        [Merytoryczny wstęp — 3-4 zdania z keyphrase + konkretne tezy]
+        [Merytoryczny wstęp + bullet points]
 
-        [KLUCZOWE WĄTKI — 3-5 bullet points z FAQ]
-        • Wątek 1
-        • Wątek 2
-        • Wątek 3
-
-        🔗 Pełny artykuł z transkryptem i analizą:
-        [wp_url]
+        🔗 Pełny artykuł: [wp_url]
 
         ⏱️ ROZDZIAŁY:
         0:00 Intro
-        5:23 Rozdział 2
         ...
 
-        🔑 TEMATY: keyphrase • FAQ q1 • FAQ q2
+        ⏰ KLUCZOWE MOMENTY
+        0:03:15 — „Cytat...”
 
-        [Oryginalny opis YouTube — zachowany z linkami]
+        🔑 TEMATY: keyphrase
 
-        [Footer: Prawy.pl social media + SOS Foundation]
+        [Oryginalny opis YouTube]
 
-        #PrawyTV #Hashtagi
+        [Footer from channel config]
+
+        #Hashtagi
 
     Args:
         seo: SEO result dict from generator.process_video().
-        wp_url: Full URL of the article on prawy.pl.
+        wp_url: Full URL of the article.
         original_description: Current YouTube description (preserved).
+        channel: Optional channel config dict from channels/*.yaml.
 
     Returns:
         Full description string (trimmed to 4900 chars if needed).
@@ -291,16 +371,21 @@ def build_description(
 
     # --- Link do artykułu (wyeksponowany) ---
     if wp_url:
-        parts.append(f"🔗 Pełny artykuł z transkryptem i analizą:\n{wp_url}")
+        parts.append(f"\ud83d\udd17 Pe\u0142ny artyku\u0142 z transkryptem i analiz\u0105:\n{wp_url}")
 
     # --- Rozdziały (REQUIRED for YouTube chapters to work) ---
     chapters = seo.get("chapters", [])
     if chapters:
-        chapter_lines = ["⏱️ ROZDZIAŁY:"]
+        chapter_lines = ["\u23f1\ufe0f ROZDZIA\u0141Y:"]
         for ch in chapters:
             ts = seconds_to_timestamp(int(ch["time"]))
             chapter_lines.append(f"{ts} {ch['label']}")
         parts.append("\n".join(chapter_lines))
+
+    # --- D6b.5: Kluczowe momenty (cytaty z timestamps) ---
+    key_moments = _build_key_moments(seo)
+    if key_moments:
+        parts.append(key_moments)
 
     # --- Tematy / Frazy kluczowe ---
     keywords = []
@@ -312,20 +397,24 @@ def build_description(
         if q and len(q) < 80:
             keywords.append(q)
     if keywords:
-        parts.append("🔑 TEMATY: " + " • ".join(keywords))
+        parts.append("\ud83d\udd11 TEMATY: " + " \u2022 ".join(keywords))
 
-    # --- Oryginalny opis (zachowany, bez istniejącej stopki) ---
+    # --- Oryginalny opis (zachowany, bez istniej\u0105cej stopki) ---
     orig = original_description.strip()
-    if "━━━" in orig:
-        orig = orig[: orig.index("━━━")].strip()
+    if "\u2501\u2501\u2501" in orig:
+        orig = orig[: orig.index("\u2501\u2501\u2501")].strip()
     if orig:
         parts.append(orig)
 
-    # --- Footer ---
-    parts.append(YT_FOOTER)
+    # --- Footer from channel config or legacy ---
+    if channel and channel.get("yt_footer"):
+        footer = channel["yt_footer"].strip()
+    else:
+        footer = _LEGACY_YT_FOOTER
+    parts.append(footer)
 
     # --- Hashtagi ---
-    parts.append(_build_hashtags(seo))
+    parts.append(_build_hashtags(seo, channel))
 
     description = "\n\n".join(parts)
 
@@ -335,7 +424,7 @@ def build_description(
             "Description truncated to 4900 chars (was %d) for SEO compliance.",
             len(description),
         )
-        description = description[:4900] + "…"
+        description = description[:4900] + "\u2026"
 
     return description
 
@@ -344,7 +433,7 @@ def build_description(
 # FETCH CURRENT VIDEO DATA FROM YOUTUBE
 # ============================================================
 
-def get_video_data(video_id: str) -> dict:
+def get_video_data(video_id: str, channel: Optional[dict] = None) -> dict:
     """Fetch current video snippet + liveStreamingDetails from YouTube API.
 
     Used before update to preserve required fields (title, categoryId, tags).
@@ -352,6 +441,7 @@ def get_video_data(video_id: str) -> dict:
 
     Args:
         video_id: YouTube video ID.
+        channel: Optional channel config dict.
 
     Returns:
         Full video resource dict (items[0]).
@@ -363,7 +453,7 @@ def get_video_data(video_id: str) -> dict:
     url = "https://www.googleapis.com/youtube/v3/videos"
     params = {"part": "snippet,liveStreamingDetails,status", "id": video_id}
 
-    resp = requests.get(url, headers=_auth_headers(), params=params, timeout=15)
+    resp = requests.get(url, headers=_auth_headers(channel), params=params, timeout=15)
     resp.raise_for_status()
 
     items = resp.json().get("items", [])
@@ -382,53 +472,42 @@ def update_video_description(
     seo: dict,
     wp_url: str,
     dry_run: bool = False,
+    channel: Optional[dict] = None,
 ) -> bool:
     """Fetch current snippet and write enriched description to YouTube.
 
     .. deprecated::
         Use update_video_title_and_description() instead for quota efficiency.
         This function is kept for backward compatibility only.
-
-    Preserves: title, categoryId, tags, defaultLanguage.
-    Replaces: description (with enriched version including chapters + footer).
-
-    Args:
-        video_id: YouTube video ID.
-        seo: SEO result dict from generator.process_video().
-        wp_url: URL of the corresponding article on prawy.pl.
-        dry_run: If True, build and log description without updating YouTube.
-
-    Returns:
-        True on success or dry_run, False on API failure.
     """
     logger.warning(
-        "update_video_description() is deprecated — use update_video_title_and_description() instead"
+        "update_video_description() is deprecated \u2014 use update_video_title_and_description() instead"
     )
     try:
-        video_data = get_video_data(video_id)
+        video_data = get_video_data(video_id, channel)
     except Exception as exc:
         logger.error("get_video_data failed for %s: %s", video_id, exc)
         return False
 
     snippet = video_data.get("snippet", {})
     original_description = snippet.get("description", "")
+    category_id = (channel or {}).get("yt_category_id", snippet.get("categoryId", "25"))
 
-    new_description = build_description(seo, wp_url, original_description)
+    new_description = build_description(seo, wp_url, original_description, channel)
 
     if dry_run:
         logger.info(
-            "DRY RUN — description for %s (%d chars):\n%s…",
+            "DRY RUN \u2014 description for %s (%d chars):\n%s\u2026",
             video_id, len(new_description), new_description[:400],
         )
         return True
 
-    # videos.update requires full snippet (title + categoryId mandatory)
     update_body = {
         "id": video_id,
         "snippet": {
             "title": snippet.get("title", ""),
             "description": new_description,
-            "categoryId": snippet.get("categoryId", "25"),  # 25 = News & Politics
+            "categoryId": category_id,
             "defaultLanguage": snippet.get("defaultLanguage", "pl"),
             "defaultAudioLanguage": snippet.get("defaultAudioLanguage", "pl"),
         },
@@ -440,12 +519,12 @@ def update_video_description(
     try:
         resp = requests.put(
             api_url,
-            headers=_auth_headers(),
+            headers=_auth_headers(channel),
             json=update_body,
             timeout=30,
         )
         if resp.status_code == 200:
-            logger.info("✅ YouTube description updated: %s", video_id)
+            logger.info("\u2705 YouTube description updated: %s", video_id)
             return True
         logger.error(
             "YouTube update FAIL for %s: HTTP %s | %s",
@@ -466,8 +545,11 @@ def update_video_title_and_description(
     seo: dict,
     wp_url: str,
     dry_run: bool = False,
+    channel: Optional[dict] = None,
 ) -> bool:
     """Update YouTube video title AND description in a single API call.
+
+    D6b: Uses channel config for OAuth, footer, hashtags, categoryId.
 
     Quota optimization: videos.update costs 50 units regardless of whether
     we update title only, description only, or both. Always combine.
@@ -478,6 +560,7 @@ def update_video_title_and_description(
              'yt_title' (str, max 100 chars) and fields for build_description().
         wp_url: Full URL of the corresponding WordPress article.
         dry_run: If True, log only without making API calls.
+        channel: Optional channel config dict from channels/*.yaml.
 
     Returns:
         True on success or dry_run, False on API failure.
@@ -486,20 +569,21 @@ def update_video_title_and_description(
         EnvironmentError: If OAuth credentials are not configured.
     """
     try:
-        video_data = get_video_data(video_id)
+        video_data = get_video_data(video_id, channel)
     except Exception as exc:
         logger.error("get_video_data failed for %s: %s", video_id, exc)
         return False
 
     snippet = video_data.get("snippet", {})
     original_description = snippet.get("description", "")
+    category_id = (channel or {}).get("yt_category_id", snippet.get("categoryId", "25"))
 
     yt_title = seo.get("yt_title", "").strip()
     if not yt_title:
         # Fallback: use existing YT title (description-only update)
         yt_title = snippet.get("title", "")
         logger.warning(
-            "yt_title missing in seo dict for %s — preserving existing title", video_id
+            "yt_title missing in seo dict for %s \u2014 preserving existing title", video_id
         )
 
     if len(yt_title) > 100:
@@ -508,13 +592,13 @@ def update_video_title_and_description(
         )
         yt_title = yt_title[:100]
 
-    new_description = build_description(seo, wp_url, original_description)
+    new_description = build_description(seo, wp_url, original_description, channel)
 
     logger.info("YT title+desc update: %s -> %r", video_id, yt_title[:60])
 
     if dry_run:
         logger.info(
-            "DRY RUN — YT update for %s:\n  title: %r\n  desc (%d chars): %s…",
+            "DRY RUN \u2014 YT update for %s:\n  title: %r\n  desc (%d chars): %s\u2026",
             video_id, yt_title, len(new_description), new_description[:200],
         )
         return True
@@ -524,7 +608,7 @@ def update_video_title_and_description(
         "snippet": {
             "title": yt_title,
             "description": new_description,
-            "categoryId": snippet.get("categoryId", "25"),  # 25 = News & Politics
+            "categoryId": category_id,
             "defaultLanguage": snippet.get("defaultLanguage", "pl"),
             "defaultAudioLanguage": snippet.get("defaultAudioLanguage", "pl"),
         },
@@ -536,13 +620,13 @@ def update_video_title_and_description(
     try:
         resp = requests.put(
             api_url,
-            headers=_auth_headers(),
+            headers=_auth_headers(channel),
             json=update_body,
             timeout=30,
         )
         if resp.status_code == 200:
             logger.info(
-                "✅ YouTube title+description updated: %s | title=%r",
+                "\u2705 YouTube title+description updated: %s | title=%r",
                 video_id, yt_title[:60],
             )
             return True
@@ -566,19 +650,11 @@ def batch_update_from_registry(
     wp_base_url: str,
     dry_run: bool = False,
     delay_between: float = 2.0,
+    channel: Optional[dict] = None,
 ) -> dict:
     """Update YouTube title + descriptions for all videos in the registry.
 
-    Iterates registry/*.json, loads matching SEO JSON, and calls
-    update_video_title_and_description() for each. Marks updated entries with
-    'yt_desc_updated' timestamp to enable idempotent re-runs.
-
-    D6a (vse-dev-20): Changed from deprecated update_video_description() to
-    update_video_title_and_description() for quota efficiency and consistency.
-
-    YouTube Data API v3 quota: videos.update = 50 units.
-    Daily limit: 10 000 units → max ~200 updates/day.
-    delay_between helps stay within rate limits.
+    D6b: Accepts optional channel config for multi-channel support.
 
     Args:
         registry_dir: Path to registry/ directory.
@@ -586,6 +662,7 @@ def batch_update_from_registry(
         wp_base_url: WordPress base URL (e.g. 'https://prawy.pl').
         dry_run: If True, skip actual YouTube API calls.
         delay_between: Seconds to wait between consecutive API calls.
+        channel: Optional channel config dict from channels/*.yaml.
 
     Returns:
         Stats dict: {total, success, failed, skipped}.
@@ -637,15 +714,12 @@ def batch_update_from_registry(
         wp_url = f"{wp_base_url.rstrip('/')}/?p={wp_id}" if wp_id else wp_base_url
 
         logger.info(
-            "[%d/%d] Updating %s (WP#%s) — %s",
+            "[%d/%d] Updating %s (WP#%s) \u2014 %s",
             idx, len(registry_files), video_id, wp_id,
             seo.get("seo_title", "")[:50],
         )
 
-        # D6a: Use update_video_title_and_description instead of deprecated
-        # update_video_description for quota efficiency (single API call
-        # updates both title and description).
-        ok = update_video_title_and_description(video_id, seo, wp_url, dry_run)
+        ok = update_video_title_and_description(video_id, seo, wp_url, dry_run, channel)
 
         if ok:
             stats["success"] += 1
