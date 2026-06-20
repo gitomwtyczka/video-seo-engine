@@ -6,6 +6,9 @@ No session state, no database — each request is fully self-contained.
 D6b (2026-06-20, vse-dev-21):
   - ProcessOptions: added publication_type field
   - GenerateRequest: added publication_type field
+
+D9 (2026-06-20, vse-dev-23):
+  - GenerateRequest: added profile_id field for dashboard portal selector
 """
 from typing import Optional
 from pydantic import BaseModel
@@ -39,13 +42,23 @@ class ProcessRequest(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    """Generate SEO schema for a video (no WP write)."""
+    """Generate SEO schema for a video (no WP write).
+
+    CO: Model wejściowy dla endpointu POST /v1/generate.
+
+    PO CO: Pozwala klientowi generować dane SEO bez zapisu do WordPress.
+    W modelu freemium to główny endpoint dla planów free/starter.
+
+    JAK: Zawiera video_url + opcjonalne parametry konfiguracji.
+    D6b dodał publication_type. D9 dodał profile_id.
+    """
 
     video_url: str
     llm_provider: str = "claude"
     lang: str = "pl"
     post_title: Optional[str] = None  # override title from metadata
     publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
+    profile_id: Optional[str] = None  # D9: server-side YAML profile id (e.g. "prawy", "kurier365")
 
 
 class InjectRequest(BaseModel):
