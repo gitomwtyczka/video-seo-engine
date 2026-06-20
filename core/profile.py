@@ -2,14 +2,21 @@
 
 Loads per-portal YAML profiles that define:
   - WordPress credentials and URL
-  - YouTube channel IDs + OAuth
+  - Source channel mappings (source_channels → channels/*.yaml)
   - SEO customization (JS class names, etc.)
   - Publish delay settings
   - Per-portal data paths (subs, seo_results, registry)
 
 Profile files live in: profiles/<portal_id>.yaml
+Channel files live in: channels/<channel_id>.yaml
 Secrets are referenced as ${ENV_VAR_NAME} placeholders and resolved
 from environment variables at load time.
+
+D6b refactor (2026-06-20, vse-dev-21):
+  - Channel data (yt_oauth, channel_ids, yt_api_key) moved to channels/*.yaml
+  - Profiles now use source_channels mapping to reference channels
+  - _resolve_env_vars moved to core.config_utils (shared with channel.py)
+  - Backward compat: profiles with inline yt_oauth still work (deprecation warning)
 
 Usage:
     from core.profile import load_profile, list_profiles
@@ -22,6 +29,8 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from core.config_utils import resolve_env_vars, load_yaml_file
+
 logger = logging.getLogger(__name__)
 
 # Default profile directory (relative to project root / CWD)
@@ -29,36 +38,10 @@ PROFILES_DIR = Path("profiles")
 
 
 # ============================================================
-# ENV VAR RESOLUTION
+# BACKWARD COMPAT — keep _resolve_env_vars as a re-export
 # ============================================================
 
-def _resolve_env_vars(value: Any) -> Any:
-    """Recursively resolve ${ENV_VAR} placeholders in strings/dicts/lists.
-
-    Args:
-        value: A string, dict, list, or any other type to resolve.
-
-    Returns:
-        The same structure with all ${VAR} placeholders replaced by
-        their environment variable values.
-
-    Raises:
-        KeyError: If a referenced env var is not set.
-    """
-    if isinstance(value, str):
-        def _replace(m: re.Match) -> str:
-            var_name = m.group(1)
-            val = os.environ.get(var_name)
-            if val is None:
-                logger.warning("Profile references unset env var: %s", var_name)
-                return ""
-            return val
-        return re.sub(r"\$\{([^}]+)\}", _replace, value)
-    elif isinstance(value, dict):
-        return {k: _resolve_env_vars(v) for k, v in value.items()}
-    elif isinstance(value, list):
-        return [_resolve_env_vars(item) for item in value]
-    return value
+_resolve_env_vars = resolve_env_vars  # Legacy callers that import from profile
 
 
 # ============================================================
@@ -81,12 +64,6 @@ def load_profile(name: str, profiles_dir: Optional[Path] = None) -> dict:
         FileNotFoundError: If the profile YAML does not exist.
         ValueError: If required fields are missing.
     """
-    try:
-        import yaml  # type: ignore
-    except ImportError:
-        # Fallback: simple key: value parser (no nested support needed for MVP)
-        yaml = None
-
     pdir = profiles_dir or PROFILES_DIR
     profile_path = pdir / f"{name}.yaml"
 
@@ -96,38 +73,13 @@ def load_profile(name: str, profiles_dir: Optional[Path] = None) -> dict:
             f"Available: {list_profiles(pdir)}"
         )
 
-    if yaml is not None:
-        with open(profile_path, encoding="utf-8") as f:
-            raw = yaml.safe_load(f)
-    else:
-        raw = _parse_simple_yaml(profile_path)
-
-    if not isinstance(raw, dict):
-        raise ValueError(f"Profile '{name}' must be a YAML mapping, got {type(raw)}")
-
-    profile = _resolve_env_vars(raw)
+    raw = load_yaml_file(profile_path)
+    profile = resolve_env_vars(raw)
     _apply_defaults(profile)
     validate_profile(profile)
 
     logger.info("Loaded profile: %s (%s)", name, profile.get("wp_base_url", "?"))
     return profile
-
-
-def _parse_simple_yaml(path: Path) -> dict:
-    """Minimal YAML parser for flat key: value files (no yaml package required).
-
-    Only handles top-level string values. For nested config, install PyYAML.
-    """
-    result: dict = {}
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if ":" in line:
-                k, _, v = line.partition(":")
-                result[k.strip()] = v.strip()
-    return result
 
 
 def _apply_defaults(profile: dict) -> None:
@@ -155,11 +107,14 @@ def _apply_defaults(profile: dict) -> None:
     for key in ("subs_dir", "seo_dir", "registry_dir"):
         Path(profile["paths"][key]).mkdir(parents=True, exist_ok=True)
 
+    # D6b: default source_channels to empty list
+    profile.setdefault("source_channels", [])
+
 
 def validate_profile(profile: dict) -> None:
     """Validate that required structural fields are present.
 
-    Only checks that portal_id and wp_base_url keys exist in the profile dict
+    Only checks that portal_id key exists in the profile dict
     (value may be empty string if env var not yet set — that's OK at load time,
     and will fail at runtime when the actual API call is made).
 
@@ -213,13 +168,9 @@ def profile_from_env() -> dict:
         "wp_base_url": os.environ.get("WP_BASE_URL", ""),
         "wp_user": os.environ.get("WP_USER", ""),
         "wp_app_password": os.environ.get("WP_APP_PASSWORD", ""),
-        "channel_ids": [os.environ.get("CHANNEL_ID", "")],
-        "yt_oauth": {
-            "client_id": os.environ.get("YT_CLIENT_ID", ""),
-            "client_secret": os.environ.get("YT_CLIENT_SECRET", ""),
-            "refresh_token": os.environ.get("YT_REFRESH_TOKEN", ""),
-        },
-        "yt_api_key": os.environ.get("YT_API_KEY", ""),
+        # D6b: channel data now in channels/*.yaml, but env fallback
+        # builds a pseudo source_channels for backward compat
+        "source_channels": [],
         "gemini_api_key": os.environ.get("GEMINI_API_KEY", ""),
         "seo": {
             "language": "pl",
@@ -236,6 +187,19 @@ def profile_from_env() -> dict:
             "registry_dir": "registry",
         },
     }
+    # Backward compat: if env has YT OAuth vars, include inline yt_oauth
+    # so get_channel_for_profile() can build a pseudo-channel
+    yt_client_id = os.environ.get("YT_CLIENT_ID", "")
+    if yt_client_id:
+        profile["yt_oauth"] = {
+            "client_id": yt_client_id,
+            "client_secret": os.environ.get("YT_CLIENT_SECRET", ""),
+            "refresh_token": os.environ.get("YT_REFRESH_TOKEN", ""),
+        }
+        profile["yt_api_key"] = os.environ.get("YT_API_KEY", "")
+        profile["channel_ids"] = [os.environ.get("CHANNEL_ID", "")]
+        profile["yt_update_enabled"] = True
+
     logger.debug("Built profile from env vars (portal=%s)", profile["portal_id"])
     return profile
 
