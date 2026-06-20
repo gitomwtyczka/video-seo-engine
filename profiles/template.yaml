@@ -1,9 +1,11 @@
 # profiles/template.yaml
 # Szablon dla nowego portalu — skopiuj i uzupełnij
 # Plik: profiles/<portal_id>.yaml
+# Refaktor D6b: 2026-06-20 | vse-dev-21 — dane kanału w channels/*.yaml
 
 portal_id: "WYPELNIJ"           # np. kurier365, biznesciti, myportal
 display_name: "Nazwa Portalu"
+site_brand: "Brand Portalu"
 active: true
 
 # ---- WordPress ----
@@ -11,25 +13,17 @@ wp_base_url: "https://twojportal.pl"
 wp_user: "${WP_USER_PORTAL}"
 wp_app_password: "${WP_APP_PASS_PORTAL}"
 
-# ---- YouTube kanały ----
-channel_ids:
-  - "UCxxxxxxxxxxxxxxxxxx"     # Główny kanał
-  # - "UCyyyyyyyyyyyyyyyyyy"   # Opcjonalny drugi kanał
-
-# ---- YouTube OAuth ----
-yt_oauth:
-  client_id: "${YT_CLIENT_ID_PORTAL}"
-  client_secret: "${YT_CLIENT_SECRET_PORTAL}"
-  refresh_token: "${YT_REFRESH_TOKEN_PORTAL}"
-
-yt_api_key: "${YT_API_KEY}"
-
-# ---- YouTube update flag (D6a) ----
-# CO: Flaga sterująca czy po publikacji na portalu aktualizować opis i tytuł na YouTube.
-# PO CO: Portale bez OAuth powinny mieć false — brak EnvironmentError w logach.
-#        Portale z własnym kanałem YouTube i OAuth — true.
-# JAK: injector.py sprawdza tę flagę przed wywołaniem yt_admin.
-yt_update_enabled: false
+# ---- Kanały źródłowe (D6b) ----
+# CO: Lista kanałów YouTube powiązanych z tą witryną.
+# PO CO: Każda witryna może mieć wiele kanałów źródłowych,
+#        każdy z własnym domyślnym typem publikacji.
+# JAK: Utwórz plik channels/<channel_id>.yaml i dodaj referencję tutaj.
+#      Dostępne typy: full_analysis | watching_page | discover
+source_channels:
+  - channel: "prawy-tv"            # ID kanału z channels/
+    default_type: "full_analysis"   # domyślny typ publikacji
+  # - channel: "drugi-kanal"
+  #   default_type: "watching_page"
 
 # ---- Gemini AI ----
 gemini_api_key: "${GEMINI_API_KEY}"
@@ -40,6 +34,11 @@ seo:
   language: pl
   chapter_js_class: "portal-chapter"     # CSS class dla linków do rozdziałów
   seek_fn_name: "portalSeek"             # Nazwa funkcji JS seekTo
+
+# ---- SEO external link (RankMath wymaga min. 1 linku zewnętrznego) ----
+seo_external_link:
+  url: "https://www.youtube.com"
+  anchor: "Źródło wideo"
 
 # ---- Publish delay ----
 publish_delay:
