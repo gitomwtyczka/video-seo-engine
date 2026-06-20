@@ -2,6 +2,10 @@
 
 All per-request credentials are passed inline (stateless multi-tenant design).
 No session state, no database — each request is fully self-contained.
+
+D6b (2026-06-20, vse-dev-21):
+  - ProcessOptions: added publication_type field
+  - GenerateRequest: added publication_type field
 """
 from typing import Optional
 from pydantic import BaseModel
@@ -22,6 +26,7 @@ class ProcessOptions(BaseModel):
     update_youtube: bool = False
     llm_provider: str = "claude"  # "claude" | "gemini"
     lang: str = "pl"
+    publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
 
 
 class ProcessRequest(BaseModel):
@@ -40,6 +45,7 @@ class GenerateRequest(BaseModel):
     llm_provider: str = "claude"
     lang: str = "pl"
     post_title: Optional[str] = None  # override title from metadata
+    publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
 
 
 class InjectRequest(BaseModel):
