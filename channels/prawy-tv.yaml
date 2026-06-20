@@ -1,0 +1,49 @@
+# channels/prawy-tv.yaml
+# Kanał YouTube: Prawy TV — dane OAuth, hashtags, footer, kategoria
+#
+# CO: Konfiguracja kanału YouTube "Prawy TV" — oddzielona od profili witryn.
+# PO CO: Jeden kanał YT może być źródłem dla wielu witryn (prawy.pl, kurier365.pl).
+#        Witryny referencują kanał przez source_channels w swoich profilach.
+# JAK: Ładowane przez core/channel.py → load_channel("prawy-tv").
+#      Sekrety jako ${ENV_VAR} — rozwiązywane z .env przy ładowaniu.
+#
+# Utworzono: 2026-06-20 | vse-dev-21 | D6b.1
+
+channel_id: "prawy-tv"
+display_name: "Prawy TV"
+yt_channel_id: "${CHANNEL_ID}"
+
+# ---- YouTube OAuth (write access: opis + tytuł) ----
+yt_oauth:
+  client_id: "${YT_CLIENT_ID}"
+  client_secret: "${YT_CLIENT_SECRET}"
+  refresh_token: "${YT_REFRESH_TOKEN}"
+
+yt_api_key: "${YT_API_KEY}"
+
+# ---- YouTube update flag ----
+# CO: Czy po publikacji na portalu aktualizować tytuł+opis na YouTube.
+# PO CO: Kanały z OAuth = true. Kanały bez OAuth = false.
+yt_update_enabled: true
+
+# ---- YouTube video settings ----
+yt_category_id: "25"  # 25 = News & Politics
+
+yt_hashtags:
+  - "#PrawyTV"
+  - "#Polska"
+  - "#Wiadomości"
+
+yt_footer: |
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  📺 PRAWY.PL — Niezależne media
+  🌐 https://prawy.pl
+  📘 Facebook: https://www.facebook.com/PortalPrawy/
+  🐦 Twitter/X: https://twitter.com/prawypl
+  ▶️ YouTube: https://www.youtube.com/user/portalprawypl
+
+  ❤️ WESPRZYJ NASZĄ MISJĘ:
+  👶 Fundacja S.O.S. Obrony Poczętego Życia
+     Nr konta: 32 1140 1010 0000 4777 8600 1001
+     KRS: 0000215438
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
