@@ -36,6 +36,11 @@ D10 Smart External Links (2026-06-21, vse-dev-25):
   - article_body MUST contain woven <a> tags to authority sources
   - Sources: Wikipedia PL, .gov.pl, PAP, Reuters, AP, think-tanks
 
+D11 Image Descriptions Fallback (2026-06-21, vse-dev-26):
+  - LLM prompt requests image_descriptions (2 descriptions for video screenshots)
+  - Used ONLY as fallback when SAAS Vision API is unavailable
+  - SAAS primary (GPT-4o Vision sees actual image) vs LLM blind descriptions
+
 Dependencies:
   pip install google-genai anthropic python-dotenv
 """
@@ -341,7 +346,7 @@ Zastosuj ZMODYFIKOWANE reguły:
 
 
 # ============================================================
-# SEO GENERATION — prompt v5.6 multi-keyphrases + external links
+# SEO GENERATION — prompt v5.7 + image_descriptions fallback
 # ============================================================
 
 def generate_seo_v4(
@@ -366,6 +371,10 @@ def generate_seo_v4(
 
     D10: LLM prompt now requests external_links (2-3 authority DoFollow links)
     and instructs article_body to weave in <a> tags to authority sources.
+
+    D11: LLM prompt now requests image_descriptions (2 screenshot descriptions)
+    as FALLBACK when SAAS Vision API is unavailable. SAAS descriptions are
+    preferred because GPT-4o Vision actually sees the image.
 
     Args:
         title: WordPress post title.
@@ -501,13 +510,21 @@ Rozdzialy musza:
     d) Nie wymyslaj URL-i \u2014 podaj REALNE adresy stron, ktore ISTNIEJA
     e) reason: krotkie uzasadnienie dlaczego to zrodlo jest authority
     f) Jeden z linkow MOZE byc do oryginalnego wideo YouTube ({yt_url})
+16. **image_descriptions** \u2014 lista 2 opisow do screenshotow z wideo (FALLBACK gdy SAAS Vision API niedostepny).
+    Kazdy dict: {{"alt_text": "...", "caption": "...", "context": "..."}}
+    ZASADY:
+    a) alt_text: max 125 zn, MUSI zawierac glowna fraze z focus_keyphrases[0].
+       Format: "[co widac na obrazku] - [fraza kluczowa]". Opisz scene z materialu.
+    b) caption: 1 zdanie opisujace scene widoczna na screenshocie z wideo.
+    c) context: gdzie wstawic screenshot w article_body ("po akapicie 1" lub "po pierwszym H2").
+       Pierwsza pozycja: "po akapicie 1". Druga: "po pierwszym H2" lub "przed FAQ".
 
 KRYTYCZNE: Pola post_title, seo_title, yt_title MUSZA byc niepuste.
 yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}]}}""" 
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}""" 
 
     logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
     if priority_keywords:
@@ -579,6 +596,7 @@ def process_video(
     """Run the full generation pipeline for a single video.
 
     D6b.6: publication_type parameter controls article format.
+    D11: LLM now returns image_descriptions as fallback for SAAS Vision API.
 
     Args:
         youtube_id: YouTube video ID.
@@ -652,6 +670,15 @@ def process_video(
     else:
         logger.warning("D10 external_links: LLM returned 0 links (expected 2-3)")
 
+    # D11: Log image descriptions from LLM output (fallback for SAAS Vision)
+    img_descs = result.get("image_descriptions", [])
+    if img_descs:
+        logger.info("D11 image_descriptions: %d LLM fallback descriptions generated", len(img_descs))
+        for idx, desc in enumerate(img_descs):
+            logger.info("  img[%d] alt=%r ctx=%r", idx, desc.get("alt_text", "?")[:60], desc.get("context", "?"))
+    else:
+        logger.info("D11 image_descriptions: LLM returned 0 (SAAS primary will be used)")
+
     # Anchor-match chapters to exact VTT timestamps
     resolved_chapters: list[dict] = []
     for ch in result.get("chapters", []):
@@ -709,11 +736,12 @@ def process_video(
 
     matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
-        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d",
+        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d, img_descs=%d",
         len(resolved_chapters), matched_count, len(resolved_chapters),
         keyphrases, publication_type,
         "enriched" if result.get("saas_enriched") else "standalone",
         site_brand or "none",
         len(ext_links),
+        len(img_descs),
     )
     return result
