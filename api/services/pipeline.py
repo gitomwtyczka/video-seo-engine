@@ -18,7 +18,7 @@ Local Runner Mode (LOCAL_RUNNER_MODE=true):
   Obsługa formatu __VTT__ (od v2.0, 2026-06-16):
   Runner wysyła segmenty z timestampami jako __VTT__ format.
   Pipeline konwertuje ten format do prawdziwego WebVTT (.vtt) pliku
-  który core.generator.parse_vtt_full() może sparsować do anchor-matchowania.
+  który core.generator.parse_vtt_full() może sparować do anchor-matchowania.
   Bez tej konwersji chaptery pokazywały time=0.
 
 SAAS Enrichment (2026-06-17, vse-dev-14):
@@ -56,6 +56,13 @@ D9 (2026-06-20, vse-dev-23):
     - site_url for SAAS enrichment (from wp_base_url)
     - site_brand for generator
   Backward compatible — without profile_id, falls back to env vars.
+
+D11 Video Screenshots (2026-06-21, vse-dev-26):
+  CO: Pobiera thumbnails z YouTube + opisy z SAAS Vision API (lub LLM fallback).
+  PO CO: Artykuły z obrazkami rankują wyżej w Google i Google Discover.
+         ImageObject w JSON-LD jest wymagany przez RankMath do 80+ score.
+  JAK: Po Step 1 (fetch) dodaje Step 1b (thumbnails) + Step 1c (SAAS Vision API
+       opisy obrazów). SAAS primary, LLM fallback. Wynik w seo["image_data"].
 """
 import asyncio
 import logging
@@ -387,6 +394,81 @@ async def _fetch_wp_internal_links(
         return []
 
 
+# ============================================================
+# D11: SAAS Vision API — image description via GPT-4o Vision
+# ============================================================
+
+async def _describe_image_via_saas(
+    image_url: str,
+    article_title: str,
+    focus_keywords: list[str],
+    site_brand: str = "",
+) -> Optional[dict]:
+    """Call SAAS Vision API to get SEO-optimized image description.
+
+    CO: Wywołuje SAAS POST /api/external/describe-image aby uzyskać
+    opisy obrazu z GPT-4o Vision (alt_text, title, caption, description, filename).
+
+    PO CO: Vision API WIDZI obraz (GPT-4o) i generuje opisy na podstawie
+    tego co rzeczywiście jest na screenshocie. To znacznie lepsze niż ślepy
+    LLM fallback który zgaduje treść obrazu z kontekstu artykułu.
+
+    JAK: POST z image_url + kontekstem artykułu. Auth: Bearer EXTERNAL_API_TOKEN.
+    Timeout 30s. None jeśli SAAS niedostępny → caller używa LLM fallback.
+
+    Args:
+        image_url: Public URL of the image (YouTube thumbnail).
+        article_title: Title of the article being generated.
+        focus_keywords: List of focus keyphrases for SEO context.
+        site_brand: Portal brand name (optional).
+
+    Returns:
+        Dict with alt_text, title, caption, description, filename keys.
+        None if SAAS unavailable or error (triggers LLM fallback).
+    """
+    saas_url = os.environ.get("SAAS_API_URL", "").strip().rstrip("/")
+    token = os.environ.get("EXTERNAL_API_TOKEN", "").strip()
+    if not saas_url or not token:
+        logger.debug("[pipeline] D11 SAAS Vision: URL or token not set — skipping")
+        return None
+
+    endpoint = f"{saas_url}/api/external/describe-image"
+    payload = {
+        "image_url": image_url,
+        "context": {
+            "article_title": article_title,
+            "focus_keywords": focus_keywords,
+            "site_brand": site_brand,
+        }
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                endpoint,
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 200:
+            data = resp.json()
+            descriptions = data.get("descriptions")
+            if descriptions:
+                logger.info(
+                    "[pipeline] D11 SAAS Vision OK: alt=%r",
+                    descriptions.get("alt_text", "?")[:60],
+                )
+                return descriptions
+            logger.warning("[pipeline] D11 SAAS Vision: 200 but no descriptions in response")
+            return None
+        logger.warning(
+            "[pipeline] D11 SAAS Vision: HTTP %d from %s",
+            resp.status_code, endpoint,
+        )
+        return None
+    except Exception as exc:
+        logger.warning("[pipeline] D11 SAAS Vision failed: %s — using LLM fallback", exc)
+        return None
+
+
 async def run_generate(
     video_url: str,
     llm_provider: str,
@@ -401,6 +483,8 @@ async def run_generate(
     D8: Fallback internal links from WP REST API when SAAS returns empty.
     D9: Accepts profile_id to select server-side YAML profile for
         site_url resolution and site_brand.
+    D11: Fetches video thumbnails + SAAS Vision API descriptions.
+         Returns image_data in result for injector consumption.
 
     Args:
         video_url: YouTube video URL or ID.
@@ -418,6 +502,7 @@ async def run_generate(
         RuntimeError: On fetcher/generator failure.
     """
     from core.fetcher import process_video as fetch_video
+    from core.fetcher import fetch_video_thumbnails
     from core.generator import process_video as generate_schema
 
     video_id = _extract_video_id(video_url)
@@ -470,6 +555,60 @@ async def run_generate(
         meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang)
         if not meta or meta.get("error"):
             raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
+
+        # Step 1b (D11): Fetch video thumbnails
+        num_screenshots = 2 if publication_type in ("full_analysis", "discover") else 1
+        thumbnails = await asyncio.to_thread(
+            fetch_video_thumbnails, video_id, tmp_dir, num_screenshots
+        )
+        logger.info(
+            "[generate] D11 thumbnails: %d downloaded for %s (wanted %d)",
+            len(thumbnails), video_id, num_screenshots,
+        )
+
+        # Step 1c (D11): Get image descriptions from SAAS Vision API (primary)
+        image_data: list[dict] = []
+        post_title_for_desc = post_title_override or meta.get("title", video_id)
+        keyphrases_for_desc = priority_keywords[:3] if priority_keywords else []
+
+        for idx, thumb in enumerate(thumbnails):
+            yt_thumb_url = thumb.get("url", "")
+            if not yt_thumb_url:
+                continue
+
+            saas_desc = await _describe_image_via_saas(
+                yt_thumb_url,
+                post_title_for_desc,
+                keyphrases_for_desc,
+                site_brand or "",
+            )
+            if saas_desc:
+                image_data.append({
+                    "path": thumb["path"],
+                    "url": yt_thumb_url,
+                    "width": thumb.get("width", 1280),
+                    "height": thumb.get("height", 720),
+                    "source": thumb.get("source", "youtube"),
+                    "descriptions": saas_desc,
+                    "description_source": "saas_vision",
+                })
+                logger.info(
+                    "[generate] D11 image[%d]: SAAS Vision description OK", idx,
+                )
+            else:
+                # Will use LLM fallback descriptions after generation
+                image_data.append({
+                    "path": thumb["path"],
+                    "url": yt_thumb_url,
+                    "width": thumb.get("width", 1280),
+                    "height": thumb.get("height", 720),
+                    "source": thumb.get("source", "youtube"),
+                    "descriptions": None,  # will be filled from LLM fallback
+                    "description_source": "pending_llm_fallback",
+                })
+                logger.info(
+                    "[generate] D11 image[%d]: SAAS Vision unavailable — LLM fallback pending", idx,
+                )
 
         if local_runner_mode:
             logger.info(
@@ -529,10 +668,45 @@ async def run_generate(
             publication_type,  # D6b: publication type
         )
 
-    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s profile=%s",
+        # Step 2b (D11): Fill LLM fallback descriptions for images that didn't get SAAS
+        llm_img_descs = seo.get("image_descriptions", [])
+        for idx, img in enumerate(image_data):
+            if img["descriptions"] is None and idx < len(llm_img_descs):
+                llm_desc = llm_img_descs[idx]
+                img["descriptions"] = {
+                    "alt_text": llm_desc.get("alt_text", ""),
+                    "title": llm_desc.get("alt_text", "")[:100],
+                    "caption": llm_desc.get("caption", ""),
+                    "description": llm_desc.get("caption", ""),
+                    "filename": None,  # will use default naming
+                }
+                img["description_source"] = "llm_fallback"
+                logger.info(
+                    "[generate] D11 image[%d]: filled from LLM fallback alt=%r",
+                    idx, img["descriptions"]["alt_text"][:60],
+                )
+            elif img["descriptions"] is None:
+                # No SAAS, no LLM fallback — use generic description
+                focus_kp = seo.get("focus_keyphrase", "")
+                img["descriptions"] = {
+                    "alt_text": f"{focus_kp} — kadr z materiału wideo" if focus_kp else "Kadr z materiału wideo",
+                    "title": seo.get("post_title", "")[:100],
+                    "caption": f"Kadr z nagrania: {seo.get('post_title', '')[:80]}",
+                    "description": "",
+                    "filename": None,
+                }
+                img["description_source"] = "generic_fallback"
+                logger.warning(
+                    "[generate] D11 image[%d]: using generic fallback (no SAAS, no LLM desc)", idx,
+                )
+
+        # Attach image_data to seo result
+        seo["image_data"] = image_data
+
+    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s profile=%s images=%d",
                 video_id, seo.get("focus_keyphrases", seo.get("focus_keyphrase", "?")),
                 "enriched" if seo.get("saas_enriched") else "standalone",
-                gsc_meta["status"], publication_type, profile_id)
+                gsc_meta["status"], publication_type, profile_id, len(image_data))
     return {
         "video_id": video_id,
         "meta": meta,
