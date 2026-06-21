@@ -51,6 +51,7 @@ D13 Slug Trim (2026-06-21, vse-dev-29):
   - Hard limit 60 chars on wp_slug (trim to last full word)
   - Prompt updated: preserve Polish conjunctions (i, w, z, na, do, o) in slug
     when they are part of the focus keyphrase — fixes RankMath false positive
+  - Bugfix: resolved_channels → resolved_chapters (typo from original code)
 
 Dependencies:
   pip install google-genai anthropic python-dotenv
@@ -843,7 +844,7 @@ def process_video(
     if sleep_between > 0:
         time.sleep(sleep_between)
 
-    matched_count = sum(1 for c in resolved_channels if c.get("matched"))
+    matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
         "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d, img_descs=%d",
         len(resolved_chapters), matched_count, len(resolved_chapters),
