@@ -41,6 +41,12 @@ D11 Image Descriptions Fallback (2026-06-21, vse-dev-26):
   - Used ONLY as fallback when SAAS Vision API is unavailable
   - SAAS primary (GPT-4o Vision sees actual image) vs LLM blind descriptions
 
+D12 JSON Resilience (2026-06-21, vse-dev-27):
+  - Log raw LLM output on json.loads() failure for debugging
+  - 1 retry with fix prompt on JSONDecodeError
+  - Prompt fix: instruct HTML attributes to use apostrophes (') not quotes (")
+  - Root cause: Claude doesn't escape " in HTML attrs inside JSON strings
+
 Dependencies:
   pip install google-genai anthropic python-dotenv
 """
@@ -376,6 +382,9 @@ def generate_seo_v4(
     as FALLBACK when SAAS Vision API is unavailable. SAAS descriptions are
     preferred because GPT-4o Vision actually sees the image.
 
+    D12: JSON Resilience — log raw output on parse failure, 1 retry with fix
+    prompt, instruct LLM to use apostrophes in HTML attributes.
+
     Args:
         title: WordPress post title.
         timestamped_text: VTT text with [MM:SS] markers from parse_vtt_full().
@@ -392,7 +401,7 @@ def generate_seo_v4(
         Parsed JSON dict from LLM response.
 
     Raises:
-        json.JSONDecodeError: If LLM returns malformed JSON.
+        json.JSONDecodeError: If LLM returns malformed JSON (after 1 retry).
         Exception: On LLM API errors (re-raised with logging).
     """
     text_trimmed = timestamped_text[:80000]
@@ -480,10 +489,14 @@ Rozdzialy musza:
    glowna fraze z focus_keyphrases[0].
    LINKI ZEWNETRZNE (DoFollow): W article_body MUSISZ wplesc MINIMUM 2 linki DoFollow
    do zewnetrznych zrodel authority. Uzyj anchor textow z pola external_links.
-   Format: <a href="URL" target="_blank">naturalny anchor text</a>
+   Format: <a href='URL' target='_blank'>naturalny anchor text</a>
+   KRYTYCZNE DLA JSON: W tagach HTML ZAWSZE uzywaj APOSTROFOW (') zamiast cudzyslowow (") w atrybutach.
+   Przyklad poprawny: <a href='https://example.com' target='_blank'>tekst</a>
+   Przyklad BLEDNY: <a href="https://example.com" target="_blank">tekst</a>
+   Podwojne cudzysłowy w atrybutach HTML LAMIA format JSON.
    Linki musza brzmiec naturalnie w kontekscie zdania, np.:
-   "jak informuje <a href="https://..." target="_blank">Polska Agencja Prasowa</a>"
-   lub "wedlug danych <a href="https://..." target="_blank">Ministerstwa Obrony Narodowej</a>".
+   "jak informuje <a href='https://...' target='_blank'>Polska Agencja Prasowa</a>"
+   lub "wedlug danych <a href='https://...' target='_blank'>Ministerstwa Obrony Narodowej</a>".
 9. **quotes** \u2014 {qt_range} cytatow z rozmowy:
    - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania, powtorzenia.
    - "speaker": imie i nazwisko
@@ -510,6 +523,8 @@ Rozdzialy musza:
     d) Nie wymyslaj URL-i \u2014 podaj REALNE adresy stron, ktore ISTNIEJA
     e) reason: krotkie uzasadnienie dlaczego to zrodlo jest authority
     f) Jeden z linkow MOZE byc do oryginalnego wideo YouTube ({yt_url})
+    KRYTYCZNE DLA JSON: W polach URL i anchor_text NIE uzywaj podwojnych cudzyslowow.
+    Caly output to JSON — podwojne cudzysłowy wewnatrz wartosci LAMIA parsowanie.
 16. **image_descriptions** \u2014 lista 2 opisow do screenshotow z wideo (FALLBACK gdy SAAS Vision API niedostepny).
     Kazdy dict: {{"alt_text": "...", "caption": "...", "context": "..."}}
     ZASADY:
@@ -518,6 +533,15 @@ Rozdzialy musza:
     b) caption: 1 zdanie opisujace scene widoczna na screenshocie z wideo.
     c) context: gdzie wstawic screenshot w article_body ("po akapicie 1" lub "po pierwszym H2").
        Pierwsza pozycja: "po akapicie 1". Druga: "po pierwszym H2" lub "przed FAQ".
+
+## KRYTYCZNE ZASADY FORMATU JSON
+
+Twoja odpowiedz MUSI byc poprawnym JSON. Pamietaj:
+- W polach HTML (article_body) ZAWSZE uzywaj APOSTROFOW (') w atrybutach tagow HTML.
+- NIGDY nie wstawiaj surowych podwojnych cudzyslowow (") wewnatrz wartosci JSON string.
+- Jesli musisz uzyc cudzysłowu w tekscie, escape'uj go jako \\".
+- Poprawne: <a href='https://example.com' target='_blank'>tekst</a>
+- BLEDNE: <a href="https://example.com" target="_blank">tekst</a> (LAMIE JSON!)
 
 KRYTYCZNE: Pola post_title, seo_title, yt_title MUSZA byc niepuste.
 yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
@@ -543,6 +567,41 @@ Odpowiedz TYLKO JSON (bez markdown):
         text = re.sub(r"^```json\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
         return json.loads(text)
+    except json.JSONDecodeError as e:
+        # D12: Log raw LLM output for debugging (first 2000 chars)
+        logger.error(
+            "JSON parse failed at char %d: %s\nRaw LLM output (first 2000 chars):\n%s",
+            e.pos, e.msg, text[:2000]
+        )
+
+        # D12: 1 retry — ask LLM to fix the JSON
+        retry_prompt = (
+            "Twoja poprzednia odpowiedz zawierala blad skladni JSON "
+            f"(pozycja {e.pos}: {e.msg}).\n"
+            "Napraw i zwroc TYLKO poprawny JSON. "
+            "UWAGA: W polach HTML (article_body) uzywaj apostrofow (') "
+            "zamiast cudzyslowow (\") w atrybutach HTML, np: "
+            "<a href='https://...' target='_blank'>\n\n"
+            f"Oryginalna odpowiedz do naprawy:\n{text}"
+        )
+        logger.info("D12: Retrying LLM with fix prompt...")
+        try:
+            text2 = _call_llm(retry_prompt, api_key, provider)
+            text2 = text2.strip()
+            text2 = re.sub(r"^```json\s*", "", text2)
+            text2 = re.sub(r"\s*```$", "", text2)
+            result = json.loads(text2)
+            logger.info("D12: Retry succeeded — valid JSON obtained")
+            return result
+        except json.JSONDecodeError as e2:
+            logger.error(
+                "D12: RETRY also failed at char %d: %s\nRetry output (first 2000 chars):\n%s",
+                e2.pos, e2.msg, text2[:2000]
+            )
+            raise
+        except Exception as retry_exc:
+            logger.error("D12: RETRY LLM call failed: %s", retry_exc)
+            raise
     except Exception as exc:
         logger.error("%s call failed: %s", provider, exc)
         raise
