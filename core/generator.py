@@ -47,6 +47,11 @@ D12 JSON Resilience (2026-06-21, vse-dev-27):
   - Prompt fix: instruct HTML attributes to use apostrophes (') not quotes (")
   - Root cause: Claude doesn't escape " in HTML attrs inside JSON strings
 
+D13 Slug Trim (2026-06-21, vse-dev-29):
+  - Hard limit 60 chars on wp_slug (trim to last full word)
+  - Prompt updated: preserve Polish conjunctions (i, w, z, na, do, o) in slug
+    when they are part of the focus keyphrase — fixes RankMath false positive
+
 Dependencies:
   pip install google-genai anthropic python-dotenv
 """
@@ -352,7 +357,7 @@ Zastosuj ZMODYFIKOWANE reguły:
 
 
 # ============================================================
-# SEO GENERATION — prompt v5.7 + image_descriptions fallback
+# SEO GENERATION — prompt v5.8 + slug hard limit D13
 # ============================================================
 
 def generate_seo_v4(
@@ -384,6 +389,10 @@ def generate_seo_v4(
 
     D12: JSON Resilience — log raw output on parse failure, 1 retry with fix
     prompt, instruct LLM to use apostrophes in HTML attributes.
+
+    D13: wp_slug prompt updated — preserve Polish conjunctions (i, w, z, na,
+    do, o) when part of focus keyphrase. Hard 60-char limit enforced in
+    process_video() after json.loads().
 
     Args:
         title: WordPress post title.
@@ -478,7 +487,7 @@ Rozdzialy musza:
      D \u2014 POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
    - Cel: widz klika nawet nie znajac goscia z imienia.
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
-5. **wp_slug** \u2014 max 60 znakow. URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj), bez stop-words. SLUG MUSI ZACZYNAC SIE od transliterowanych slow z focus_keyphrases[0]. Np. fraza "polityka obronna" \u2192 slug "polityka-obronna-...".
+5. **wp_slug** \u2014 HARD MAX 60 znakow (ABSOLUTNY LIMIT — slug bedzie obciety do 60 zn). URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj). ZACHOWAJ polskie spojniki i przyimki (i, w, z, na, do, o) gdy sa czescia frazy kluczowej \u2014 np. "tytus-romek-i-atomek" ZOSTAJE, bo "i" to czesc nazwy wlasnej. Bez stop-words ktore nie sa czescia frazy. SLUG MUSI ZACZYNAC SIE od transliterowanych slow z focus_keyphrases[0]. Np. fraza "polityka obronna" \u2192 slug "polityka-obronna-...".
 6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa.
 7. **lead** \u2014 2-3 zdania, max 300 znakow. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
 8. **article_body** \u2014 HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
@@ -634,6 +643,36 @@ def _normalize_keyphrases(result: dict) -> list[str]:
 
 
 # ============================================================
+# D13: SLUG HARD LIMIT — trim to max 60 chars at word boundary
+# ============================================================
+
+def _trim_slug(slug: str, max_len: int = 60) -> str:
+    """Trim slug to max_len characters at the last full word boundary.
+
+    CO: Obcina wp_slug do maksymalnie max_len znaków na granicy słowa.
+
+    PO CO: Google preferuje sligi <60 znaków. LLM ignoruje limit mimo
+    instrukcji w promptcie — potrzebny jest twardy limit w kodzie.
+    E2E test pokazał slug 81 znaków, co wychodzi poza optimum SEO.
+
+    JAK: Jeśli len(slug) > max_len, obcina do max_len i cofa do
+    ostatniego myślnika (rsplit), żeby nie urwać słowa w połowie.
+
+    Args:
+        slug: URL slug string (already lowercase, hyphens only).
+        max_len: Maximum allowed length. Default 60.
+
+    Returns:
+        Trimmed slug string, max max_len characters.
+    """
+    if len(slug) <= max_len:
+        return slug
+    trimmed = slug[:max_len].rsplit("-", 1)[0]
+    # Edge case: no hyphen found (single long token) — hard cut at max_len
+    return trimmed if trimmed else slug[:max_len]
+
+
+# ============================================================
 # FULL PIPELINE — VTT → LLM → resolved chapters
 # ============================================================
 
@@ -656,6 +695,7 @@ def process_video(
 
     D6b.6: publication_type parameter controls article format.
     D11: LLM now returns image_descriptions as fallback for SAAS Vision API.
+    D13: wp_slug is hard-trimmed to 60 chars at word boundary after LLM call.
 
     Args:
         youtube_id: YouTube video ID.
@@ -719,6 +759,16 @@ def process_video(
             "yt_title missing \u2014 fallback to post_title: %r",
             result["yt_title"][:60],
         )
+
+    # D13: Hard limit — wp_slug MUST NOT exceed 60 chars
+    raw_slug = result.get("wp_slug", "")
+    trimmed_slug = _trim_slug(raw_slug, max_len=60)
+    if trimmed_slug != raw_slug:
+        logger.info(
+            "D13 slug trimmed: %r (%d zn) → %r (%d zn)",
+            raw_slug, len(raw_slug), trimmed_slug, len(trimmed_slug),
+        )
+    result["wp_slug"] = trimmed_slug
 
     # D10: Log external links from LLM output
     ext_links = result.get("external_links", [])
@@ -793,7 +843,7 @@ def process_video(
     if sleep_between > 0:
         time.sleep(sleep_between)
 
-    matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
+    matched_count = sum(1 for c in resolved_channels if c.get("matched"))
     logger.info(
         "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d, img_descs=%d",
         len(resolved_chapters), matched_count, len(resolved_chapters),
