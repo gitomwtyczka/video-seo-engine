@@ -57,6 +57,15 @@ D6a: yt_update_enabled flag (2026-06-20, vse-dev-20):
   JAK: inject_video() czyta profile.get('yt_update_enabled', False). Jeśli False
        — pomija YT update z logiem debug. Jeśli True — wywołuje jak dotychczas.
 
+D11: Video Screenshots + ImageObject (2026-06-21, vse-dev-26):
+  CO: Upload screenshotów do WP Media Library + wstawianie <figure> w artykuł
+      + ImageObject w JSON-LD schema.
+  PO CO: Artykuły z obrazkami rankują wyżej w Google i Google Discover.
+         ImageObject w JSON-LD podnosi RankMath scoring do 80+.
+  JAK: _upload_image_to_wp() uploaduje do WP /wp/v2/media z opisami z SAAS/LLM.
+       build_schema_jsonld() dodaje "image" z ImageObject do VideoObject.
+       build_post_content() wstawia <figure> z <img> po pierwszym akapicie.
+
 Dependencies:
   pip install requests python-dotenv
 """
@@ -556,7 +565,127 @@ def set_youtube_thumbnail(
 
 
 # ============================================================
-# BUILD SCHEMA JSON-LD — VideoObject + Clip + FAQPage + Quotation
+# D11: UPLOAD SCREENSHOT TO WP MEDIA LIBRARY
+# ============================================================
+
+def _upload_image_to_wp(
+    image_path: str,
+    descriptions: dict,
+    wp_base_url: str,
+    wp_user: str,
+    wp_app_password: str,
+) -> Optional[dict]:
+    """Upload an image to WordPress Media Library with SEO descriptions.
+
+    CO: Uploaduje screenshot wideo do WP Media Library z opisami z SAAS/LLM.
+
+    PO CO: Obrazki w artykule muszą być hostowane w WP (nie z YouTube CDN)
+    żeby Google je indeksował. Alt text z keyphrase podnosi Image SEO.
+    WP Media Library daje pełną kontrolę nad metadanymi obrazu.
+
+    JAK: POST /wp/v2/media z multipart/form-data. Po uplaodzie PATCH media
+    item aby ustawić alt_text, title, caption, description.
+    Zwraca dict z id, url, width, height lub None na błąd.
+
+    Args:
+        image_path: Local path to the image file.
+        descriptions: Dict with alt_text, title, caption, description, filename keys.
+        wp_base_url: WordPress site base URL.
+        wp_user: WordPress username.
+        wp_app_password: WordPress Application Password.
+
+    Returns:
+        Dict with id, url, width, height keys, or None on failure.
+    """
+    auth = _make_auth(wp_user, wp_app_password)
+
+    if not os.path.isfile(image_path):
+        logger.warning("  D11 upload: file not found: %s", image_path)
+        return None
+
+    # Determine filename
+    filename = descriptions.get("filename") or os.path.basename(image_path)
+    if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+        filename = filename + ".jpg"
+
+    with open(image_path, "rb") as f:
+        image_data = f.read()
+
+    if len(image_data) < 1000:
+        logger.warning("  D11 upload: file too small (%d bytes): %s", len(image_data), image_path)
+        return None
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Type": "image/jpeg",
+    }
+
+    try:
+        upload_resp = requests.post(
+            f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/media",
+            headers=headers,
+            data=image_data,
+            auth=auth,
+            timeout=30,
+        )
+        if upload_resp.status_code not in (200, 201):
+            logger.warning(
+                "  D11 upload: HTTP %s for %s",
+                upload_resp.status_code, filename,
+            )
+            return None
+
+        media_data = upload_resp.json()
+        media_id = media_data["id"]
+        media_url = media_data.get("source_url", "")
+
+        # Set alt_text, title, caption, description via PATCH
+        meta_payload = {}
+        alt_text = descriptions.get("alt_text", "").strip()
+        title = descriptions.get("title", "").strip()
+        caption = descriptions.get("caption", "").strip()
+        description = descriptions.get("description", "").strip()
+
+        if alt_text:
+            meta_payload["alt_text"] = alt_text
+        if title:
+            meta_payload["title"] = title
+        if caption:
+            meta_payload["caption"] = caption
+        if description:
+            meta_payload["description"] = description
+
+        if meta_payload:
+            requests.post(
+                f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/media/{media_id}",
+                json=meta_payload,
+                auth=auth,
+                timeout=10,
+            )
+
+        # Get dimensions from WP response
+        media_details = media_data.get("media_details", {})
+        width = media_details.get("width", 1280)
+        height = media_details.get("height", 720)
+
+        logger.info(
+            "  D11 upload OK: media #%s | %s | alt=%r",
+            media_id, media_url[:60] if media_url else "?", alt_text[:40],
+        )
+        return {
+            "id": media_id,
+            "url": media_url,
+            "width": width,
+            "height": height,
+        }
+
+    except Exception as exc:
+        logger.error("  D11 upload exception: %s", exc)
+        return None
+
+
+# ============================================================
+# BUILD SCHEMA JSON-LD — VideoObject + Clip + FAQPage + Quotation + ImageObject
 # ============================================================
 
 def build_schema_jsonld(
@@ -569,6 +698,9 @@ def build_schema_jsonld(
 
     Produces: VideoObject (with optional interactionStatistic + hasPart clips),
     FAQPage (if faq present), Quotation per polished quote.
+
+    D11: Adds "image" field with ImageObject array to VideoObject schema
+    when uploaded_images data is available in seo dict.
 
     Note: Quotation schema is kept for completeness; Google does not render it.
     Do NOT add new Quotation items — preserve existing if already injected.
@@ -633,6 +765,24 @@ def build_schema_jsonld(
             "userInteractionCount": int(view_count),
         }
 
+    # D11: ImageObject from uploaded screenshots
+    uploaded_images = seo.get("uploaded_images", [])
+    if uploaded_images:
+        image_objects = []
+        for img in uploaded_images:
+            img_obj = {
+                "@type": "ImageObject",
+                "url": img.get("url", ""),
+                "width": img.get("width", 1280),
+                "height": img.get("height", 720),
+            }
+            caption = img.get("caption", "")
+            if caption:
+                img_obj["caption"] = caption
+            image_objects.append(img_obj)
+        video_schema["image"] = image_objects
+        logger.info("  D11 schema: %d ImageObject(s) added to VideoObject", len(image_objects))
+
     schemas: list[dict] = [video_schema]
 
     # FAQPage
@@ -696,6 +846,56 @@ def _split_first_paragraph(html: str) -> tuple[str, str]:
 
 
 # ============================================================
+# D11: BUILD FIGURE BLOCKS FOR SCREENSHOTS
+# ============================================================
+
+def _build_figure_blocks(uploaded_images: list[dict]) -> list[str]:
+    """Build WP figure blocks from uploaded image data.
+
+    CO: Generuje bloki <figure> z <img> dla screenshotów wideo.
+
+    PO CO: Obrazki w artykule podnoszą engagement i SEO scoring.
+    Google Discover wymaga co najmniej 1 obrazka 1200px.
+    RankMath daje punkty za ImageObject + alt z keyphrase.
+
+    JAK: Każdy obraz to WP Gutenberg image block z:
+    - <img> z src, alt, width, height
+    - <figcaption> z caption
+    - Lazy loading (loading="lazy")
+
+    Args:
+        uploaded_images: List of dicts with url, alt_text, caption, width, height.
+
+    Returns:
+        List of HTML strings (WP Gutenberg image blocks).
+    """
+    blocks: list[str] = []
+    for img in uploaded_images:
+        url = img.get("url", "")
+        alt = img.get("alt_text", "").replace('"', '&quot;')
+        caption = img.get("caption", "")
+        width = img.get("width", 1280)
+        height = img.get("height", 720)
+
+        if not url:
+            continue
+
+        fig_html = (
+            f'<!-- wp:image {{"sizeSlug":"large"}} -->\n'
+            f'<figure class="wp-block-image size-large">'
+            f'<img src="{url}" alt="{alt}" '
+            f'width="{width}" height="{height}" loading="lazy" />'
+        )
+        if caption:
+            fig_html += f'<figcaption class="wp-element-caption">{caption}</figcaption>'
+        fig_html += '</figure>\n<!-- /wp:image -->'
+
+        blocks.append(fig_html)
+
+    return blocks
+
+
+# ============================================================
 # BUILD POST CONTENT — WP blocks + seekTo JS
 # ============================================================
 
@@ -709,9 +909,14 @@ def build_post_content(
     """Build full WordPress post content with blocks, schema JSON-LD, and seekTo JS.
 
     Produces (in order): lead paragraph → <!-- more --> → first paragraph of
-    article_body → YT embed → chapters list → rest of article_body →
-    external link (D4) → Podsumowanie (polished quotes) → FAQ collapsible →
+    article_body → [screenshot 1 if available] → YT embed → chapters list →
+    rest of article_body → [screenshot 2 if available] → external link (D4) →
+    Podsumowanie (polished quotes) → FAQ collapsible →
     JSON-LD schemas → player JS.
+
+    D11: Screenshots are inserted as <figure> blocks:
+    - First screenshot after first paragraph (before embed)
+    - Second screenshot after rest of article_body (before external link)
 
     The first paragraph of article_body is placed before the embed so Google
     has crawlable text above the fold and readers get article context before
@@ -741,6 +946,10 @@ def build_post_content(
     faq = seo.get("faq", [])
     yt_url = seo.get("yt_url", f"https://www.youtube.com/watch?v={yt_id}")
 
+    # D11: Build figure blocks from uploaded images
+    uploaded_images = seo.get("uploaded_images", [])
+    figure_blocks = _build_figure_blocks(uploaded_images)
+
     # D2: Split article_body into first paragraph + rest
     first_p, rest_body = _split_first_paragraph(article_body)
 
@@ -755,6 +964,9 @@ def build_post_content(
         f"<!-- wp:html -->\n{first_p}\n<!-- /wp:html -->"
         if first_p else ""
     )
+
+    # D11: First screenshot — after first paragraph, before embed
+    screenshot_1_block = figure_blocks[0] if len(figure_blocks) >= 1 else ""
 
     # YouTube embed
     embed_json = json.dumps({
@@ -793,6 +1005,9 @@ def build_post_content(
         f"<!-- wp:html -->\n{rest_body}\n<!-- /wp:html -->"
         if rest_body else ""
     )
+
+    # D11: Second screenshot — after rest of article body, before external link
+    screenshot_2_block = figure_blocks[1] if len(figure_blocks) >= 2 else ""
 
     # D4: External link block — RankMath requires at least 1 external link
     external_link_block = _build_external_link_block(profile)
@@ -845,12 +1060,13 @@ def build_post_content(
     player_js = _build_player_js(seek_fn=seek_fn, chapter_class=chapter_class)
     js_block = f"<!-- wp:html -->\n{player_js}\n<!-- /wp:html -->"
 
-    # D2+D4: Article order
-    # lead → first_p → embed → chapters → rest_body → external_link → quotes (Podsumowanie) → faq → schema → js
+    # D2+D4+D11: Article order
+    # lead → first_p → screenshot_1 → embed → chapters → rest_body → screenshot_2 →
+    # external_link → quotes (Podsumowanie) → faq → schema → js
     parts = [
-        lead_block, intro_block, embed_block, chapters_block,
-        body_rest_block, external_link_block, quotes_section, faq_section,
-        schema_block, js_block,
+        lead_block, intro_block, screenshot_1_block, embed_block, chapters_block,
+        body_rest_block, screenshot_2_block, external_link_block, quotes_section,
+        faq_section, schema_block, js_block,
     ]
     return "\n\n".join(p for p in parts if p)
 
@@ -944,7 +1160,7 @@ def update_post(
 
 
 # ============================================================
-# FULL INJECTION PIPELINE — thumbnail + content
+# FULL INJECTION PIPELINE — thumbnail + screenshots + content
 # ============================================================
 
 def inject_video(
@@ -962,7 +1178,11 @@ def inject_video(
 ) -> dict:
     """Run the full injection pipeline for a single video post.
 
-    Steps: thumbnail → WP content/excerpt → RankMath meta → YT description.
+    Steps: thumbnail → D11 screenshots upload → WP content/excerpt → RankMath meta → YT description.
+
+    D11 (vse-dev-26): Uploads screenshots from image_data to WP Media Library.
+    Sets uploaded_images in seo dict for build_post_content() and build_schema_jsonld().
+
     YT description update is controlled by the 'yt_update_enabled' flag
     in the portal profile. Portals without OAuth (e.g. kurier365) should set
     yt_update_enabled: false to avoid EnvironmentError noise in logs.
@@ -989,7 +1209,7 @@ def inject_video(
 
     Returns:
         Dict with keys: wp_id, yt_id, ok, status, link,
-        thumbnail_media_id, rankmath_ok, yt_desc_ok.
+        thumbnail_media_id, rankmath_ok, yt_desc_ok, images_uploaded.
     """
     auth = _make_auth(wp_user, wp_app_pass)
     logger.info("Injecting WP#%s | YT:%s", wp_id, yt_id)
@@ -1005,6 +1225,46 @@ def inject_video(
             wp_id, yt_id, seo.get("original_title", ""), wp_base_url, auth,
             alt_text=img_alt,
         )
+
+    # D11: Upload screenshots to WP Media Library
+    uploaded_images: list[dict] = []
+    image_data = seo.get("image_data", [])
+    if image_data and not dry_run:
+        for idx, img in enumerate(image_data):
+            img_path = img.get("path", "")
+            descs = img.get("descriptions", {}) or {}
+
+            if not img_path or not os.path.isfile(img_path):
+                logger.warning("  D11 inject: image[%d] path missing or invalid: %r", idx, img_path)
+                continue
+
+            wp_media = _upload_image_to_wp(
+                img_path,
+                descs,
+                wp_base_url,
+                wp_user,
+                wp_app_pass,
+            )
+            if wp_media:
+                uploaded_images.append({
+                    "id": wp_media["id"],
+                    "url": wp_media["url"],
+                    "width": wp_media["width"],
+                    "height": wp_media["height"],
+                    "alt_text": descs.get("alt_text", ""),
+                    "caption": descs.get("caption", ""),
+                    "description_source": img.get("description_source", "unknown"),
+                })
+
+        logger.info(
+            "  D11 inject: %d/%d screenshots uploaded to WP",
+            len(uploaded_images), len(image_data),
+        )
+    elif dry_run and image_data:
+        logger.info("  D11 DRY RUN: would upload %d screenshots", len(image_data))
+
+    # Attach uploaded_images to seo for build_post_content() and build_schema_jsonld()
+    seo["uploaded_images"] = uploaded_images
 
     status, link = update_post(
         wp_id, seo, yt_id, wp_base_url, auth, yt_api_key, dry_run,
@@ -1063,5 +1323,6 @@ def inject_video(
         "yt_update_ok": yt_update_ok,
         "wp_title_updated": bool(seo.get("post_title", "").strip()),
         "wp_slug_set": bool(_wp_slug_ret),
+        "images_uploaded": len(uploaded_images),
         "ok": status == 200 or dry_run,
     }
