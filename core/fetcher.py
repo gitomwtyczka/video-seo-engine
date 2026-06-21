@@ -9,6 +9,11 @@ Context: Oracle Cloud VPS IP is banned by YouTube — yt-dlp metadata fails.
 Fix: YouTube Data API v3 via googleapis.com (NOT blocked on Oracle Cloud).
 GCP project: glass-turbine-388620 (Simple API Key AIzaSyAlexKzu4-Wu2Wupck5p7qJuyPme9bh1lo)
 
+D11 Video Thumbnails (2026-06-21, vse-dev-26):
+  fetch_video_thumbnails() — downloads YouTube thumbnails for article screenshots.
+  Fallback chain: maxresdefault.jpg → sddefault.jpg → hqdefault.jpg
+  For second screenshot: /1.jpg, /2.jpg, /3.jpg (YouTube auto-generated storyboard frames)
+
 Dependencies (in requirements.txt):
   youtube-transcript-api>=1.2.4
   yt-dlp>=2024.1.0  (transcript fallback only — metadata disabled on VPS)
@@ -24,6 +29,8 @@ import subprocess
 import urllib.request
 from datetime import datetime
 from typing import Optional, Tuple
+
+import requests as _requests_lib
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +117,116 @@ def log(msg: str, quiet: bool = False) -> None:
     """Legacy helper — kept for backward compat with old CLI callers."""
     if not quiet:
         logger.info(msg)
+
+
+# ---------------------------------------------------------------------------
+# D11: Video Thumbnails — download from YouTube
+# ---------------------------------------------------------------------------
+
+def fetch_video_thumbnails(
+    video_id: str,
+    output_dir: str,
+    count: int = 2,
+) -> list[dict]:
+    """Download YouTube video thumbnails for article screenshots.
+
+    CO: Pobiera thumbnails z YouTube dla screenshotów w artykule.
+
+    PO CO: Artykuły z obrazkami rankują wyżej w Google (Image SEO, Discover).
+    RankMath i Google wymagają ImageObject w schema. Thumbnails z YouTube
+    są najszybszym źródłem — nie wymagają renderowania wideo.
+
+    JAK: Dla pierwszego screena próbuje maxresdefault → sddefault → hqdefault.
+    Dla drugiego screena: /1.jpg, /2.jpg, /3.jpg (YouTube auto-generated
+    storyboard frames — różne momenty wideo).
+    Pliki zapisywane do output_dir z unikalnymi nazwami.
+
+    Args:
+        video_id: YouTube video ID (11 chars).
+        output_dir: Directory to save downloaded thumbnails.
+        count: Number of thumbnails to download (1 or 2).
+
+    Returns:
+        List of dicts: [{"path": "...", "width": 1280, "height": 720,
+        "source": "youtube_maxres", "url": "https://img.youtube.com/..."}]
+        Empty list on complete failure (graceful degradation).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    results: list[dict] = []
+
+    # Primary thumbnail: main video thumbnail (best quality)
+    primary_chain = [
+        ("maxresdefault", 1280, 720),
+        ("sddefault", 640, 480),
+        ("hqdefault", 480, 360),
+    ]
+
+    for quality, width, height in primary_chain:
+        thumb_url = f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
+        try:
+            resp = _requests_lib.get(thumb_url, timeout=15)
+            # YouTube returns 200 + tiny grey placeholder for missing resolutions
+            if resp.status_code == 200 and len(resp.content) > 5000:
+                filename = f"{video_id}_thumb_0.jpg"
+                filepath = os.path.join(output_dir, filename)
+                with open(filepath, "wb") as f:
+                    f.write(resp.content)
+                results.append({
+                    "path": filepath,
+                    "width": width,
+                    "height": height,
+                    "source": f"youtube_{quality}",
+                    "url": thumb_url,
+                })
+                logger.info(
+                    "[fetcher] D11 thumbnail 0: %s (%s, %d bytes)",
+                    quality, video_id, len(resp.content),
+                )
+                break
+        except Exception as exc:
+            logger.debug("[fetcher] D11 thumb %s failed: %s", quality, exc)
+
+    if not results:
+        logger.warning("[fetcher] D11: no primary thumbnail for %s", video_id)
+        return []
+
+    if count < 2:
+        return results
+
+    # Secondary thumbnail: YouTube auto-generated storyboard frames
+    # These are different moments of the video (YouTube generates /1.jpg, /2.jpg, /3.jpg)
+    secondary_chain = ["1", "2", "3"]
+    for frame_id in secondary_chain:
+        thumb_url = f"https://img.youtube.com/vi/{video_id}/{frame_id}.jpg"
+        try:
+            resp = _requests_lib.get(thumb_url, timeout=15)
+            if resp.status_code == 200 and len(resp.content) > 3000:
+                filename = f"{video_id}_thumb_1.jpg"
+                filepath = os.path.join(output_dir, filename)
+                with open(filepath, "wb") as f:
+                    f.write(resp.content)
+                results.append({
+                    "path": filepath,
+                    "width": 480,
+                    "height": 360,
+                    "source": f"youtube_frame_{frame_id}",
+                    "url": thumb_url,
+                })
+                logger.info(
+                    "[fetcher] D11 thumbnail 1: frame %s (%s, %d bytes)",
+                    frame_id, video_id, len(resp.content),
+                )
+                break
+        except Exception as exc:
+            logger.debug("[fetcher] D11 frame %s failed: %s", frame_id, exc)
+
+    if len(results) < 2:
+        logger.warning(
+            "[fetcher] D11: only %d thumbnail(s) for %s (wanted 2)",
+            len(results), video_id,
+        )
+
+    return results
 
 
 # ---------------------------------------------------------------------------
