@@ -1,1 +1,1 @@
-{"callsign":"vse-dev-30","status":"done","current_task":"D15 JSON Sanitizer — COMPLETED","timestamp":"2026-06-29T17:54:00+02:00","last_completed":["D15 test: test_d15_sanitizer.py (13 TDD tests) — commit 31b7cda (2026-06-29)","D15 feat: _sanitize_llm_json() w core/generator.py — commit a8fc7b3 (2026-06-29)","D15 deploy: vse-api Docker rebuilt + 44/44 tests passed (2026-06-29)"]}
+{"callsign":"vse-dev-31","status":"working","current_task":"D14 Image Descriptions","timestamp":"2026-06-29T18:02:00+02:00"}
