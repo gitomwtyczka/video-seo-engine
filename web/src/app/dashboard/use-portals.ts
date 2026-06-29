@@ -27,6 +27,7 @@ export interface PortalCreatePayload {
   wp_username: string
   wp_app_password: string
   is_default?: boolean
+  profile_id?: string | null
 }
 
 export function usePortals() {
