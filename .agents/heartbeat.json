@@ -1,1 +1,1 @@
-{"callsign": "vse-dev-29", "status": "done", "current_task": "DISPATCH D13: Slug trim — COMPLETED", "timestamp": "2026-06-21T18:14:00+02:00", "last_completed": ["D13 _trim_slug() + prompt fix — commit effdfc75 (2026-06-21)", "D13 bugfix resolved_channels → resolved_chapters — commit 491e3d2a (2026-06-21)", "Deploy vse-api: Started (2026-06-21)"]}
+{"callsign":"vse-dev-30","status":"working","current_task":"D15 JSON Sanitizer — reading codebase","timestamp":"2026-06-29T17:35:00+02:00"}
