@@ -13,12 +13,13 @@ D6b (2026-06-20, vse-dev-21):
   - Passes publication_type from request to pipeline.run_generate()
 
 D9 (2026-06-20, vse-dev-23):
-  - Passes profile_id from request to pipeline.run_generate()
-  - Profile determines site_url for SAAS enrichment and site_brand for generator
+  - Passes portal_id from request to pipeline.run_generate()
+  - Portal determines site_url for SAAS enrichment and site_brand for generator
 """
 import json
 import logging
 import time
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, desc
@@ -33,7 +34,7 @@ router = APIRouter(prefix="/v1", tags=["generate"])
 logger = logging.getLogger(__name__)
 
 
-async def _save_schema_to_job(video_url: str, schema_data: dict) -> None:
+async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Optional[str] = None) -> None:
     """Zapisuje schema_data do najnowszego job'u dla danego video_url.
 
     CO: Persystencja wyniku generowania w DB.
@@ -59,6 +60,7 @@ async def _save_schema_to_job(video_url: str, schema_data: dict) -> None:
             job = result.scalar_one_or_none()
             if job:
                 job.schema_data = schema_data
+                job.portal_id = portal_id
                 job.status = "done"
                 await db.commit()
                 logger.info(
@@ -72,6 +74,7 @@ async def _save_schema_to_job(video_url: str, schema_data: dict) -> None:
                     video_url=video_url,
                     status="done",
                     schema_data=schema_data,
+                    portal_id=portal_id,
                 )
                 db.add(new_job)
                 await db.commit()
@@ -95,11 +98,11 @@ async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
     Saves schema_data to transcript_jobs for /historia access.
 
     D6b: Accepts publication_type to control article format.
-    D9: Accepts profile_id to select server-side YAML profile.
+    D9: Accepts portal_id to select server-side YAML profile.
     """
     logger.info(
-        "[/v1/generate] video_url=%s provider=%s type=%s profile=%s",
-        req.video_url, req.llm_provider, req.publication_type, req.profile_id,
+        "[/v1/generate] video_url=%s provider=%s type=%s portal_id=%s",
+        req.video_url, req.llm_provider, req.publication_type, req.portal_id,
     )
     start = time.time()
     try:
@@ -109,13 +112,13 @@ async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
             lang=req.lang,
             post_title_override=req.post_title,
             publication_type=req.publication_type,  # D6b
-            profile_id=req.profile_id,  # D9
+            portal_id=req.portal_id,  # D9
         )
 
         schema_data = result["seo"]
 
         # Persystuj schema do DB dla historii
-        await _save_schema_to_job(req.video_url, schema_data)
+        await _save_schema_to_job(req.video_url, schema_data, req.portal_id)
 
         return GenerateResponse(
             status="ok",
