@@ -1,8 +1,8 @@
 {
-  "callsign": "vse-analyst-01",
-  "status": "done",
-  "current_task": "PORTAL-AUDIT (DISPATCH-VSE-ANALYST-11)",
-  "timestamp": "2026-06-29T22:56:27+02:00",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "PORTAL-FIX (DISPATCH-VSE-DEV-32)",
+  "timestamp": "2026-06-29T23:02:16+02:00",
   "last_completed": [
     "Refactor dashboard for DB portals frontend (DISPATCH-03B) [[vse-dev-01]] - commit f492a8b",
     "Update use-portals.ts for payload [[vse-dev-01]] - commit 44737ea",
