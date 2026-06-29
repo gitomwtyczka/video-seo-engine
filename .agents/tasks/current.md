@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-06-21 17:45 [Supervisor 02]
+**Ostatnia aktualizacja:** 2026-06-29 18:23 [vse-dev-31]
 
 ---
 
@@ -21,6 +21,8 @@
 | D11 Video Screenshots | vse-dev-26 | `3bcccb1`+ | 2026-06-21 |
 | A8 JSON Error Diag | vse-analyst-08 | raport | 2026-06-21 |
 | D12 JSON Resilience | vse-dev-27 | raport | 2026-06-21 |
+| D15 Cudzysłowy fix | vse-dev-30 | `2a26fad` | 2026-06-29 |
+| D14 Image Descriptions | vse-dev-31 | `ab2c945` | 2026-06-29 |
 
 ## 🟡 W toku
 
@@ -28,19 +30,17 @@
 |---|---|---|---|
 | A9 VTT Cache + Dedup | vse-analyst-09 | dispatched, czeka | Backlog |
 | A11 Cudzysłowy analiza | vse-analyst-10 | dispatched | 🔴 PRIORYTET |
-| D14 Image Descriptions | vse-dev-28 | dispatched | 🔴 WYSOKI |
 | D13 Slug Trim | vse-dev-29 | dispatched | 🟡 Średni |
 
 ## 🟢 Następne
 
 | Task | Zależność | Opis |
 |---|---|---|
-| D15 Cudzysłowy fix | po A11 | Systemowy fix na podstawie analizy A11 |
 | E2E retest | po D13+D14+D15 | Ponowny test RankMath, cel: 80+ |
 
 ---
 
 **RankMath:** 66/100 (cel: 80+)  
-**Faza 2C:** technicznie DONE, 4 bugi blokują cel  
+**Faza 2C:** technicznie DONE, 3 bugi blokują cel  
 
-*[Supervisor 02 | sonic-void 21.06.2026]*
+*[vse-dev-31 | video-seo-engine 29.06.2026]*
