@@ -11,6 +11,7 @@ JAK: CRUD pod /v1/portals, chroniony przez get_current_user (JWT).
 """
 import logging
 import uuid
+import os
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,6 +36,7 @@ class PortalCreate(BaseModel):
     url: str
     wp_username: str
     wp_app_password: str
+    profile_id: Optional[str] = None
     is_default: bool = False
 
 
@@ -44,6 +46,7 @@ class PortalUpdate(BaseModel):
     url: Optional[str] = None
     wp_username: Optional[str] = None
     wp_app_password: Optional[str] = None
+    profile_id: Optional[str] = None
     is_default: Optional[bool] = None
 
 
@@ -53,17 +56,19 @@ class PortalResponse(BaseModel):
     name: str
     url: str
     wp_username: str
+    profile_id: Optional[str] = None
     is_default: bool
     created_at: Optional[str] = None
 
 
-class PortalWithPassword(BaseModel):
-    """Portal data WITH password — returned only on GET /v1/portals/{id}/credentials."""
+class PortalFull(BaseModel):
+    """Portal data WITH password — returned only on GET /v1/portals/{id}/full."""
     id: str
     name: str
     url: str
     wp_username: str
     wp_app_password: str
+    profile_id: Optional[str] = None
     is_default: bool
 
 
@@ -82,9 +87,19 @@ def _portal_to_response(portal: WpPortal) -> PortalResponse:
         name=portal.name,
         url=portal.url,
         wp_username=portal.wp_username,
+        profile_id=portal.profile_id,
         is_default=portal.is_default or False,
         created_at=portal.created_at.isoformat() if portal.created_at else None,
     )
+
+
+def _validate_profile_id(profile_id: str):
+    """Check if profile YAML file exists."""
+    if not os.path.exists(f"profiles/{profile_id}.yaml"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Profile '{profile_id}' does not exist."
+        )
 
 
 # --- Endpoints ---
@@ -122,6 +137,9 @@ async def create_portal(
     PO CO: Użytkownik zapisuje credentials portalu raz — potem wybiera z listy.
     JAK: INSERT wp_portals. Jeśli is_default=True, resetuje poprzedni default.
     """
+    if payload.profile_id:
+        _validate_profile_id(payload.profile_id)
+
     # If setting as default, unset other defaults
     if payload.is_default:
         existing = await db.execute(
@@ -138,6 +156,7 @@ async def create_portal(
         url=payload.url.rstrip("/"),  # Normalize URL
         wp_username=payload.wp_username,
         wp_app_password=payload.wp_app_password,
+        profile_id=payload.profile_id,
         is_default=payload.is_default,
     )
     db.add(portal)
@@ -151,16 +170,15 @@ async def create_portal(
     return _portal_to_response(portal)
 
 
-@router.get("/{portal_id}/credentials", response_model=PortalWithPassword)
-async def get_portal_credentials(
+@router.get("/{portal_id}/full", response_model=PortalFull)
+async def get_portal_full(
     portal_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     CO: Zwraca pełne dane portalu WŁĄCZNIE z hasłem.
-    PO CO: InjectModal potrzebuje wp_app_password do POST /v1/inject.
-           Oddzielny endpoint żeby lista portali nie wyciekała haseł.
+    PO CO: Do użytku wewnętrznego, żeby pipeline mógł uzyskać hasło.
     JAK: SELECT wp_portals WHERE id AND user_id (security: user widzi tylko swoje).
     """
     try:
@@ -177,12 +195,13 @@ async def get_portal_credentials(
     if not portal:
         raise HTTPException(status_code=404, detail="Portal not found")
 
-    return PortalWithPassword(
+    return PortalFull(
         id=str(portal.id),
         name=portal.name,
         url=portal.url,
         wp_username=portal.wp_username,
         wp_app_password=portal.wp_app_password,
+        profile_id=portal.profile_id,
         is_default=portal.is_default or False,
     )
 
@@ -203,6 +222,9 @@ async def update_portal(
         uid = uuid.UUID(portal_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid portal ID format")
+        
+    if payload.profile_id is not None:
+        _validate_profile_id(payload.profile_id)
 
     result = await db.execute(
         select(WpPortal)
@@ -221,6 +243,8 @@ async def update_portal(
         portal.wp_username = payload.wp_username
     if payload.wp_app_password is not None:
         portal.wp_app_password = payload.wp_app_password
+    if payload.profile_id is not None:
+        portal.profile_id = payload.profile_id
     if payload.is_default is not None:
         if payload.is_default:
             # Unset other defaults
