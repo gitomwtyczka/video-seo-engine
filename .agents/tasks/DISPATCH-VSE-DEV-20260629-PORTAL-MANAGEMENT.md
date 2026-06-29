@@ -21,8 +21,8 @@ Przeczytaj raport diagnozy (kontekst obowiązkowy):
 
 Zaimplementować pełny system zarządzania portalami WordPress:
 - portal = credentials (url, user, pass) + powiązany profil YAML (`profile_id`)
-- Generate i Inject używają tego samego portalu → jedno źródło prawdy
-- Po tej implementacji: dodanie nowego portalu (np. nowy-portal.pl) = 1 rekord w UI, bez dotykania kodu
+- Generate i Inject używają tego samego portalu → jedno źródło prawdy (DB)
+- Po tej implementacji: dodanie nowego portalu = 1 rekord w UI, bez dotykania kodu
 
 Przy okazji: naprawić 3 bugi z raportu diagnozy (BUG #1, #2, #5).
 
@@ -31,132 +31,121 @@ Przy okazji: naprawić 3 bugi z raportu diagnozy (BUG #1, #2, #5).
 ## Kontekst — co mamy teraz (WAŻNE przeczytaj)
 
 ### Obecny przepływ (zepsuty):
-1. **Generate**: używa `profile_id` z request → OK, brand/chapters poprawne
-2. **Inject**: używa `site_config` z frontendu (url + user + pass) → osobny model, nie zna `profile_id`
-3. **Skutek**: Inject nie wie dla jakiego portalu generował → bug "Prawy TV" w alt-text, brak profilu w `inject_video()`
+1. **Generate**: dropdown "Portal docelowy" ma hardcoded/localStorage wpisy (Kurier365.pl, Prawy.pl)
+2. **Inject**: modal "Wyślij do portalu" wymaga ręcznego wpisania credentials każdorazowo
+3. **Problem**: Generate nie przekazuje wybranego portalu do Inject → użytkownik musi wpisywać ręcznie
+4. **Bug**: Inject nie zna `profile_id` → brand w alt-text = hardcoded "Prawy TV" dla każdego portalu
 
-### Tabela `wp_portals` w DB:
-Ma już kolumny: `id`, `name`, `url`, `wp_username`, `wp_app_password`  
-Brakuje: `profile_id` (link do YAML profilu)
+### Stan DB:
+- Tabela `wp_portals`: ma kolumny `id`, `name`, `url`, `wp_username`, `wp_app_password`
+- Ma 1 rekord: Kurier365 | https://kurier365.pl | blastotoprowpku
+- Prawy.pl: **brak rekordu** — credentials w localStorage/hardcoded
+- Brakuje kolumny: `profile_id`
 
-### Zmienne środowiskowe:
-`.env` na VPS **NIE MA** żadnych `WP_*` zmiennych. Credentials wpisywane ręcznie przez frontend. To nie zmienia się w tej implementacji — DB będzie nowym źródłem prawdy.
+### Decyzja właściciela produktu:
+> "Czyścimy i dodajemy od nowa. Prawy.pl i Kurier365 zostaną dodane przez formularz po implementacji."
 
-### Stan DB (zbadany):
-Tabela `wp_portals` ma 1 rekord: Kurier365 | https://kurier365.pl | blastotoprowpku  
-Prawy.pl: **brak rekordu** — credentials przychodzą tylko z frontendu
+Oznacza to: **WSZYSTKIE hardcoded i localStorage wpisy portali mają być usunięte z frontendu.** DB jest jedynym źródłem prawdy.
 
 ---
 
 ## Zakres implementacji
 
-### 1. Migration DB — dodać `profile_id` do `wp_portals`
+### 1. Baza danych
 
+**Migration: dodaj `profile_id` do `wp_portals`**
 ```sql
 ALTER TABLE wp_portals ADD COLUMN profile_id VARCHAR(100);
--- Przykład: 'kurier365', 'prawy', 'nowy-portal'
--- NULL = portal bez przypisanego profilu YAML (fallback na defaults)
 ```
+Użyj istniejącego mechanizmu migracji projektu.
 
-Użyj istniejącego mechanizmu migracji projektu (auto_migrate lub alembic — sprawdź co projekt używa).
-
-Po migracji uzupełnij istniejący rekord:
+**Czyść istniejący rekord Kurier365** — zostanie ponownie dodany przez użytkownika przez UI:
 ```sql
-UPDATE wp_portals SET profile_id = 'kurier365' WHERE name = 'Kurier365';
+DELETE FROM wp_portals;  -- lub TRUNCATE
 ```
 
-Dodaj rekord dla prawy.pl (przenieś z "nigdzie" do DB):
-```sql
-INSERT INTO wp_portals (name, url, wp_username, wp_app_password, profile_id)
-VALUES ('Prawy.pl', 'https://prawy.pl', '[wp_user_prawy]', '[wp_app_pass_prawy]', 'prawy');
--- UWAGA: credentials prawy.pl weź z aktualnej konfiguracji frontendu/localStorage
--- Zapytaj właściciela jeśli nie masz dostępu do tych credentials
-```
+Uwaga: App password dla kurier365 nie będzie potrzebny — użytkownik wpisze je sam przez formularz. Nie trzymaj credentials w kodzie ani migracjach.
 
 ### 2. Backend API — CRUD portali
 
 #### GET /v1/portals
-Zwróć listę portali z DB. **NIE zwracaj `wp_app_password` w response** (bezpieczeństwo).
+Zwróć listę portali z DB. **NIE zwracaj `wp_app_password`** (bezpieczeństwo).
 
 ```python
-# Response model
 class PortalResponse(BaseModel):
     id: int
     name: str
     url: str
     wp_username: str
-    profile_id: Optional[str]
+    profile_id: Optional[str]  # np. 'kurier365', 'prawy'
     # NIE: wp_app_password
 ```
 
 #### POST /v1/portals
-Utwórz nowy portal. Przyjmij credentials, zapisz do DB.
+Utwórz nowy portal. Waliduj `profile_id` — plik `profiles/{profile_id}.yaml` musi istnieć.
 
 ```python
 class PortalCreate(BaseModel):
-    name: str          # "Mój Portal"
-    url: str           # "https://moj-portal.pl"
-    wp_username: str   # "admin"
+    name: str           # "Prawy.pl"
+    url: str            # "https://prawy.pl"
+    wp_username: str    # "admin"
     wp_app_password: str  # Application Password z WP
-    profile_id: Optional[str]  # "kurier365", "prawy", None
+    profile_id: Optional[str]  # "prawy", "kurier365", None
 ```
 
-Walidacja: sprawdź czy `profile_id` odpowiada istniejącemu plikowi w `profiles/{profile_id}.yaml`. Jeśli plik nie istnieje i `profile_id` nie jest None → error 400.
+#### DELETE /v1/portals/{portal_id}
+Usuń portal z DB.
 
-#### GET /v1/portals/{portal_id}/full
-Endpoint **tylko dla backendu** (nie frontendowy) — zwraca pełne dane włącznie z `wp_app_password`. Używany przez pipeline przy inject.
+#### GET /v1/portals/{portal_id}/full (TYLKO internal/backend)
+Zwraca pełne dane z `wp_app_password`. Używany przez pipeline przy inject.
 
-### 3. Pipeline — połączenie Generate + Inject przez portal
+### 3. Frontend — nowy dropdown "Portal docelowy"
 
-W `api/services/pipeline.py`:
+**Usunąć z frontendu:**
+- Wszelkie hardcoded listy portali (Kurier365.pl, Prawy.pl)
+- Wszelki kod czytający portale z localStorage
+- Pola ręcznego wpisywania credentials w modalu "Wyślij do portalu" (URL, user, pass)
 
-**Generate:** przy `profile_id` z request → sprawdź czy istnieje portal z tym `profile_id` w DB → jeśli tak, załaduj dane portalu do kontekstu generowania (brand, display_name).
-
-**Inject (`_create_wp_post`):** 
-- Zmień sygnaturę: dodaj `portal_id: Optional[int]` lub `profile_id: Optional[str]`
-- Jeśli `portal_id` dostępny → pobierz pełne dane portalu z DB (credentials + profile_id)
-- Przekaż `profile` dict (z YAML) do `inject_video()` — to naprawi BUG #2
-
-Model łączący:
-```python
-# Przy GenerateRequest z profile_id
-# → znajdź portal w DB po profile_id
-# → zapisz portal_id w job/sesji
-# → Inject używa tego portal_id
+**Nowy dropdown "Portal docelowy":**
+```
+Portal docelowy ▼
+─────────────────────────
+  (lista portali z GET /v1/portals)
+─────────────────────────
+  + Dodaj nowy portal...
 ```
 
-### 4. Frontend — dropdown portali
-
-Obecny dropdown: `"Wpisz ręcznie..."` + pola ręczne.
-
-Nowy dropdown:
-- `GET /v1/portals` → lista portali z DB
-- Opcje: `[Prawy.pl] [Kurier365] [+ Dodaj portal] [Wpisz ręcznie...]`
-- Wybór portalu z listy: auto-wypełnia URL i username (ale NIE hasło — to pobierane z DB przez backend)
-- `Wpisz ręcznie`: jak dotychczas (fallback)
-
-Modal `+ Dodaj portal`:
+**Modal "Dodaj nowy portal"** (otwiera się z dropdown):
 ```
-Nazwa portalu: [________________]
-URL WordPress: [https://...      ]
-Użytkownik WP: [________________]
-Application Password: [__________]
-Profil treści: [dropdown: kurier365 / prawy / (brak)]
-[Zapisz portal]
+Nazwa portalu:       [________________]
+URL WordPress:       [https://...      ]
+Użytkownik WP:       [________________]
+Application Password: [________________]
+Profil treści:       [dropdown: prawy / kurier365 / (brak)]
+                     [Zapisz portal]
 ```
 
-Po zapisaniu: dropdown odświeża listę, nowy portal dostępny do wyboru.
+Po zapisaniu:
+- Portal pojawia się w dropdown
+- Dropdown odświeża listę z DB
+- Application Password nie jest wyświetlany w UI (••••••) — tylko podczas wpisywania
 
-**Ważne**: Application Password nie jest wyświetlane po zapisaniu — tylko `●●●●●●●●`. Credentials są przechowywane w DB (backend), nie w localStorage.
+### 4. Powiązanie Generate → Inject (kluczowa zmiana)
 
-### 5. Powiązanie portalu z generowaniem
+**Wybranie portalu w kroku 1 (Generate) = automatyczny inject do tego portalu**
 
-When user selects portal from dropdown:
-- Frontend: wysyła `portal_id` (lub `profile_id`) w `GenerateRequest`
-- Backend: ładuje profil YAML dla tego portalu (brand, SEO settings, chapter_class)
-- Inject: automatycznie używa credentials z DB dla tego portalu
+W `GenerateRequest`: już jest `profile_id` — zmień na `portal_id: int` (ID z DB). Backend sam wyciąga `profile_id` z portalu.
 
-**Użytkownik nie musi już wpisywać niczego ręcznie** — raz dodany portal = zawsze dostępny.
+W pipeline przy inject (`_create_wp_post`):
+1. Pobierz pełne dane portalu: `GET /v1/portals/{portal_id}/full` (z `wp_app_password`)
+2. Załaduj profil YAML: `profiles/{profile_id}.yaml`
+3. Przekaż profil dict do `inject_video(profile=profile_config)` — naprawia BUG #2
+4. Użytkownik NIE musi wpisywać credentials ręcznie — są w DB
+
+**Modal "Wyślij do portalu" po zmianach:**
+- Brak pól credentials (usunięte)
+- Widoczny: nazwa portalu, URL, status publikacji (Szkic/Publikuj), Format wpisu
+- Przycisk "Opublikuj na portalu"
 
 ---
 
@@ -166,18 +155,12 @@ When user selects portal from dropdown:
 
 Plik: `core/injector.py` → funkcja `update_rankmath_meta()`
 
-Aktualny kod (crash):
-```python
-resp = requests.post(url, json=payload, auth=auth, timeout=20)
-data = resp.json()  # JSONDecodeError gdy body puste
-```
-
 Fix:
 ```python
 resp = requests.post(url, json=payload, auth=auth, timeout=20)
 if not resp.text.strip():
     logger.error(
-        "  RankMath FAIL WP#%s: empty response body (HTTP %s) — endpoint może być niedostępny",
+        "  RankMath FAIL WP#%s: empty response body (HTTP %s)",
         wp_id, resp.status_code
     )
     return False
@@ -190,51 +173,50 @@ except ValueError as e:
 
 ### BUG #2 — Brand "Prawy TV" w alt-text
 
-Plik: `api/services/pipeline.py` → `_create_wp_post()` lub `inject_video()` call
+Plik: `api/services/pipeline.py` → `_create_wp_post()`
 
-Aktualny problem: `inject_video()` wywoływane bez `profile` dict → fallback `"Prawy TV"`
-
-Fix: przekazać `profile_config` (dict z YAML) do `inject_video(profile=profile_config)`.  
-Jeśli portal ma `profile_id` → załaduj `profiles/{profile_id}.yaml` i przekaż.
+Fix: załaduj `profiles/{profile_id}.yaml` i przekaż do `inject_video(profile=profile_config)`.  
+Profil `profile_id` pochodzi teraz z portalu w DB.
 
 ### BUG #5 — json-repair
 
 ```
 # requirements.txt — dodaj:
 json-repair>=0.30.0
-
-# Następnie rebuild Docker:
-docker compose -f docker-compose.vse.yml build vse-api
-docker compose -f docker-compose.vse.yml up -d vse-api
+# + rebuild docker
 ```
 
 ---
 
-## Test po implementacji
+## Test po implementacji (wykonuje właściciel produktu)
 
-1. Wejdź do dashboard VSE
-2. `+ Dodaj portal` → wpisz dane kurier365 (url, user, app_pass, profil: kurier365)
-3. Wygeneruj artykuł → wybierz portal `Kurier365` z dropdown
-4. Opublikuj
-5. Sprawdź w WP admin kurier365:
+1. Otwórz dashboard VSE
+2. Dropdown "Portal docelowy" → pusty (brak hardcoded)
+3. Kliknij `+ Dodaj nowy portal` → dodaj **Prawy.pl** (url + user + pass + profil: prawy)
+4. Kliknij `+ Dodaj nowy portal` → dodaj **Kurier365.pl** (url + user + pass + profil: kurier365)
+5. Wygeneruj artykuł → wyświetlane portale: Prawy.pl, Kurier365.pl
+6. Wybierz **Kurier365** → generuj → "Wyślij do portalu" (bez wpisywania credentials)
+7. Sprawdź w WP admin kurier365:
    - Artykuł stworzony ✓
    - Fraza kluczowa w RankMath ustawiona ✓
    - Alt-text thumbnajla: `[keyphrase] | Kurier365` (nie "Prawy TV") ✓
    - Bloki Gutenberga renderują bez błędów ✓
-6. Sprawdź RankMath score — cel: 70+
+8. Sprawdź RankMath score — cel: 70+
 
 ---
 
 ## Deliverable
 
-- [ ] Migration: kolumna `profile_id` w `wp_portals`
-- [ ] API: GET/POST `/v1/portals` + GET `/v1/portals/{id}/full`
-- [ ] Pipeline: inject używa portalu z DB → profil przekazywany
-- [ ] Frontend: dropdown z listą portali + modal dodawania
+- [ ] Migration: `ADD COLUMN profile_id` + `DELETE` starych rekordów
+- [ ] API: `GET/POST /v1/portals` + `DELETE /v1/portals/{id}` + `GET /v1/portals/{id}/full`
+- [ ] Frontend: dropdown z DB + modal dodawania portalu
+- [ ] Frontend: usunięte hardcoded/localStorage portale
+- [ ] Frontend: modal "Wyślij" bez pól credentials
+- [ ] Pipeline: inject używa portalu z DB → profil YAML przekazywany
 - [ ] BUG #1: graceful RankMath w `core/injector.py`
 - [ ] BUG #2: profil przekazywany do `inject_video()`
 - [ ] BUG #5: `json-repair` w requirements + rebuild
-- [ ] Deploy na VPS + test E2E
+- [ ] Deploy na VPS + test E2E przez właściciela
 
 **Dual-write raport:**
 - `video-seo-engine/.agents/reports/YYYY-MM-DD_[callsign]_portal-management.md`
@@ -244,4 +226,4 @@ Heartbeat `status: done` po zakończeniu.
 
 ---
 
-*[Supervisor 01 | sonic-void 29.06.2026]*
+*[Supervisor 01 | sonic-void 29.06.2026 — v2 po decyzji właściciela produktu]*
