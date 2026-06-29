@@ -57,6 +57,7 @@ class TranscriptJob(Base):
         default=None,
     )  # NULL do czasu generowania; potem pełny dict z pipeline.run_generate()
     error = Column(Text, nullable=True)  # NULL jeśli OK
+    portal_id = Column(String(50), nullable=True)  # zapisane podczas Generate do użytku w Inject
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
