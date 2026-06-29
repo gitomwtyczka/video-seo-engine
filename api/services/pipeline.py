@@ -75,6 +75,10 @@ from typing import Optional
 import httpx
 import requests
 from requests.auth import HTTPBasicAuth
+from sqlalchemy import select, desc
+from api.db import AsyncSessionLocal
+from api.models.job import TranscriptJob
+from api.models.portal import WpPortal
 
 logger = logging.getLogger(__name__)
 
@@ -150,9 +154,6 @@ def _vtt_runner_to_webvtt(vtt_runner_text: str) -> str:
 
 async def _create_transcript_job(video_url: str) -> str:
     """Tworzy job transkrypcji w DB i zwraca jego ID."""
-    from api.db import AsyncSessionLocal
-    from api.models.job import TranscriptJob
-
     async with AsyncSessionLocal() as db:
         job = TranscriptJob(video_url=video_url, status="pending")
         db.add(job)
@@ -165,9 +166,6 @@ async def _create_transcript_job(video_url: str) -> str:
 
 async def _wait_for_transcript(job_id: str) -> str:
     """Polluje DB na transkrypt z job'a Local Runner'a."""
-    from api.db import AsyncSessionLocal
-    from api.models.job import TranscriptJob
-
     deadline = time.time() + LOCAL_RUNNER_POLL_TIMEOUT
     job_uuid = uuid.UUID(job_id)
 
@@ -269,15 +267,7 @@ def _resolve_site_url_from_env() -> str:
 
 
 def _load_profile_config(profile_id: str) -> Optional[dict]:
-    """Load a YAML profile by ID for pipeline configuration.
-
-    CO: Ładuje konfigurację profilu z pliku profiles/{id}.yaml.
-    PO CO: Pipeline używa danych profilu do określenia site_url (dla SAAS enrichment)
-           i site_brand (dla generatora — brand w tytule artykułu).
-    JAK: yaml.safe_load z profiles/{id}.yaml. Zwraca None jeśli plik nie istnieje.
-
-    D9 (2026-06-20, vse-dev-23): New function.
-    """
+    """Load a YAML profile by ID for pipeline configuration."""
     import yaml
 
     profile_path = os.path.join(os.getcwd(), "profiles", f"{profile_id}.yaml")
@@ -298,10 +288,7 @@ def _load_profile_config(profile_id: str) -> Optional[dict]:
 
 
 def _resolve_site_url_from_profile(profile: dict) -> str:
-    """Resolve site URL from profile config for SAAS enrichment.
-
-    D9 (2026-06-20, vse-dev-23): New function.
-    """
+    """Resolve site URL from profile config for SAAS enrichment."""
     wp_url = profile.get("wp_base_url", "").strip().rstrip("/")
     # wp_base_url may contain ${env_var} placeholders — resolve them
     if wp_url.startswith("${") and wp_url.endswith("}"):
@@ -317,29 +304,7 @@ async def _fetch_wp_internal_links(
     current_video_id: str = "",
     max_links: int = 10,
 ) -> list[dict]:
-    """Fetch recent published posts from WP REST API as internal link suggestions.
-
-    CO: Pobiera ostatnie artykuły z WP REST API jako propozycje linków wewnętrznych.
-
-    PO CO: Gdy SAAS nie zwraca top_pages (GSC not_connected), pipeline sam
-    pobiera ostatnie artykuły portalu aby LLM miał materiał do linkowania
-    wewnętrznego. To podnosi SEO scoring w RankMath (internal links check).
-
-    JAK: GET /wp-json/wp/v2/posts?per_page=N&orderby=date&status=publish
-    Filtruje self-links (jeśli current_video_id jest w URL posta).
-    Publiczne API — nie wymaga auth dla published posts.
-    Graceful: timeout/error → pusta lista (pipeline continues).
-
-    D8 (2026-06-20, vse-dev-24): New function.
-
-    Args:
-        wp_base_url: WordPress site base URL (e.g. 'https://prawy.pl/').
-        current_video_id: YouTube video ID to exclude from links (prevent self-linking).
-        max_links: Maximum number of links to return.
-
-    Returns:
-        List of dicts with 'url' and 'title' keys. Empty list on error.
-    """
+    """Fetch recent published posts from WP REST API as internal link suggestions."""
     endpoint = f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/posts"
     params = {
         "per_page": max_links + 5,  # fetch extra to account for self-link filtering
@@ -404,28 +369,7 @@ async def _describe_image_via_saas(
     focus_keywords: list[str],
     site_brand: str = "",
 ) -> Optional[dict]:
-    """Call SAAS Vision API to get SEO-optimized image description.
-
-    CO: Wywołuje SAAS POST /api/external/describe-image aby uzyskać
-    opisy obrazu z GPT-4o Vision (alt_text, title, caption, description, filename).
-
-    PO CO: Vision API WIDZI obraz (GPT-4o) i generuje opisy na podstawie
-    tego co rzeczywiście jest na screenshocie. To znacznie lepsze niż ślepy
-    LLM fallback który zgaduje treść obrazu z kontekstu artykułu.
-
-    JAK: POST z image_url + kontekstem artykułu. Auth: Bearer EXTERNAL_API_TOKEN.
-    Timeout 30s. None jeśli SAAS niedostępny → caller używa LLM fallback.
-
-    Args:
-        image_url: Public URL of the image (YouTube thumbnail).
-        article_title: Title of the article being generated.
-        focus_keywords: List of focus keyphrases for SEO context.
-        site_brand: Portal brand name (optional).
-
-    Returns:
-        Dict with alt_text, title, caption, description, filename keys.
-        None if SAAS unavailable or error (triggers LLM fallback).
-    """
+    """Call SAAS Vision API to get SEO-optimized image description."""
     saas_url = os.environ.get("SAAS_API_URL", "").strip().rstrip("/")
     token = os.environ.get("EXTERNAL_API_TOKEN", "").strip()
     if not saas_url or not token:
@@ -475,47 +419,36 @@ async def run_generate(
     lang: str,
     post_title_override: Optional[str] = None,
     publication_type: str = "full_analysis",
-    profile_id: Optional[str] = None,
+    portal_id: Optional[str] = None,
 ) -> dict:
-    """Fetch transcript + generate SEO schema. No WP write.
-
-    D6b: Accepts publication_type to control article format.
-    D8: Fallback internal links from WP REST API when SAAS returns empty.
-    D9: Accepts profile_id to select server-side YAML profile for
-        site_url resolution and site_brand.
-    D11: Fetches video thumbnails + SAAS Vision API descriptions.
-         Returns image_data in result for injector consumption.
-
-    Args:
-        video_url: YouTube video URL or ID.
-        llm_provider: 'claude' or 'gemini'.
-        lang: Transcript language code (default 'pl').
-        post_title_override: Optional title override instead of yt-dlp metadata.
-        publication_type: Article type: 'full_analysis', 'watching_page', 'discover'.
-        profile_id: Optional profile ID from profiles/*.yaml (D9).
-
-    Returns:
-        Dict with 'video_id', 'meta', 'seo', 'gsc', 'saas_data' keys.
-
-    Raises:
-        ValueError: On invalid URL or missing API key.
-        RuntimeError: On fetcher/generator failure.
-    """
+    """Fetch transcript + generate SEO schema. No WP write."""
     from core.fetcher import process_video as fetch_video
     from core.fetcher import fetch_video_thumbnails
     from core.generator import process_video as generate_schema
 
     video_id = _extract_video_id(video_url)
-    logger.info("[generate] video_id=%s provider=%s type=%s profile=%s",
-                video_id, llm_provider, publication_type, profile_id)
+    logger.info("[generate] video_id=%s provider=%s type=%s portal_id=%s",
+                video_id, llm_provider, publication_type, portal_id)
 
-    # D9: Load profile config if profile_id provided
     profile_config = None
     site_brand = None
-    if profile_id:
-        profile_config = _load_profile_config(profile_id)
-        if profile_config:
-            site_brand = profile_config.get("site_brand")
+    profile_id = None
+    
+    # D9/VSE-DEV: Load profile config via portal_id
+    if portal_id:
+        async with AsyncSessionLocal() as db:
+            try:
+                uid = uuid.UUID(portal_id)
+                portal = await db.get(WpPortal, uid)
+                if portal and portal.profile_id:
+                    profile_id = portal.profile_id
+            except ValueError:
+                pass
+                
+        if profile_id:
+            profile_config = _load_profile_config(profile_id)
+            if profile_config:
+                site_brand = profile_config.get("site_brand")
 
     # Determine API key based on provider
     if llm_provider == "claude":
@@ -531,7 +464,6 @@ async def run_generate(
 
     local_runner_mode = os.environ.get("LOCAL_RUNNER_MODE", "false").lower() == "true"
 
-    # Step 0: SAAS enrichment — use profile's site URL if available (D9)
     if profile_config:
         site_url = _resolve_site_url_from_profile(profile_config)
     else:
@@ -547,9 +479,6 @@ async def run_generate(
             "upgrade_url": None,
         }, {}
 
-    # Step 0b (D8): Fallback internal links from WP REST API
-    # If SAAS didn't provide internal_links (e.g. GSC not connected),
-    # self-source recent published posts from the target portal.
     if not internal_links:
         wp_internal = await _fetch_wp_internal_links(site_url, video_id)
         if wp_internal:
@@ -560,12 +489,10 @@ async def run_generate(
             )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        # 1. Fetch metadata + transcript
         meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang)
         if not meta or meta.get("error"):
             raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
 
-        # Step 1b (D11): Fetch video thumbnails
         num_screenshots = 2 if publication_type in ("full_analysis", "discover") else 1
         thumbnails = await asyncio.to_thread(
             fetch_video_thumbnails, video_id, tmp_dir, num_screenshots
@@ -575,7 +502,6 @@ async def run_generate(
             len(thumbnails), video_id, num_screenshots,
         )
 
-        # Step 1c (D11): Get image descriptions from SAAS Vision API (primary)
         image_data: list[dict] = []
         post_title_for_desc = post_title_override or meta.get("title", video_id)
         keyphrases_for_desc = priority_keywords[:3] if priority_keywords else []
@@ -605,14 +531,13 @@ async def run_generate(
                     "[generate] D11 image[%d]: SAAS Vision description OK", idx,
                 )
             else:
-                # Will use LLM fallback descriptions after generation
                 image_data.append({
                     "path": thumb["path"],
                     "url": yt_thumb_url,
                     "width": thumb.get("width", 1280),
                     "height": thumb.get("height", 720),
                     "source": thumb.get("source", "youtube"),
-                    "descriptions": None,  # will be filled from LLM fallback
+                    "descriptions": None,
                     "description_source": "pending_llm_fallback",
                 })
                 logger.info(
@@ -657,9 +582,8 @@ async def run_generate(
 
         post_title = post_title_override or meta.get("title", video_id)
         yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
-        wp_id_placeholder = 0  # no WP ID for generate-only
+        wp_id_placeholder = 0
 
-        # 2. Generate schema (sync → thread) with SAAS enrichment + publication_type + site_brand
         seo = await asyncio.to_thread(
             generate_schema,
             video_id,
@@ -668,16 +592,15 @@ async def run_generate(
             yt_url,
             vtt_path,
             api_key,
-            None,  # out_dir — do not save file
-            0,     # sleep_between
+            None,
+            0,
             llm_provider,
             priority_keywords if priority_keywords else None,
             internal_links if internal_links else None,
-            site_brand,  # D9: from profile config (was None)
-            publication_type,  # D6b: publication type
+            site_brand,
+            publication_type,
         )
 
-        # Step 2b (D11): Fill LLM fallback descriptions for images that didn't get SAAS
         llm_img_descs = seo.get("image_descriptions", [])
         for idx, img in enumerate(image_data):
             if img["descriptions"] is None and idx < len(llm_img_descs):
@@ -687,7 +610,7 @@ async def run_generate(
                     "title": llm_desc.get("alt_text", "")[:100],
                     "caption": llm_desc.get("caption", ""),
                     "description": llm_desc.get("caption", ""),
-                    "filename": None,  # will use default naming
+                    "filename": None,
                 }
                 img["description_source"] = "llm_fallback"
                 logger.info(
@@ -695,7 +618,6 @@ async def run_generate(
                     idx, img["descriptions"]["alt_text"][:60],
                 )
             elif img["descriptions"] is None:
-                # No SAAS, no LLM fallback — use generic description
                 focus_kp = seo.get("focus_keyphrase", "")
                 img["descriptions"] = {
                     "alt_text": f"{focus_kp} — kadr z materiału wideo" if focus_kp else "Kadr z materiału wideo",
@@ -709,13 +631,12 @@ async def run_generate(
                     "[generate] D11 image[%d]: using generic fallback (no SAAS, no LLM desc)", idx,
                 )
 
-        # Attach image_data to seo result
         seo["image_data"] = image_data
 
-    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s profile=%s images=%d",
+    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s portal_id=%s images=%d",
                 video_id, seo.get("focus_keyphrases", seo.get("focus_keyphrase", "?")),
                 "enriched" if seo.get("saas_enriched") else "standalone",
-                gsc_meta["status"], publication_type, profile_id, len(image_data))
+                gsc_meta["status"], publication_type, portal_id, len(image_data))
     return {
         "video_id": video_id,
         "meta": meta,
@@ -727,28 +648,23 @@ async def run_generate(
 
 async def run_process(video_url: str, site_config: dict, options: dict,
                       wp_post_id: Optional[int] = None) -> dict:
-    """Full pipeline: fetch → generate → inject.
-
-    D6b: Reads publication_type from options and passes to run_generate().
-    """
+    """Full pipeline: fetch → generate → inject."""
     from core.injector import inject_video
 
     start = time.time()
     llm_provider = options.get("llm_provider", "claude")
     lang = options.get("lang", "pl")
-    publication_type = options.get("publication_type", "full_analysis")  # D6b
+    publication_type = options.get("publication_type", "full_analysis")
 
-    # Step 1+2: Generate schema
     gen_result = await run_generate(
         video_url, llm_provider, lang,
-        publication_type=publication_type,  # D6b
+        publication_type=publication_type,
     )
     video_id = gen_result["video_id"]
     seo = gen_result["seo"]
     meta = gen_result["meta"]
     saas_data = gen_result.get("saas_data")
 
-    # Determine WP post ID
     final_wp_id = wp_post_id
     if final_wp_id is None:
         logger.warning("[process] No wp_post_id provided — skipping injection")
@@ -777,10 +693,10 @@ async def run_process(video_url: str, site_config: dict, options: dict,
             site_config["wp_base_url"],
             site_config["wp_user"],
             site_config["wp_app_password"],
-            None,   # yt_api_key
-            False,  # dry_run
-            False,  # skip_thumbnail
-            None,   # profile
+            None,
+            False,
+            False,
+            None,
             saas_data,
         )
         injected = inject_result.get("ok", False)
@@ -804,7 +720,10 @@ async def run_process(video_url: str, site_config: dict, options: dict,
 def _create_wp_post(
     seo: dict,
     video_id: str,
-    site_config: dict,
+    wp_base_url: str,
+    wp_user: str,
+    wp_app_pass: str,
+    profile_config: Optional[dict] = None,
     post_status: str = "draft",
     post_format: str = "video",
     saas_data: Optional[dict] = None,
@@ -812,9 +731,6 @@ def _create_wp_post(
     """Create a brand-new WordPress post via REST API and inject SEO schema."""
     from core.injector import inject_video, _make_auth, _strip_html
 
-    wp_base_url = site_config["wp_base_url"]
-    wp_user = site_config["wp_user"]
-    wp_app_pass = site_config["wp_app_password"]
     auth = _make_auth(wp_user, wp_app_pass)
 
     post_title = seo.get("post_title", "").strip() or seo.get("seo_title", "").strip() or video_id
@@ -859,7 +775,7 @@ def _create_wp_post(
         None,
         False,
         False,
-        None,
+        profile_config,
         saas_data,
     )
 
@@ -888,11 +804,40 @@ async def run_inject(
     from core.injector import inject_video
 
     video_id = _extract_video_id(video_url)
+    
+    # Resolving Portal ID from DB via Job
+    wp_base_url = site_config["wp_base_url"]
+    wp_user = site_config["wp_user"]
+    wp_app_password = site_config["wp_app_password"]
+    profile_config = None
+    
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(TranscriptJob)
+            .where(TranscriptJob.video_url.contains(video_id))
+            .order_by(desc(TranscriptJob.created_at))
+            .limit(1)
+        )
+        job = result.scalar_one_or_none()
+        if job and job.portal_id:
+            try:
+                uid = uuid.UUID(job.portal_id)
+                portal = await db.get(WpPortal, uid)
+                if portal:
+                    wp_base_url = portal.url
+                    wp_user = portal.wp_username
+                    wp_app_password = portal.wp_app_password
+                    if portal.profile_id:
+                        profile_config = _load_profile_config(portal.profile_id)
+            except ValueError:
+                pass
+
     logger.info(
-        "[inject] wp_post_id=%s video_id=%s post_status=%s post_format=%s",
+        "[inject] wp_post_id=%s video_id=%s post_status=%s post_format=%s portal_overridden=%s",
         wp_post_id, video_id,
         post_status if wp_post_id is None else "n/a",
         post_format if wp_post_id is None else "n/a",
+        bool(profile_config is not None)
     )
 
     if wp_post_id is None:
@@ -901,7 +846,10 @@ async def run_inject(
             _create_wp_post,
             schema_data,
             video_id,
-            site_config,
+            wp_base_url,
+            wp_user,
+            wp_app_password,
+            profile_config,
             post_status,
             post_format,
             saas_data,
@@ -913,13 +861,13 @@ async def run_inject(
         wp_post_id,
         video_id,
         schema_data,
-        site_config["wp_base_url"],
-        site_config["wp_user"],
-        site_config["wp_app_password"],
+        wp_base_url,
+        wp_user,
+        wp_app_password,
         None,
         False,
         False,
-        None,
+        profile_config,
         saas_data,
     )
     return {
