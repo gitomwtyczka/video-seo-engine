@@ -1,1 +1,9 @@
-{"callsign":"vse-dev-31","status":"done","current_task":"D14 Image Descriptions Fix completed","timestamp":"2026-06-29T18:23:45Z","last_completed":["D14 Image Descriptions Fix — commit ab2c9454e8d26353d2ae1e237e0c1dadc1d2e272 (2026-06-29)"]}
+{
+  "callsign": "vse-strateg-01",
+  "status": "working",
+  "current_task": "Diagnoza generowania: prawy.pl vs kurier365",
+  "timestamp": "2026-06-29T19:02:50Z",
+  "last_completed": [
+    "D14 Image Descriptions Fix — commit ab2c9454e8d26353d2ae1e237e0c1dadc1d2e272 (2026-06-29)"
+  ]
+}
