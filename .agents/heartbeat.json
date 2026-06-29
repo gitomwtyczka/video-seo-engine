@@ -1,15 +1,13 @@
 {
-  "callsign": "vse-strateg-01",
+  "callsign": "vse-dev-01",
   "status": "done",
-  "current_task": "Diagnoza generowania: prawy.pl vs kurier365 — ZAKOŃCZONE",
-  "timestamp": "2026-06-29T19:24:00Z",
+  "current_task": "Portal Backend + Bugfixes #1, #2, #5 — ZAKOŃCZONE",
+  "timestamp": "2026-06-29T20:53:00Z",
   "last_completed": [
-    "DISPATCH-VSE-DIAG-01 Kurier365 diagnoza — commit 4389d6bac4d7d4ad3e86cbc13425821c17b9b250 (2026-06-29)"
+    "DISPATCH-VSE-DEV-20260629-03A-PORTAL-BACKEND — commit bc0fe988bc2299b7283718d3c6881231136beb8b (2026-06-29)"
   ],
   "pending": [
-    "Fix #1: RankMath graceful handling — do implementacji przez vse-dev",
-    "Fix #2: Brand alt-text w _create_wp_post — do implementacji",
-    "Fix #3+#4: Model portali + selektor UI — wymaga UI dodawania portalu jako prerequisit",
-    "Fix #5: pip install json-repair"
+    "Frontend Portal Management (DISPATCH-VSE-DEV-20260629-03B-PORTAL-FRONTEND)",
+    "Deploy on VPS (BLOCKED in this session due to AGENTS.md rules)"
   ]
 }
