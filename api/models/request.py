@@ -58,7 +58,7 @@ class GenerateRequest(BaseModel):
     lang: str = "pl"
     post_title: Optional[str] = None  # override title from metadata
     publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
-    profile_id: Optional[str] = None  # D9: server-side YAML profile id (e.g. "prawy", "kurier365")
+    portal_id: Optional[str] = None  # replaced profile_id with portal_id (UUID as string)
 
 
 class InjectRequest(BaseModel):
