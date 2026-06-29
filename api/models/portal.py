@@ -36,6 +36,7 @@ class WpPortal(Base):
     url = Column(String(512), nullable=False)             # np. "https://kurier365.pl"
     wp_username = Column(String(255), nullable=False)     # WP user login
     wp_app_password = Column(Text, nullable=False)        # WP Application Password
+    profile_id = Column(String(100), nullable=True)       # np. "prawy", "kurier365"
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
