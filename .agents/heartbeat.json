@@ -1,9 +1,15 @@
 {
   "callsign": "vse-strateg-01",
-  "status": "working",
-  "current_task": "Diagnoza generowania: prawy.pl vs kurier365",
-  "timestamp": "2026-06-29T19:02:50Z",
+  "status": "done",
+  "current_task": "Diagnoza generowania: prawy.pl vs kurier365 — ZAKOŃCZONE",
+  "timestamp": "2026-06-29T19:24:00Z",
   "last_completed": [
-    "D14 Image Descriptions Fix — commit ab2c9454e8d26353d2ae1e237e0c1dadc1d2e272 (2026-06-29)"
+    "DISPATCH-VSE-DIAG-01 Kurier365 diagnoza — commit 4389d6bac4d7d4ad3e86cbc13425821c17b9b250 (2026-06-29)"
+  ],
+  "pending": [
+    "Fix #1: RankMath graceful handling — do implementacji przez vse-dev",
+    "Fix #2: Brand alt-text w _create_wp_post — do implementacji",
+    "Fix #3+#4: Model portali + selektor UI — wymaga UI dodawania portalu jako prerequisit",
+    "Fix #5: pip install json-repair"
   ]
 }
