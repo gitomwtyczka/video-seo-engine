@@ -2,6 +2,7 @@
 requests>=2.31.0
 python-dotenv>=1.0.0
 pyyaml>=6.0.0
+json-repair
 
 # YouTube data (no API key required)
 youtube-transcript-api>=1.2.4
