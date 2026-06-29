@@ -1,13 +1,11 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-dev",
   "status": "done",
   "current_task": "DASHBOARD-JSX-FIX (DISPATCH-VSE-DEV-33)",
-  "timestamp": "2026-06-29T23:59:00+02:00",
+  "timestamp": "2026-06-29T23:58:00+02:00",
   "last_completed": [
-    "DASHBOARD-JSX-FIX (DISPATCH-VSE-DEV-33) — commit 0b690e4 (2026-06-29)",
-    "PORTAL-FIX (DISPATCH-VSE-DEV-32) — dashboard-inner.tsx (commit 2bef570), use-portals.ts (commit 84afeae)",
-    "Refactor dashboard for DB portals frontend (DISPATCH-03B) — commit f492a8b",
-    "Update use-portals.ts for payload — commit 44737ea"
+    "PORTAL-FIX (DISPATCH-VSE-DEV-32) [[vse-dev-01]] - commit 0b690e4 - fix JSX indent pub selector",
+    "DASHBOARD-JSX-FIX deploy (DISPATCH-VSE-DEV-33) [[vse-dev]] - docker up -d vse-web - Next.js Ready in 98ms"
   ],
   "pending": []
 }
