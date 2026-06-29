@@ -1,12 +1,13 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "Frontend Portal Management (DISPATCH-VSE-DEV-20260629-03B-PORTAL-FRONTEND)",
-  "timestamp": "2026-06-29T18:57:00Z",
+  "status": "done",
+  "current_task": "Frontend portals (DISPATCH-VSE-DEV-20260629-03B)",
+  "timestamp": "2026-06-29T19:31:13.928156Z",
   "last_completed": [
-    "DISPATCH-VSE-DEV-20260629-03A-PORTAL-BACKEND — commit bc0fe988bc2299b7283718d3c6881231136beb8b (2026-06-29)"
+    "Refactor dashboard for DB portals frontend (DISPATCH-03B) [[vse-dev-01]] - commit f492a8b",
+    "Update use-portals.ts for payload [[vse-dev-01]] - commit 44737ea"
   ],
   "pending": [
-    "Deploy on VPS (BLOCKED in this session due to AGENTS.md rules)"
+    "Deploy changes to VPS (Admin/Deployer task)"
   ]
 }
