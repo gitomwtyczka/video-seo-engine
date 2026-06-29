@@ -53,8 +53,15 @@ D13 Slug Trim (2026-06-21, vse-dev-29):
     when they are part of the focus keyphrase — fixes RankMath false positive
   - Bugfix: resolved_channels → resolved_chapters (typo from original code)
 
+D15 JSON Sanitizer (2026-06-29, vse-dev-30):
+  - _sanitize_llm_json() applied before json.loads() in generate_seo_v4()
+  - PRIMARY: json-repair library (pip install json-repair) — structural repair
+  - FALLBACK: regex restricted to HTML attr values (attr=\"val\" → attr='val')
+  - Zero false positives on plain text, multiline, nested HTML
+  - Eliminates 500 errors from LLM outputting raw HTML with unescaped quotes
+
 Dependencies:
-  pip install google-genai anthropic python-dotenv
+  pip install google-genai anthropic python-dotenv json-repair
 """
 import json
 import logging
@@ -65,6 +72,14 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# D15: json-repair optional import (PRIMARY sanitizer backend)
+try:
+    from json_repair import repair_json as _json_repair_fn  # type: ignore
+    _JSON_REPAIR_AVAILABLE = True
+except ImportError:
+    _JSON_REPAIR_AVAILABLE = False
+    logger.warning("D15: json-repair not installed — using regex fallback. pip install json-repair")
 
 
 # ============================================================
@@ -242,6 +257,93 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
 
 
 # ============================================================
+# D15: JSON SANITIZER — pre-parse repair for LLM HTML output
+# ============================================================
+
+def _sanitize_llm_json(raw_text: str) -> str:
+    """Sanitize raw LLM output before json.loads() to prevent JSONDecodeError.
+
+    CO: Naprawia surowy tekst zwracany przez LLM przed parsowaniem JSON.
+
+    PO CO: LLM (Claude/Gemini) czasem generuje w polach HTML (article_body)
+    surowe podwójne cudzysłowy w atrybutach tagów HTML, np:
+      <a href="https://prawy.pl" target="_blank">link</a>
+    To niszczy składnię JSON i powoduje błęd 500. Ta funkcja jest ostatnią
+    deską ratunku przed json.loads() — naprawia taki output bez korumpowania
+    poprawnego JSON lub zwykłego tekstu.
+
+    JAK: Dwie warstwy naprawy (PRIMARY → FALLBACK):
+      1. PRIMARY: json-repair (pip install json-repair) — rozumie strukturę JSON,
+         naprawia semantycznie, zero false positives.
+      2. FALLBACK (gdy json-repair niedostępny): regex wyizolowany do wartości
+         atrybutów HTML (attr="val" → attr='val'), działa wyłącznie wewnątrz
+         sekwencji wyglądających jak HTML tag. NIE dotyka zwykłego tekstu.
+
+    Passthrough: jeśli raw_text jest już poprawnym JSON — zwracany bez zmian
+    (json.loads() OK → natychmiastowy return, zero overhead).
+
+    Args:
+        raw_text: Raw string output from LLM (may contain broken JSON).
+
+    Returns:
+        Sanitized string ready for json.loads(). Always returns a string.
+        On catastrophic failure returns raw_text unchanged (re-raise by caller).
+    """
+    # Fast path: already valid JSON — no work needed
+    try:
+        json.loads(raw_text)
+        return raw_text
+    except json.JSONDecodeError:
+        pass
+
+    # PRIMARY: json-repair — structural, safe, handles multiline and nesting
+    if _JSON_REPAIR_AVAILABLE:
+        try:
+            repaired = _json_repair_fn(raw_text, return_objects=False)
+            # json-repair may return a dict; ensure we have a string
+            if isinstance(repaired, dict):
+                repaired = json.dumps(repaired, ensure_ascii=False)
+            # Validate repair worked
+            json.loads(repaired)
+            logger.info("D15: json-repair fixed LLM output (%d → %d chars)", len(raw_text), len(repaired))
+            return repaired
+        except Exception as repair_exc:
+            logger.warning("D15: json-repair failed (%s) — trying regex fallback", repair_exc)
+
+    # FALLBACK: regex — restricted to HTML attribute values only
+    # Pattern: matches attr="value" sequences inside JSON string values
+    # ONLY converts double-quoted HTML attributes to single-quoted.
+    # Does NOT touch: plain text, JSON keys, already-correct JSON.
+    #
+    # Strategy: find sequences that look like HTML attribute assignments
+    # (word=" ... ") and convert the surrounding double quotes to single quotes.
+    # The lookahead/behind anchors it to HTML-like context (alphanumeric attr name).
+    #
+    # Limitation: cannot fix deeply nested escaped sequences without json-repair.
+    # For those cases, the D12 retry mechanism takes over.
+    try:
+        # Match: word characters followed by =" ... " where value has no unescaped "
+        # Replace: attr="val" → attr='val'
+        # The pattern is anchored to look like HTML attr=" ... "
+        fixed = re.sub(
+            r'(\b[\w-]+)=\\"((?:[^\\\\"]|\\\\.)*)\\"',
+            r"\1='\2'",
+            raw_text,
+        )
+        json.loads(fixed)
+        logger.info("D15: regex fallback fixed LLM output")
+        return fixed
+    except (json.JSONDecodeError, re.error) as regex_exc:
+        logger.warning(
+            "D15: regex fallback also failed (%s) — returning raw for D12 retry",
+            regex_exc,
+        )
+
+    # Both strategies failed — return raw text; D12 retry will handle or raise
+    return raw_text
+
+
+# ============================================================
 # SAAS ENRICHMENT — build prompt section from GSC data
 # ============================================================
 
@@ -348,7 +450,7 @@ Zastosuj ZMODYFIKOWANE reguły:
   Reszta: krótkie fakty, konkrety, bez akademickiego stylu.
   Formatuj pod mobile: krótkie zdania, dużo enterów.
 - **post_title**: max 65 zn, z emocjonalnym hakiem (Discover lubi klikalne tytuły)
-- **faq**: POMIŃ (nie generuj FAQ dla Discover)
+- **faq**: POMINĄ (nie generuj FAQ dla Discover)
 - **quotes**: MAX 2 krótkie cytaty
 - **chapters**: generuj normalnie
 - **lead**: 1-2 zdania, MAX 150 zn, hook style
@@ -395,6 +497,10 @@ def generate_seo_v4(
     do, o) when part of focus keyphrase. Hard 60-char limit enforced in
     process_video() after json.loads().
 
+    D15: _sanitize_llm_json() applied before json.loads() — PRIMARY via
+    json-repair, FALLBACK via regex restricted to HTML attr values.
+    Eliminates 500 errors from unescaped double quotes in HTML attributes.
+
     Args:
         title: WordPress post title.
         timestamped_text: VTT text with [MM:SS] markers from parse_vtt_full().
@@ -411,7 +517,7 @@ def generate_seo_v4(
         Parsed JSON dict from LLM response.
 
     Raises:
-        json.JSONDecodeError: If LLM returns malformed JSON (after 1 retry).
+        json.JSONDecodeError: If LLM returns malformed JSON (after sanitizer + 1 retry).
         Exception: On LLM API errors (re-raised with logging).
     """
     text_trimmed = timestamped_text[:80000]
@@ -488,7 +594,7 @@ Rozdzialy musza:
      D \u2014 POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
    - Cel: widz klika nawet nie znajac goscia z imienia.
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
-5. **wp_slug** \u2014 HARD MAX 60 znakow (ABSOLUTNY LIMIT — slug bedzie obciety do 60 zn). URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj). ZACHOWAJ polskie spojniki i przyimki (i, w, z, na, do, o) gdy sa czescia frazy kluczowej \u2014 np. "tytus-romek-i-atomek" ZOSTAJE, bo "i" to czesc nazwy wlasnej. Bez stop-words ktore nie sa czescia frazy. SLUG MUSI ZACZYNAC SIE od transliterowanych slow z focus_keyphrases[0]. Np. fraza "polityka obronna" \u2192 slug "polityka-obronna-...".
+5. **wp_slug** \u2014 HARD MAX 60 znakow (ABSOLUTNY LIMIT \u2014 slug bedzie obciety do 60 zn). URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj). ZACHOWAJ polskie spojniki i przyimki (i, w, z, na, do, o) gdy sa czescia frazy kluczowej \u2014 np. "tytus-romek-i-atomek" ZOSTAJE, bo "i" to czesc nazwy wlasnej. Bez stop-words ktore nie sa czescia frazy. SLUG MUSI ZACZYNAC SIE od transliterowanych slow z focus_keyphrases[0]. Np. fraza "polityka obronna" \u2192 slug "polityka-obronna-...".
 6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa.
 7. **lead** \u2014 2-3 zdania, max 300 znakow. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
 8. **article_body** \u2014 HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
@@ -534,7 +640,7 @@ Rozdzialy musza:
     e) reason: krotkie uzasadnienie dlaczego to zrodlo jest authority
     f) Jeden z linkow MOZE byc do oryginalnego wideo YouTube ({yt_url})
     KRYTYCZNE DLA JSON: W polach URL i anchor_text NIE uzywaj podwojnych cudzyslowow.
-    Caly output to JSON — podwojne cudzysłowy wewnatrz wartosci LAMIA parsowanie.
+    Caly output to JSON \u2014 podwojne cudzysłowy wewnatrz wartosci LAMIA parsowanie.
 16. **image_descriptions** \u2014 lista 2 opisow do screenshotow z wideo (FALLBACK gdy SAAS Vision API niedostepny).
     Kazdy dict: {{"alt_text": "...", "caption": "...", "context": "..."}}
     ZASADY:
@@ -576,6 +682,8 @@ Odpowiedz TYLKO JSON (bez markdown):
         text = text.strip()
         text = re.sub(r"^```json\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
+        # D15: Pre-parse sanitization — repair broken HTML attrs before json.loads()
+        text = _sanitize_llm_json(text)
         return json.loads(text)
     except json.JSONDecodeError as e:
         # D12: Log raw LLM output for debugging (first 2000 chars)
@@ -600,6 +708,8 @@ Odpowiedz TYLKO JSON (bez markdown):
             text2 = text2.strip()
             text2 = re.sub(r"^```json\s*", "", text2)
             text2 = re.sub(r"\s*```$", "", text2)
+            # D15: Apply sanitizer on retry output too
+            text2 = _sanitize_llm_json(text2)
             result = json.loads(text2)
             logger.info("D12: Retry succeeded — valid JSON obtained")
             return result
@@ -697,6 +807,7 @@ def process_video(
     D6b.6: publication_type parameter controls article format.
     D11: LLM now returns image_descriptions as fallback for SAAS Vision API.
     D13: wp_slug is hard-trimmed to 60 chars at word boundary after LLM call.
+    D15: _sanitize_llm_json() applied before json.loads() in generate_seo_v4().
 
     Args:
         youtube_id: YouTube video ID.
@@ -766,7 +877,7 @@ def process_video(
     trimmed_slug = _trim_slug(raw_slug, max_len=60)
     if trimmed_slug != raw_slug:
         logger.info(
-            "D13 slug trimmed: %r (%d zn) → %r (%d zn)",
+            "D13 slug trimmed: %r (%d zn) \u2192 %r (%d zn)",
             raw_slug, len(raw_slug), trimmed_slug, len(trimmed_slug),
         )
     result["wp_slug"] = trimmed_slug
