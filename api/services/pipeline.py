@@ -265,7 +265,7 @@ def _resolve_site_url_from_env() -> str:
     wp_url = os.environ.get("WP_BASE_URL", "").strip().rstrip("/")
     if wp_url:
         return wp_url + "/"
-    return "https://prawy.pl/"
+    return ""
 
 
 def _load_profile_config(profile_id: str) -> Optional[dict]:
@@ -536,7 +536,16 @@ async def run_generate(
         site_url = _resolve_site_url_from_profile(profile_config)
     else:
         site_url = _resolve_site_url_from_env()
-    priority_keywords, internal_links, gsc_meta, saas_data = await _fetch_saas_enrichment(site_url)
+    
+    if site_url:
+        priority_keywords, internal_links, gsc_meta, saas_data = await _fetch_saas_enrichment(site_url)
+    else:
+        priority_keywords, internal_links, gsc_meta, saas_data = [], [], {
+            "status": "unavailable",
+            "message": None,
+            "connect_url": None,
+            "upgrade_url": None,
+        }, {}
 
     # Step 0b (D8): Fallback internal links from WP REST API
     # If SAAS didn't provide internal_links (e.g. GSC not connected),
