@@ -10,6 +10,7 @@ from sqlalchemy import text
 from api.db import DATABASE_URL, Base, AsyncSessionLocal
 from api.models.user import Plan  # noqa: F401 - ensures Plan is registered
 from api.models.user import User, UsageLog, ApiKey  # noqa: F401
+from api.models.portal import WpPortal  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -29,6 +30,16 @@ async def run_migration():
     async with engine.begin() as conn:
         log.info("Creating tables...")
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Migration: add profile_id column and clear old records
+        try:
+            await conn.execute(text("ALTER TABLE wp_portals ADD COLUMN IF NOT EXISTS profile_id VARCHAR(100)"))
+            log.info("Ensured profile_id column exists on wp_portals")
+            await conn.execute(text("DELETE FROM wp_portals"))
+            log.info("Cleared old records from wp_portals")
+        except Exception as e:
+            log.warning(f"Error during manual migrations: {e}")
+
         log.info("Tables created.")
 
     async with AsyncSessionLocal() as session:
