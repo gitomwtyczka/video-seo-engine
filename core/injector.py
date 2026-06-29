@@ -39,7 +39,7 @@ D5: Multi-keyword RankMath (2026-06-20, vse-dev-19):
          używano tylko 1 frazy z LLM. Teraz: top2 GSC + top2 Trends + LLM
          keyphrases → dedupe → max 5 → comma-separated.
   JAK: build_focus_keywords() przyjmuje seo_data + saas_data, buduje
-       merged listę, _build_rankmath_meta() używa jej zamiast prostego get().
+       merged lista, _build_rankmath_meta() używa jej zamiast prostego get().
 
 D7: SEO Scoring Fix (2026-06-20, vse-dev-22):
   CO: Naprawia 6 problemów RankMath scoring (57→90+).
@@ -86,7 +86,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 
-def _build_player_js(seek_fn: str = "prawySeek", chapter_class: str = "prawy-chapter") -> str:
+def _build_player_js(seek_fn: str = "vseSeek", chapter_class: str = "vse-chapter") -> str:
     """Build the seekTo player JavaScript with profile-specific identifiers.
 
     Args:
@@ -125,7 +125,7 @@ def _build_player_js(seek_fn: str = "prawySeek", chapter_class: str = "prawy-cha
 
 
 # Legacy constant — backward compat for callers that import PLAYER_JS directly
-PLAYER_JS = _build_player_js(seek_fn="prawySeek", chapter_class="prawy-chapter")
+PLAYER_JS = _build_player_js(seek_fn="vseSeek", chapter_class="vse-chapter")
 
 
 # ============================================================
@@ -183,7 +183,7 @@ def build_focus_keywords(seo_data: dict, saas_data: Optional[dict] = None) -> st
 
     PO CO: RankMath akceptuje do 5 fraz oddzielonych przecinkami w polu
     rank_math_focus_keyword. Dotychczas używano tylko 1 frazy z LLM.
-    Teraz łączymy: top2 GSC + top2 Trends + LLM keyphrases, deduplikujemy,
+    Teraz łączujemy: top2 GSC + top2 Trends + LLM keyphrases, deduplikujemy,
     i zwracamy max 5 — co daje lepszy scoring SEO.
 
     JAK:
@@ -460,18 +460,37 @@ def get_youtube_view_count(yt_id: str, yt_api_key: Optional[str] = None) -> Opti
 # SET YOUTUBE THUMBNAIL AS FEATURED IMAGE
 # ============================================================
 
-def _set_media_alt(media_id: int, alt_text: str, title: str, wp_base_url: str, auth: HTTPBasicAuth) -> None:
-    """PATCH WP media item to set alt_text and title."""
+def _set_media_alt(
+    media_id: int,
+    alt_text: str,
+    title: str,
+    wp_base_url: str,
+    auth: HTTPBasicAuth,
+    caption: str = "",
+    description: str = "",
+) -> None:
+    """PATCH WP media item to set alt_text, title, caption, and description."""
+    payload = {"alt_text": alt_text, "title": title}
+    if caption:
+        payload["caption"] = caption
+    if description:
+        payload["description"] = description
     try:
-        requests.post(
+        resp = requests.post(
             f"{wp_base_url}/wp-json/wp/v2/media/{media_id}",
-            json={"alt_text": alt_text, "title": title},
+            json=payload,
             auth=auth,
             timeout=10,
         )
-        logger.info("  THUMB ALT: set alt_text=%r", alt_text[:60])
+        if resp.status_code not in (200, 201):
+            logger.error(
+                "  THUMB ALT: metadata update failed for media #%s: HTTP %s | %s",
+                media_id, resp.status_code, resp.text[:200]
+            )
+        else:
+            logger.info("  THUMB ALT: set alt_text=%r title=%r", alt_text[:60], title[:60])
     except Exception as exc:
-        logger.warning("  THUMB ALT: could not set alt_text: %s", exc)
+        logger.warning("  THUMB ALT: could not set media metadata: %s", exc)
 
 
 def set_youtube_thumbnail(
@@ -511,10 +530,19 @@ def set_youtube_thumbnail(
         logger.warning("  THUMB: could not download for %s", yt_id)
         return None
 
-    filename = f"prawy-tv-{yt_id}.jpg"
+    # Dynamic filename based on domain
+    from urllib.parse import urlparse
+    domain = urlparse(wp_base_url).netloc.replace('www.', '').replace('.', '-')
+    if not domain:
+        domain = "vse-media"
+    filename = f"{domain}-{yt_id}.jpg"
 
     # Dedup: check if already uploaded
-    search_url = f"{wp_base_url}/wp-json/wp/v2/media?search=prawy-tv-{yt_id}&per_page=1"
+    search_url = f"{wp_base_url}/wp-json/wp/v2/media?search={domain}-{yt_id}&per_page=1"
+    
+    caption = f"Miniatura wideo: {post_title}"
+    description = f"Zdjęcie miniatury wideo dla artykułu: {post_title} ({yt_id})"
+    
     try:
         existing = requests.get(search_url, auth=auth, timeout=10)
         if existing.status_code == 200 and existing.json():
@@ -525,8 +553,7 @@ def set_youtube_thumbnail(
                 auth=auth,
                 timeout=15,
             )
-            if alt_text:
-                _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth)
+            _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth, caption, description)
             logger.info("  THUMB: reuse existing media #%s", media_id)
             return media_id
     except Exception as exc:
@@ -554,8 +581,7 @@ def set_youtube_thumbnail(
                 timeout=15,
             )
             if set_resp.status_code == 200:
-                if alt_text:
-                    _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth)
+                _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth, caption, description)
                 logger.info("  THUMB: uploaded + set as featured (media #%s)", media_id)
                 return media_id
         logger.warning("  THUMB: upload failed HTTP %s", upload_resp.status_code)
@@ -656,12 +682,19 @@ def _upload_image_to_wp(
             meta_payload["description"] = description
 
         if meta_payload:
-            requests.post(
+            resp_meta = requests.post(
                 f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/media/{media_id}",
                 json=meta_payload,
                 auth=auth,
                 timeout=10,
             )
+            if resp_meta.status_code not in (200, 201):
+                logger.error(
+                    "  D11 upload: media metadata update failed for media #%s: HTTP %s | %s",
+                    media_id, resp_meta.status_code, resp_meta.text[:200]
+                )
+            else:
+                logger.info("  D11 upload: media metadata updated OK for media #%s", media_id)
 
         # Get dimensions from WP response
         media_details = media_data.get("media_details", {})
