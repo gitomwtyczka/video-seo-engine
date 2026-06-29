@@ -20,6 +20,7 @@ import { useJobLoader } from './use-job-loader'
 import { usePortals, type Portal } from './use-portals'
 import { useProfiles, type Profile } from './use-profiles'
 
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface GenerateResponse {
@@ -342,15 +343,19 @@ function TabBar({
 function InjectModal({
   schemaData,
   videoUrl,
+  selectedPortalId,
+  portalName,
+  portalUrl,
   onClose,
 }: {
   schemaData: SchemaData
   videoUrl: string
+  selectedPortalId: string
+  portalName?: string
+  portalUrl?: string
   onClose: () => void
 }) {
-  const { portals, loading: portalsLoading, getCredentials } = usePortals()
   const initialCreds = loadWpCredentials()
-  const [selectedPortalId, setSelectedPortalId] = useState<string>('')
   const [wpUrl, setWpUrl] = useState(initialCreds.wpUrl)
   const [wpUser, setWpUser] = useState(initialCreds.wpUser)
   const [wpPassword, setWpPassword] = useState(initialCreds.wpPassword)
@@ -359,19 +364,7 @@ function InjectModal({
   const [postFormat, setPostFormat] = useState('video')
   const [publishing, setPublishing] = useState(false)
   const [publishResult, setPublishResult] = useState<InjectResult | null>(null)
-  const [loadingCreds, setLoadingCreds] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
-
-  // Auto-select default portal on load
-  useEffect(() => {
-    if (portals.length > 0 && !selectedPortalId) {
-      const defaultPortal = portals.find((p) => p.is_default) ?? portals[0]
-      if (defaultPortal) {
-        handlePortalSelect(defaultPortal.id)
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [portals])
 
   // Close on Escape
   useEffect(() => {
@@ -389,36 +382,17 @@ function InjectModal({
     }
   }
 
-  const handlePortalSelect = async (portalId: string) => {
-    if (portalId === '__manual__') {
-      setSelectedPortalId('__manual__')
-      setWpUrl(initialCreds.wpUrl)
-      setWpUser(initialCreds.wpUser)
-      setWpPassword(initialCreds.wpPassword)
-      return
-    }
-    setSelectedPortalId(portalId)
-    setLoadingCreds(true)
-    try {
-      const creds = await getCredentials(portalId)
-      if (creds) {
-        setWpUrl(creds.url)
-        setWpUser(creds.wp_username)
-        setWpPassword(creds.wp_app_password)
-      }
-    } finally {
-      setLoadingCreds(false)
-    }
-  }
+  const isManual = selectedPortalId === '__manual__' || !selectedPortalId
 
   const handlePublish = async () => {
-    if (!wpUser || !wpPassword || !wpUrl) {
+    if (isManual && (!wpUser || !wpPassword || !wpUrl)) {
       setPublishResult({ error: 'Uzupełnij URL portalu, użytkownika i Application Password.' })
       return
     }
 
-    // Save credentials to localStorage as fallback
-    saveWpCredentials({ wpUrl, wpUser, wpPassword })
+    if (isManual) {
+      saveWpCredentials({ wpUrl, wpUser, wpPassword })
+    }
 
     setPublishing(true)
     setPublishResult(null)
@@ -427,13 +401,17 @@ function InjectModal({
       const body: Record<string, unknown> = {
         video_url: videoUrl,
         schema_data: schemaData,
-        site_config: {
+        post_status: postStatus,
+        post_format: postFormat,
+      }
+      if (isManual) {
+        body.site_config = {
           wp_base_url: wpUrl,
           wp_user: wpUser,
           wp_app_password: wpPassword,
-        },
-        post_status: postStatus,
-        post_format: postFormat,
+        }
+      } else {
+        body.portal_id = parseInt(selectedPortalId, 10)
       }
       if (wpPostId.trim()) {
         body.wp_post_id = parseInt(wpPostId, 10)
@@ -454,7 +432,7 @@ function InjectModal({
     }
   }
 
-  const isManual = selectedPortalId === '__manual__' || portals.length === 0
+
 
   return (
     <div
@@ -502,36 +480,14 @@ function InjectModal({
             )}
           </div>
 
-          {/* Portal selector — NEW */}
-          <div>
-            <label className="block text-xs text-gray-400 mb-1.5">Portal WordPress</label>
-            {portalsLoading ? (
-              <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
-                <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
-                Ładowanie portali...
-              </div>
-            ) : (
-              <select
-                value={selectedPortalId}
-                onChange={(e) => handlePortalSelect(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
-              >
-                {portals.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — {p.url}{p.is_default ? ' ★' : ''}
-                  </option>
-                ))}
-                <option value="__manual__">✏️ Wpisz ręcznie...</option>
-              </select>
-            )}
-            {loadingCreds && (
-              <p className="text-xs text-violet-400 mt-1 flex items-center gap-1">
-                <span className="animate-spin inline-block w-2.5 h-2.5 border border-violet-400/30 border-t-violet-400 rounded-full" />
-                Pobieranie danych portalu...
-              </p>
-            )}
-          </div>
+          {/* Selected portal info — visible in portal mode */}
+          {!isManual && portalName && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
+              <span className="text-xs text-violet-400">🔗</span>
+              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
+              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>
+            </div>
+          )}
 
           {/* Manual credentials — visible only when manual mode or no portals */}
           {isManual && (
@@ -574,15 +530,7 @@ function InjectModal({
             </>
           )}
 
-          {/* Selected portal info — visible in portal mode */}
-          {!isManual && !loadingCreds && wpUrl && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg">
-              <span className="text-xs text-violet-400">🔗</span>
-              <span className="text-xs text-gray-400">{wpUrl}</span>
-              <span className="text-xs text-gray-600">·</span>
-              <span className="text-xs text-gray-400">{wpUser}</span>
-            </div>
-          )}
+
 
           {/* Post ID + Status + Format */}
           <div className="grid grid-cols-2 gap-3">
@@ -647,7 +595,7 @@ function InjectModal({
           {/* Publish button */}
           <button
             onClick={handlePublish}
-            disabled={publishing || loadingCreds}
+            disabled={publishing}
             className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
           >
             {publishing ? (
@@ -706,6 +654,170 @@ function InjectModal({
   )
 }
 
+
+// ─── AddPortalModal ────────────────────────────────────────────────────────────
+
+function AddPortalModal({
+  onClose,
+  onSuccess
+}: {
+  onClose: () => void
+  onSuccess: (portalId: string) => void
+}) {
+  const { createPortal } = usePortals()
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('https://')
+  const [wpUser, setWpUser] = useState('')
+  const [wpPassword, setWpPassword] = useState('')
+  const [profileId, setProfileId] = useState('prawy')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+      onClose()
+    }
+  }
+
+  const handleSave = async () => {
+    if (!name || !url || !wpUser || !wpPassword) {
+      setError('Uzupełnij wszystkie pola.')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const created = await createPortal({
+        name,
+        url,
+        wp_username: wpUser,
+        wp_app_password: wpPassword,
+        profile_id: profileId === 'none' ? null : profileId,
+      })
+      if (created) {
+        onSuccess(created.id)
+      } else {
+        setError('Nie udało się utworzyć portalu.')
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Błąd podczas zapisu')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={handleBackdropClick}
+    >
+      <div
+        ref={modalRef}
+        className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden animate-in"
+        style={{ animation: 'fadeInUp 0.25s ease-out' }}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gradient-to-r from-violet-950/50 to-fuchsia-950/30">
+          <h3 className="font-semibold text-white">Dodaj nowy portal</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-1">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Nazwa portalu</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="np. Prawy.pl"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">URL WordPress</label>
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://prawy.pl"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+              <input
+                type="text"
+                value={wpUser}
+                onChange={(e) => setWpUser(e.target.value)}
+                placeholder="admin"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">App Password</label>
+              <input
+                type="password"
+                value={wpPassword}
+                onChange={(e) => setWpPassword(e.target.value)}
+                placeholder="xxxx xxxx xxxx xxxx"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Profil treści</label>
+            <select
+              value={profileId}
+              onChange={(e) => setProfileId(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none cursor-pointer appearance-none"
+              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+            >
+              <option value="prawy">prawy</option>
+              <option value="kurier365">kurier365</option>
+              <option value="none">(brak profilu)</option>
+            </select>
+          </div>
+
+          {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="flex-1 py-2 bg-gray-800 text-white rounded-lg font-medium hover:bg-gray-700 transition-colors"
+            >
+              Anuluj
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 py-2 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-500 transition-colors"
+            >
+              {saving ? 'Zapisywanie...' : 'Zapisz portal'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 // ─── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function DashboardInner() {
@@ -728,28 +840,22 @@ export default function DashboardInner() {
   const [activeTab, setActiveTab] = useState<TabKey>('article')
   const [showInjectModal, setShowInjectModal] = useState(false)
 
-  // D9: Profile selector + publication type
-  const { profiles, loading: profilesLoading } = useProfiles()
-  const [selectedProfileId, setSelectedProfileId] = useState<string>('')
+  // Portal selector + publication type
+  const { portals, loading: portalsLoading } = usePortals()
+  const [selectedPortalId, setSelectedPortalId] = useState<string>('')
   const [publicationType, setPublicationType] = useState<string>('full_analysis')
+  const [showAddPortalModal, setShowAddPortalModal] = useState(false)
 
-  // Auto-select first profile when loaded
+  // Auto-select first portal when loaded
   useEffect(() => {
-    if (profiles.length > 0 && !selectedProfileId) {
-      setSelectedProfileId(profiles[0].id)
-      setPublicationType(profiles[0].default_type || 'full_analysis')
+    if (portals.length > 0 && !selectedPortalId) {
+      const defaultPortal = portals.find((p) => p.is_default) ?? portals[0]
+      if (defaultPortal) {
+        setSelectedPortalId(defaultPortal.id)
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profiles])
-
-  // Update publication type when profile changes
-  const handleProfileChange = (profileId: string) => {
-    setSelectedProfileId(profileId)
-    const profile = profiles.find((p) => p.id === profileId)
-    if (profile) {
-      setPublicationType(profile.default_type || 'full_analysis')
-    }
-  }
+  }, [portals])
 
   // ─── Load from history (?job_id in URL) ─────────────────────────────────
   const { jobId, jobData, jobLoading, jobError } = useJobLoader()
@@ -824,7 +930,7 @@ export default function DashboardInner() {
           llm_provider: 'claude',
           lang: 'pl',
           publication_type: publicationType,
-          profile_id: selectedProfileId || undefined,
+          portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : parseInt(selectedPortalId, 10),
         }),
       })
 
@@ -957,33 +1063,53 @@ export default function DashboardInner() {
             </div>
           )}
 
-          {/* ─── D9: Profile & Publication Type Selector ──────────────────── */}
-          {profiles.length > 0 && (
-            <div className="grid grid-cols-2 gap-3 mb-5">
-              {/* Profile selector */}
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Portal docelowy</label>
-                {profilesLoading ? (
-                  <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
-                    <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
-                    Ładowanie...
-                  </div>
-                ) : (
-                  <select
-                    id="profile-selector"
-                    value={selectedProfileId}
-                    onChange={(e) => handleProfileChange(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
-                  >
-                    {profiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.display_name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+          {/* ─── Portal & Publication Type Selector ──────────────────── */}
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            {/* Portal selector */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Portal docelowy</label>
+              {portalsLoading ? (
+                <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
+                  <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
+                  Ładowanie...
+                </div>
+              ) : portals.length === 0 ? (
+                <select
+                  value="__add__"
+                  onChange={(e) => { if (e.target.value === '__add__') setShowAddPortalModal(true) }}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                >
+                  <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
+                  <option value="__add__">+ Dodaj nowy portal...</option>
+                  <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                </select>
+              ) : (
+                <select
+                  id="portal-selector"
+                  value={selectedPortalId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '__add__') {
+                      setShowAddPortalModal(true)
+                      e.target.value = selectedPortalId
+                    } else {
+                      setSelectedPortalId(val)
+                    }
+                  }}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                >
+                  {portals.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                  <option value="__add__">+ Dodaj nowy portal...</option>
+                  <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                </select>
+              )}
+            </div>
 
               {/* Publication type selector */}
               <div>
