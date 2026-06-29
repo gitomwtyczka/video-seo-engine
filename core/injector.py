@@ -39,7 +39,7 @@ D5: Multi-keyword RankMath (2026-06-20, vse-dev-19):
          używano tylko 1 frazy z LLM. Teraz: top2 GSC + top2 Trends + LLM
          keyphrases → dedupe → max 5 → comma-separated.
   JAK: build_focus_keywords() przyjmuje seo_data + saas_data, buduje
-       merged lista, _build_rankmath_meta() używa jej zamiast prostego get().
+       merged listę, _build_rankmath_meta() używa jej zamiast prostego get().
 
 D7: SEO Scoring Fix (2026-06-20, vse-dev-22):
   CO: Naprawia 6 problemów RankMath scoring (57→90+).
@@ -183,7 +183,7 @@ def build_focus_keywords(seo_data: dict, saas_data: Optional[dict] = None) -> st
 
     PO CO: RankMath akceptuje do 5 fraz oddzielonych przecinkami w polu
     rank_math_focus_keyword. Dotychczas używano tylko 1 frazy z LLM.
-    Teraz łączujemy: top2 GSC + top2 Trends + LLM keyphrases, deduplikujemy,
+    Teraz łączymy: top2 GSC + top2 Trends + LLM keyphrases, deduplikujemy,
     i zwracamy max 5 — co daje lepszy scoring SEO.
 
     JAK:
@@ -375,6 +375,12 @@ def update_rankmath_meta(
     }
     try:
         resp = requests.post(url, json=payload, auth=auth, timeout=20)
+        resp.raise_for_status()
+        
+        if not resp.text.strip():
+            logger.warning("  RankMath update returned empty body (HTTP %s) for WP#%s", resp.status_code, wp_id)
+            return True
+            
         data = resp.json()
         if resp.status_code == 200 and data.get("slug") is True:
             logger.info(
@@ -387,8 +393,11 @@ def update_rankmath_meta(
             wp_id, resp.status_code, str(data)[:200],
         )
         return False
-    except Exception as exc:
+    except requests.exceptions.RequestException as exc:
         logger.error("  RankMath exception WP#%s: %s", wp_id, exc)
+        return False
+    except ValueError as exc:
+        logger.error("  RankMath JSON decode exception WP#%s: %s", wp_id, exc)
         return False
 
 
@@ -1247,10 +1256,15 @@ def inject_video(
     auth = _make_auth(wp_user, wp_app_pass)
     logger.info("Injecting WP#%s | YT:%s", wp_id, yt_id)
 
-    # ALT text: focus keyphrase + portal display name for SEO
-    portal_name = (profile or {}).get("display_name", "Prawy TV")
+    # ALT text: focus keyphrase + portal brand for SEO
+    site_brand = "Portal"
+    if profile:
+        site_brand = profile.get("site_brand", "Portal")
+    elif saas_data and saas_data.get("site_brand"):
+        site_brand = saas_data.get("site_brand")
+        
     focus_kw = seo.get("focus_keyphrase", "").strip()
-    img_alt = f"{focus_kw} | {portal_name}" if focus_kw else seo.get("seo_title", "")[:80]
+    img_alt = f"{focus_kw} | {site_brand}" if focus_kw else seo.get("seo_title", "")[:80]
 
     media_id = None
     if not skip_thumbnail and not dry_run:
