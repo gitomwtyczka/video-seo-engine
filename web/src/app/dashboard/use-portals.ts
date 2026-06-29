@@ -64,7 +64,7 @@ export function usePortals() {
   const getCredentials = useCallback(async (portalId: string): Promise<PortalWithPassword | null> => {
     if (!token) return null
     try {
-      const res = await fetch(`${apiUrl}/v1/portals/${portalId}/credentials`, {
+      const res = await fetch(`${apiUrl}/v1/portals/${portalId}/full`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) return null
