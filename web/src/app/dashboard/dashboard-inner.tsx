@@ -1467,6 +1467,16 @@ export default function DashboardInner() {
           onClose={() => setShowInjectModal(false)}
         />
       )}
+
+      {showAddPortalModal && (
+        <AddPortalModal
+          onClose={() => setShowAddPortalModal(false)}
+          onSuccess={(portalId) => {
+            setShowAddPortalModal(false)
+            setSelectedPortalId(portalId)
+          }}
+        />
+      )}
     </div>
   )
 }
