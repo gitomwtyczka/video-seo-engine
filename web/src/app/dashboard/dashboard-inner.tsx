@@ -1111,23 +1111,22 @@ export default function DashboardInner() {
               )}
             </div>
 
-              {/* Publication type selector */}
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Typ publikacji</label>
-                <select
-                  id="publication-type-selector"
-                  value={publicationType}
-                  onChange={(e) => setPublicationType(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
-                >
-                  <option value="full_analysis">📝 Pełna analiza</option>
-                  <option value="watching_page">🎬 Strona z filmem</option>
-                  <option value="discover">🔍 Discover</option>
-                </select>
-              </div>
+            {/* Publication type selector */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Typ publikacji</label>
+              <select
+                id="publication-type-selector"
+                value={publicationType}
+                onChange={(e) => setPublicationType(e.target.value)}
+                className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+              >
+                <option value="full_analysis">📝 Pełna analiza</option>
+                <option value="watching_page">🎬 Strona z filmem</option>
+                <option value="discover">🔍 Discover</option>
+              </select>
             </div>
-          )}
+          </div>
 
           {/* ─── URL Form ─────────────────────────────────────────────────── */}
           <form onSubmit={handleGenerate} className="mb-8">
