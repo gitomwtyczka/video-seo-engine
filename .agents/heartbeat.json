@@ -1,8 +1,8 @@
 {
-  "callsign": "vse-dev-stripe",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-DEV-20260630-STRIPE-CHECKOUT",
-  "timestamp": "2026-06-30T19:49:00Z",
+  "callsign": "vse-bug-investigator-01",
+  "status": "working",
+  "current_task": "Zbieranie kodu 3 bugów (faza 1 - bez analizy)",
+  "timestamp": "2026-06-30T22:31:00Z",
   "last_completed": [
     "Stripe checkout flow — backend 3 endpointy (commit c3b82fc)",
     "requirements.txt + stripe>=7.0.0 (commit 038d3bf)",
@@ -16,6 +16,7 @@
     "Dual-write raport do video-seo-engine + sonic-void inbox"
   ],
   "pending": [
-    "E2E test z kartą testową 4242 4242 4242 4242 — do wykonania przez właściciela"
+    "Zbierz kod dla 3 bugów",
+    "Przekaż wyniki do analizy przez Claude Sonnet"
   ]
 }
