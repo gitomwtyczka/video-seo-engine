@@ -1,12 +1,15 @@
 {
-  "callsign": "vse-dev-ops",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-DEV-20260630-BACKUP-SYSTEM",
-  "timestamp": "2026-06-30T18:20:00Z",
+  "callsign": "vse-dev-stripe",
+  "status": "working",
+  "current_task": "DISPATCH-VSE-DEV-20260630-STRIPE-CHECKOUT — ocena gotowości backupu + plan lokalnych testów",
+  "timestamp": "2026-06-30T18:23:00Z",
   "last_completed": [
-    "DISPATCH-VSE-DEV-20260630-BACKUP-SYSTEM — Zaimplementowano skrypt backup_pre_deploy.sh oraz dodano Deploy Gate do AGENTS.md (commit 16fde12)",
-    "DISPATCH-VSE-DEV-36-20260630-PORTAL-BUGS-AND-API-TESTS.md — RCA Raport utworzony i wysłany do inbox — brak commitów kodu (diagnoza only)",
-    "Fix Dashboard Portal Dropdowns & DB Datatypes (commit faf25313d8750745f18bbed6e3889925a830becc)"
+    "Wczytano dispatch Stripe Checkout",
+    "Potwierdzono że backup script istnieje (commit 16fde12 przez vse-dev-ops)"
   ],
-  "pending": []
+  "pending": [
+    "Weryfikacja backup na VPS",
+    "Plan lokalnych testów Stripe",
+    "Implementacja backend + frontend"
+  ]
 }
