@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-06-29 22:56 [vse-analyst-01]
+**Ostatnia aktualizacja:** 2026-06-30 17:22 [vse-dev-01]
 
 ---
 
@@ -24,6 +24,9 @@
 | D15 Cudzysłowy fix | vse-dev-30 | `2a26fad` | 2026-06-29 |
 | D14 Image Descriptions | vse-dev-31 | `ab2c945` | 2026-06-29 |
 | A12 Portal Audit | vse-analyst-01 | raport | 2026-06-29 |
+| D34 Portal dropdown fix | vse-dev-01 | `d850cd4` | 2026-06-30 |
+| D35 Inline profile creation | vse-dev-01 | `64cfb58` | 2026-06-30 |
+| D36 Portal Bugs & Tests | vse-dev-01 | `faf2531` | 2026-06-30 |
 
 ## 🟡 W toku
 
@@ -44,4 +47,4 @@
 **RankMath:** 66/100 (cel: 80+)  
 **Faza 2C:** technicznie DONE, 3 bugi blokują cel  
 
-*[vse-analyst-01 | video-seo-engine 29.06.2026]*
+*[vse-dev-01 | video-seo-engine 30.06.2026]*
