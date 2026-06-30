@@ -2,12 +2,12 @@
   "callsign": "vse-dev-01",
   "status": "done",
   "current_task": "DISPATCH-VSE-DEV-36-20260630-PORTAL-BUGS-AND-API-TESTS.md",
-  "timestamp": "2026-06-30T16:38:00Z",
+  "timestamp": "2026-06-30T17:22:00Z",
   "last_completed": [
+    "Fix Dashboard Portal Dropdowns & DB Datatypes (commit faf25313d8750745f18bbed6e3889925a830becc)",
     "DISPATCH-VSE-DEV-36-20260630-PORTAL-BUGS-AND-API-TESTS.md — RCA Raport utworzony i wysłany do inbox — brak commitów kodu (diagnoza only)",
     "DISPATCH-VSE-DEV-35: Inline profile creation in AddPortalModal — commit 64cfb58 — deployed",
-    "DISPATCH-VSE-DEV-34: Portal dropdown fix — commit d850cd4 — deployed",
-    "DISPATCH-VSE-DEV-33: Dashboard JSX fix — deployed"
+    "DISPATCH-VSE-DEV-34: Portal dropdown fix — commit d850cd4 — deployed"
   ],
   "pending": []
 }
