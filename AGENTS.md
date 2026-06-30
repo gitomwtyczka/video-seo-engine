@@ -66,6 +66,15 @@ ssh -i ~/.ssh/oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.
 
 ---
 
+## ⛔ MANDATORY PRE-DEPLOY BACKUP
+Każdy deploy na VPS MUSI zacząć się od:
+```bash
+ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "/home/ubuntu/scripts/backup_pre_deploy.sh"
+```
+Agent NIE MOŻE pominąć tego kroku. Jeśli backup fail → STOP deploy.
+
+---
+
 ## 📖 STANDARD DOKUMENTACJI — HUMAN-FIRST
 
 **Reguła wprowadzona: 2026-06-15 przez Supervisora 01**
@@ -210,3 +219,4 @@ Cel: najlepsze video SEO na rynku — potwierdzone benchmarkiem (8/10 vs konkure
 *Zaktualizowano: 2026-06-15 [Supervisor 01] — standard dokumentacji, wizja produktu*
 *Zaktualizowano: 2026-06-15 [sup-worker-01] — sekcja VPS access*
 *Zaktualizowano: 2026-06-29 [Supervisor 01] — reguła VPS per rola (analityk vs worker), SSH jako standard*
+*Zaktualizowano: 2026-06-30 [vse-dev-ops] — dodano mandatory pre-deploy backup*
