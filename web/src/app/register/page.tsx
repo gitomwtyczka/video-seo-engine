@@ -4,7 +4,11 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Video, Mail, Lock, User } from 'lucide-react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api'
+// CO: API_URL fallback musi byc '' (pusty string), NIE '/api'
+// PO CO: nginx routuje /api/ -> Next.js (nie FastAPI). FastAPI zyje pod /v1/*.
+//        Gdy NEXT_PUBLIC_API_URL nie jest ustawiony, fetch idzie na /v1/auth/register
+//        (relatywnie do domeny) co nginx poprawnie proxuje do FastAPI :8085.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('')
