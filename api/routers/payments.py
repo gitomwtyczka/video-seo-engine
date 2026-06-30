@@ -241,6 +241,7 @@ async def _handle_subscription_deleted(
 ) -> None:
     """Po anulowaniu subskrypcji — downgrade do free."""
     customer_id = subscription.get("customer")
+    deleted_sub_id = subscription.get("id")
     if not customer_id:
         return
 
@@ -250,6 +251,14 @@ async def _handle_subscription_deleted(
     user = result.scalar_one_or_none()
     if user is None:
         logger.warning("subscription.deleted: no user for customer %s", customer_id)
+        return
+
+    # GUARD: degraduj TYLKO jeśli kasowana sub = aktywna sub usera
+    if user.stripe_subscription_id != deleted_sub_id:
+        logger.info(
+            "subscription.deleted ignored: deleted_sub=%s != active_sub=%s",
+            deleted_sub_id, user.stripe_subscription_id,
+        )
         return
 
     user.plan_id = "free"
