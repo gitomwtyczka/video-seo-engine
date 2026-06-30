@@ -1,13 +1,12 @@
 {
   "callsign": "vse-dev",
-  "status": "working",
-  "current_task": "DISPATCH-VSE-DEV-35: Inline profile creation in AddPortalModal",
-  "timestamp": "2026-06-30T13:06:00+02:00",
+  "status": "done",
+  "current_task": "DISPATCH-VSE-DEV-35: Inline profile creation — DONE",
+  "timestamp": "2026-06-30T17:26:00+02:00",
   "last_completed": [
-    "PORTAL-DROPDOWN-FIX (DISPATCH-VSE-DEV-34) [[vse-dev-01]] — commit d850cd4 — fix onChange + deploy ok",
-    "DASHBOARD-JSX-FIX (DISPATCH-VSE-DEV-33) — deploy ok"
+    "DISPATCH-VSE-DEV-35: Inline profile creation in AddPortalModal — commit 64cfb58 — deployed",
+    "DISPATCH-VSE-DEV-34: Portal dropdown fix — commit d850cd4 — deployed",
+    "DISPATCH-VSE-DEV-33: Dashboard JSX fix — deployed"
   ],
-  "pending": [
-    "DISPATCH-VSE-DEV-35: Inline profile creation — researching"
-  ]
+  "pending": []
 }
