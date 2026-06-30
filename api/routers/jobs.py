@@ -47,6 +47,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import AsyncSessionLocal
 from api.models.job import TranscriptJob
+from api.auth import get_current_user
+from api.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +348,7 @@ async def get_pending_jobs(
 async def get_job_history(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(_get_db),
 ) -> List[HistoryJobResponse]:
     """Zwraca historię jobów transkrypcji (wszystkie statusy).
@@ -357,8 +360,7 @@ async def get_job_history(
     To nienaruszalna zasada architektoniczna (patrz ROADMAP.md).
 
     JAK: SELECT z transcript_jobs ORDER BY created_at DESC, paginacja.
-    Nie filtruje po user_id — w MVP jest jeden użytkownik (Admin/Agency).
-    W przyszłości: filtrowanie po user_id z JWT tokenu.
+    Filtruje po user_id (chyba że admin).
 
     Args:
         limit: Maks. liczba wyników (domyślnie 50, max 200).
@@ -367,8 +369,12 @@ async def get_job_history(
     Returns:
         Lista HistoryJobResponse posortowana od najnowszych.
     """
+    query = select(TranscriptJob)
+    if not current_user.is_admin:
+        query = query.where(TranscriptJob.user_id == current_user.id)
+
     result = await db.execute(
-        select(TranscriptJob)
+        query
         .order_by(desc(TranscriptJob.created_at))
         .offset(offset)
         .limit(limit)
