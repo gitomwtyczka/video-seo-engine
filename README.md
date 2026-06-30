@@ -229,12 +229,29 @@ video-seo-engine/
 - [ ] POST /v1/monitor/start — testy E2E
 - [ ] deno JS runtime w api/Dockerfile (eliminuje WARNING yt-dlp)
 
-### 🔵 Faza 3 — SaaS & Plugin (PLANNED)
-- [ ] Google OAuth (GOOGLE_CLIENT_ID/SECRET gotowe w config)
-- [ ] press.impresjapr.pl integration
+### 🔴 Faza 3 — VSE Komercjalizacja MVP (BLOCKER)
+- [ ] 🔴 Stripe checkout flow (Products + Prices + Webhooks)
+- [ ] 🔴 Terms of Service + Privacy Policy (EU/RODO)
+- [ ] 🟡 Email verification flow (token exists, flow TBD)
+- [ ] 🟡 Google OAuth login (google_id exists, flow TBD)
+- [ ] 🟡 Landing page visual polish + pricing page
+- [ ] ✅ Pre-deploy backup system (VPS cron + deploy gate)
+- [ ] ✅ `org_id` nullable column prep (future org layer)
+
+### 🔵 Faza 4 — VSE Growth (po PMF validation)
+- [ ] Batch processing (wiele wideo naraz)
+- [ ] SEO Scoring dashboard
+- [ ] Channel Monitor E2E
+- [ ] API keys for Pro/Agency (model exists)
+
+### 🟣 Faza 5 — Integracja z ekosystemem PressAI (po komercjalizacji PressAI)
+- [ ] Opcjonalna user federation VSE↔PressAI
+- [ ] S2S user-scoped izolacja (competing tenants scenario)
+- [ ] Organization/Tenant layer
 - [ ] WordPress plugin (pressai-video-seo) freemium
-- [ ] Billing / usage tracking
+- [ ] Bundle pricing VSE+PressAI
 
 ---
 
 *Część ekosystemu [ImpresjaAI](https://impresjapr.pl) — platforma PressAI.*
+*Roadmap zaktualizowany: 30.06.2026 [arch-analyst-01]*
