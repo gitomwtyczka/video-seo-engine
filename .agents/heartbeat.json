@@ -1,11 +1,12 @@
 {
   "callsign": "vse-dev",
-  "status": "done",
-  "current_task": "DASHBOARD-JSX-FIX (DISPATCH-VSE-DEV-33)",
-  "timestamp": "2026-06-29T23:58:00+02:00",
+  "status": "working",
+  "current_task": "PORTAL-DROPDOWN-FIX (DISPATCH-VSE-DEV-34) — fix onChange handlers",
+  "timestamp": "2026-06-30T12:35:00+02:00",
   "last_completed": [
-    "PORTAL-FIX (DISPATCH-VSE-DEV-32) [[vse-dev-01]] - commit 0b690e4 - fix JSX indent pub selector",
-    "DASHBOARD-JSX-FIX deploy (DISPATCH-VSE-DEV-33) [[vse-dev]] - docker up -d vse-web - Next.js Ready in 98ms"
+    "DASHBOARD-JSX-FIX (DISPATCH-VSE-DEV-33) — deploy ok"
   ],
-  "pending": []
+  "pending": [
+    "Fix onChange portals=0 + portals>0 + verify AddPortalModal"
+  ]
 }
