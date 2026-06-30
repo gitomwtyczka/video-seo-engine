@@ -1,15 +1,21 @@
 {
   "callsign": "vse-dev-stripe",
-  "status": "working",
-  "current_task": "DISPATCH-VSE-DEV-20260630-STRIPE-CHECKOUT — ocena gotowości backupu + plan lokalnych testów",
-  "timestamp": "2026-06-30T18:23:00Z",
+  "status": "done",
+  "current_task": "DISPATCH-VSE-DEV-20260630-STRIPE-CHECKOUT",
+  "timestamp": "2026-06-30T19:49:00Z",
   "last_completed": [
-    "Wczytano dispatch Stripe Checkout",
-    "Potwierdzono że backup script istnieje (commit 16fde12 przez vse-dev-ops)"
+    "Stripe checkout flow — backend 3 endpointy (commit c3b82fc)",
+    "requirements.txt + stripe>=7.0.0 (commit 038d3bf)",
+    "main.py payments router registration (commit edc3159)",
+    "Pricing page /cennik (commit eaec3bd)",
+    "Success/Cancel pages (commits 80e170d, d843fce)",
+    "Dashboard sidebar plan management (commit 3bc2f89)",
+    "Stripe Products + Prices stworzone przez API (sandbox)",
+    "stripe_price_id wpisane do bazy danych",
+    "Deploy backend + frontend na VPS — wszystkie strony 200 OK",
+    "Dual-write raport do video-seo-engine + sonic-void inbox"
   ],
   "pending": [
-    "Weryfikacja backup na VPS",
-    "Plan lokalnych testów Stripe",
-    "Implementacja backend + frontend"
+    "E2E test z kartą testową 4242 4242 4242 4242 — do wykonania przez właściciela"
   ]
 }
