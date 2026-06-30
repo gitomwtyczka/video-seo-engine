@@ -994,6 +994,45 @@ function AddPortalModal({
 }
 
 
+/**
+ * CO: ManageSubscriptionLink — przycisk zarządzania subskrypcją Stripe
+ * PO CO: Użytkownicy Pro/Agency mogą zmienić plan, anulować lub zaktualizować kartę
+ *        bez budowania custom UI — Stripe Customer Portal.
+ * JAK: Wywołuje GET /v1/payments/portal-session → redirect do Stripe Portal.
+ */
+function ManageSubscriptionLink({ accessToken }: { accessToken?: string }) {
+  const [loading, setLoading] = useState(false)
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+
+  const handleManage = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${apiUrl}/v1/payments/portal-session`, {
+        headers: { Authorization: `Bearer ${accessToken || ''}` },
+      })
+      if (res.ok) {
+        const { portal_url } = await res.json()
+        window.location.href = portal_url
+      }
+    } catch {
+      // silent — user stays on dashboard
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleManage}
+      disabled={loading}
+      className="text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5 text-left disabled:opacity-50"
+    >
+      {loading ? '...' : '⚙ Zarządzaj subskrypcją'}
+    </button>
+  )
+}
+
+
 // ─── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function DashboardInner() {
@@ -1200,6 +1239,18 @@ export default function DashboardInner() {
               <p className="text-sm text-white truncate">{session?.user?.email}</p>
               <p className="text-xs text-violet-400">{planLabel}</p>
             </div>
+          </div>
+          {/* Plan actions — Stripe integration */}
+          <div className="flex flex-col gap-1 mb-3">
+            <a
+              href="/cennik"
+              className="text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5"
+            >
+              ↑ Zmień plan
+            </a>
+            {userProfile?.plan?.id !== 'free' && (
+              <ManageSubscriptionLink accessToken={(session as { accessToken?: string })?.accessToken} />
+            )}
           </div>
           <button
             onClick={() => signOut({ callbackUrl: '/login' })}
