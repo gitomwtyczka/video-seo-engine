@@ -31,6 +31,9 @@ Endpoints:
   GET  /v1/admin/stats        — [ADMIN] system statistics
   GET  /v1/admin/debug-mode   — [ADMIN] get debug mode state
   POST /v1/admin/debug-mode   — [ADMIN] set debug mode on/off
+  POST /v1/payments/create-checkout-session — create Stripe Checkout Session
+  POST /v1/payments/webhook   — Stripe webhook (subscription lifecycle)
+  GET  /v1/payments/portal-session — Stripe Customer Portal URL
   GET  /docs                  — Swagger UI
 """
 import logging
@@ -47,6 +50,7 @@ from api.routers.jobs import router as jobs_router
 from api.routers.admin import router as admin_router
 from api.routers.portals import router as portals_router
 from api.routers.profiles import router as profiles_router
+from api.routers.payments import router as payments_router
 from api.models.response import HealthResponse
 from api.middleware.error_logging import ErrorLoggingMiddleware
 from api.db import engine, Base, AsyncSessionLocal
@@ -101,6 +105,11 @@ app.include_router(portals_router)
 
 # Profile listing router (public — D9)
 app.include_router(profiles_router)
+
+# Payments / Stripe router
+# CO: Obsługuje checkout, webhook Stripe i Customer Portal.
+# PO CO: Umożliwia monetyzację VSE — user może kupić plan Starter/Pro/Agency.
+app.include_router(payments_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
@@ -180,3 +189,8 @@ async def startup_event() -> None:
             logger.info("Local Transcript Runner mode: ENABLED")
     else:
         logger.info("Local Transcript Runner mode: DISABLED (direct youtube-transcript-api)")
+
+    if not os.getenv("STRIPE_SECRET_KEY"):
+        logger.warning("STRIPE_SECRET_KEY not set — payment endpoints will return 503")
+    else:
+        logger.info("Stripe payments: ENABLED")
