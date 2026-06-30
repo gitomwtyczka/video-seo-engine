@@ -1,12 +1,11 @@
 {
   "callsign": "vse-dev",
-  "status": "working",
-  "current_task": "PORTAL-DROPDOWN-FIX (DISPATCH-VSE-DEV-34) — fix onChange handlers",
-  "timestamp": "2026-06-30T12:35:00+02:00",
+  "status": "done",
+  "current_task": "PORTAL-DROPDOWN-FIX (DISPATCH-VSE-DEV-34)",
+  "timestamp": "2026-06-30T12:40:00+02:00",
   "last_completed": [
+    "PORTAL-DROPDOWN-FIX (DISPATCH-VSE-DEV-34) [[vse-dev-01]] — commit d850cd4 — fix onChange + deploy ok",
     "DASHBOARD-JSX-FIX (DISPATCH-VSE-DEV-33) — deploy ok"
   ],
-  "pending": [
-    "Fix onChange portals=0 + portals>0 + verify AddPortalModal"
-  ]
+  "pending": []
 }
