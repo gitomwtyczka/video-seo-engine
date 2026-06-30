@@ -411,7 +411,7 @@ function InjectModal({
           wp_app_password: wpPassword,
         }
       } else {
-        body.portal_id = parseInt(selectedPortalId, 10)
+        body.portal_id = selectedPortalId.trim()
       }
       if (wpPostId.trim()) {
         body.wp_post_id = parseInt(wpPostId, 10)
@@ -1106,7 +1106,7 @@ export default function DashboardInner() {
           llm_provider: 'claude',
           lang: 'pl',
           publication_type: publicationType,
-          portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : parseInt(selectedPortalId, 10),
+          portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : selectedPortalId.trim(),
         }),
       })
 

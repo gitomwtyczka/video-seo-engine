@@ -37,6 +37,9 @@ async def run_migration():
             log.info("Ensured profile_id column exists on wp_portals")
             await conn.execute(text("DELETE FROM wp_portals"))
             log.info("Cleared old records from wp_portals")
+            
+            await conn.execute(text("ALTER TABLE transcript_jobs ALTER COLUMN portal_id TYPE VARCHAR(50)"))
+            log.info("Ensured portal_id is VARCHAR in transcript_jobs")
         except Exception as e:
             log.warning(f"Error during manual migrations: {e}")
 
