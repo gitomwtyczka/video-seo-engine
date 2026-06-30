@@ -1,4 +1,4 @@
-# DISPATCH-VSE-DEV-BACKUP-SYSTEM
+# DISPATCH-VSE-DEV-20260630-BACKUP-SYSTEM (REWIZJA)
 
 **Zleceniodawca:** arch-analyst-01 | 30.06.2026
 **Priorytet:** HIGH — wymagane przed każdym następnym deployem
@@ -7,102 +7,49 @@
 
 ---
 
-## Cel
+## ⚠️ KROK 0 — Sprawdź istniejący system backupów!
 
-Wdrożenie systemu backupów DB na VPS Oracle ARM. Trzy warstwy:
-1. Pre-deploy backup script (obowiązkowy)
-2. Scheduled backup (cron 3x/dzień, 2-day retention)
-3. Deploy gate w AGENTS.md
+**Z 17.06.2026 istnieje pełny dispatch backupów:** 
+`sonic-void/.agents/tasks/sup-worker-backup_pre-integration.md`
 
-## Kontekst
-
-Obecnie: brak backupów DB. Rollback = `git reset --hard` (tylko kod). Deploy z migracją DB + crash = utrata danych.
-
-Katalogi już stworzone na VPS:
-- `/home/ubuntu/backups/vse/`
-- `/home/ubuntu/backups/pressai/`
-- `/home/ubuntu/scripts/`
-
-## Kroki
-
-### KROK 1: Stwórz pre-deploy backup script
-
-SSH: `ubuntu@147.224.162.100`
-Klucz: `~/.ssh/oracle-crimson.key`
-
-Stwórz plik `/home/ubuntu/scripts/backup_pre_deploy.sh`:
-```bash
-#!/bin/bash
-set -e
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="/home/ubuntu/backups"
-
-# VSE
-echo "[⚓] Backup VSE DB..."
-docker exec vse-postgres pg_dump -U postgres vse | gzip > $BACKUP_DIR/vse/pre_deploy_$TIMESTAMP.sql.gz
-echo "✅ VSE backup: $BACKUP_DIR/vse/pre_deploy_$TIMESTAMP.sql.gz"
-
-# PressAI (jeśli kontener istnieje)
-if docker ps --format '{{.Names}}' | grep -q crimson-db; then
-    echo "[⚓] Backup PressAI DB..."
-    docker exec crimson-db pg_dump -U postgres pressai | gzip > $BACKUP_DIR/pressai/pre_deploy_$TIMESTAMP.sql.gz
-    echo "✅ PressAI backup: $BACKUP_DIR/pressai/pre_deploy_$TIMESTAMP.sql.gz"
-else
-    echo "⚠️ crimson-db not running — skip PressAI backup"
-fi
-
-echo "✅ All backups complete: $TIMESTAMP"
-```
-
-Następnie: `chmod +x /home/ubuntu/scripts/backup_pre_deploy.sh`
-
-### KROK 2: Stwórz scheduled backup script
-
-Stwórz plik `/home/ubuntu/scripts/backup_scheduled.sh`:
-```bash
-#!/bin/bash
-set -e
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="/home/ubuntu/backups"
-RETENTION_DAYS=2
-
-# VSE
-if docker ps --format '{{.Names}}' | grep -q vse-postgres; then
-    docker exec vse-postgres pg_dump -U postgres vse | gzip > $BACKUP_DIR/vse/scheduled_$TIMESTAMP.sql.gz
-    echo "$(date): VSE backup done" >> /var/log/backup_scheduled.log
-fi
-
-# PressAI
-if docker ps --format '{{.Names}}' | grep -q crimson-db; then
-    docker exec crimson-db pg_dump -U postgres pressai | gzip > $BACKUP_DIR/pressai/scheduled_$TIMESTAMP.sql.gz
-    echo "$(date): PressAI backup done" >> /var/log/backup_scheduled.log
-fi
-
-# Cleanup: usuń starsze niż 2 dni
-find $BACKUP_DIR -name "*.sql.gz" -mtime +$RETENTION_DAYS -delete
-echo "$(date): Cleanup done" >> /var/log/backup_scheduled.log
-```
-
-Następnie: `chmod +x /home/ubuntu/scripts/backup_scheduled.sh`
-
-### KROK 3: Ustaw cron
+**ZANIM cokolwiek tworzysz, sprawdź na VPS co już istnieje:**
 
 ```bash
-(crontab -l 2>/dev/null; echo '0 */8 * * * /home/ubuntu/scripts/backup_scheduled.sh') | crontab -
+ssh -i ~/.ssh/oracle-crimson.key ubuntu@147.224.162.100 "\
+  echo '=== /home/ubuntu/scripts/ ==='; \
+  ls -la /home/ubuntu/scripts/ 2>/dev/null || echo 'brak katalogu'; \
+  echo '=== /home/ubuntu/backups/ ==='; \
+  ls -la /home/ubuntu/backups/ 2>/dev/null || echo 'brak katalogu'; \
+  echo '=== crontab ==='; \
+  crontab -l 2>/dev/null || echo 'brak crontab'; \
+  echo '=== backup_db.sh content ==='; \
+  cat /home/ubuntu/scripts/backup_db.sh 2>/dev/null || echo 'brak pliku'"
 ```
 
-Weryfikacja: `crontab -l`
+### Scenariusz A: Skrypty już istnieją
 
-### KROK 4: Test
+Jeśli `backup_db.sh`, `rollback_vse.sh` itd. już są na VPS:
+1. Sprawdź czy `backup_db.sh` zawiera sekcję VSE (`pg_vse`)
+2. Jeśli tak — system działa, tylko dodaj deploy gate do AGENTS.md (Krok 5 niżej)
+3. Jeśli nie — dodaj sekcję VSE per oryginalny dispatch
 
-```bash
-/home/ubuntu/scripts/backup_pre_deploy.sh
-ls -la /home/ubuntu/backups/vse/
+### Scenariusz B: Skrypty NIE istnieją
+
+Wdróż pełny system z `sonic-void/.agents/tasks/sup-worker-backup_pre-integration.md`.
+Czytaj ten plik przez GitHub MCP:
+```
+owner: gitomwtyczka | repo: sonic-void | branch: master
+path: .agents/tasks/sup-worker-backup_pre-integration.md
 ```
 
-### KROK 5: Deploy gate w AGENTS.md (VSE)
+Wykonaj TASKI 1-5 z tamtego dispatcha. NIE używaj mojego uproszczonego skryptu — oryginał jest pełniejszy (ma rollback scripts, safety backup, health checki).
 
-GitHub MCP → `video-seo-engine/AGENTS.md` — dodaj sekcję:
+---
+
+## KROK 5: Deploy gate w AGENTS.md (VSE)
+
+**Niezależnie od scenariusza A/B** — dodaj do `video-seo-engine/AGENTS.md`:
+
 ```markdown
 ## ⛔ MANDATORY PRE-DEPLOY BACKUP
 Każdy deploy na VPS MUSI zacząć się od:
@@ -114,11 +61,11 @@ Agent NIE MOŻE pominąć tego kroku. Jeśli backup fail → STOP deploy.
 
 ## Weryfikacja
 
-- [ ] `backup_pre_deploy.sh` działa (test run)
-- [ ] `backup_scheduled.sh` działa (test run)
-- [ ] cron jest ustawiony (`crontab -l`)
-- [ ] AGENTS.md zaktualizowany
+- [ ] Istniejący backup system zaudytowany (co jest, co brakuje)
+- [ ] VSE backup w codziennym cron (jeśli nie był)
+- [ ] Deploy gate dodany do AGENTS.md
+- [ ] Test run backup scriptów
 - [ ] Raport do sonic-void inbox
 
 ---
-*[arch-analyst-01 | sonic-void 30.06.2026]*
+*[arch-analyst-01 | sonic-void 30.06.2026] — REWIZJA: korzystaj z istniejącego dispatcha backupów*
