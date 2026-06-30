@@ -1,128 +1,113 @@
-# DISPATCH VSE-DEV-36 — Portal bugs fix + comprehensive API tests
+# DISPATCH VSE-DEV-36 — API tests + bug analysis (test-first, no premature fix)
 
 **Callsign:** vse-dev
 **Data:** 2026-06-30
 **Zlecający:** Supervisor 01
-**Priorytet:** 🔴 KRYTYCZNY (blokuje generowanie na wszystkich portalach)
+**Priorytet:** 🔴 KRYTYCZNY
 **Model:** Gemini Pro
 **Workspace:** video-seo-engine
 
+> ⚠️ PODEJŚCIE: Test-first. NIE łataj niczego z palca.
+> Napisz testy, uruchom, zbierz pełne logi, zrób diagnozę, wyślij raport.
+> Fix będzie w osobnym dispatchu po analizie wyników.
+
 ---
 
-## Kontekst — co się zepsuło po D35
+## Znane objawy (zgłoszone przez Usera)
 
-User przetestował D35 (inline profile creation) i znalazł dwa krytyczne błędy produkcyjne:
+### Objaw 1 — nowy profil (biznesciti): `Input should be a valid string`
+- Przy próbie generowania na nowo utworzonym portalu (D35 inline creation)
+- Błąd natychmiastowy, przed fetch YT
+- Pydantic validation error — jakieś pole jest None zamiast string
 
-### Bug 1 — Nowy profil (biznesciti): `Input should be a valid string`
-
-- Portal: biznesciti.com (nowo utworzony przez D35)
-- Błąd: natychmiastowy, przy próbie generowania
-- Prawdopodobna przyczyna: nowy profil YAML ma brakujące lub None pole wymagane przez endpoint generowania (np. `wp_user`, `wp_app_password`, lub inne pole które D33-34 zakłada jako string)
-- Zbadaj: co generator dostaje z nowego profilu vs istniejącego (prawy/kurier365)
-
-### Bug 2 — Istniejący portal (kurier365): DB schema mismatch
-
-```
-(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError)
-column "portal_id" is of type integer but expression is of type character varying
-SQL: INSERT INTO transcript_jobs (..., portal_id, ...) VALUES (..., $6::VARCHAR, ...)
-```
-
-- Portal: kurier365.pl (istniejący przed D35)
-- Błąd: po fetch YT pojawia się przy próbie zapisu do DB
-- Root cause: `transcript_jobs.portal_id` w DB to INTEGER (FK do portals.id), ale kod teraz wysyła string (np. `"kurier365"`)
-- Likely regression z D34 lub D35 — sprawdź co zmieniło się w generowaniu/zapisie transcript_jobs
+### Objaw 2 — istniejący portal (kurier365): DatatypeMismatchError
+- Błąd po fetch YT, przy zapisie do DB
+- `column "portal_id" is of type integer but expression is of type character varying`
+- `INSERT INTO transcript_jobs (..., portal_id, ...) VALUES (..., $6::VARCHAR, ...)`
+- `parameters: (..., None, None, None, None, None)` — wartości None w parametrach!
 
 ---
 
 ## Zadanie
 
-### Krok 1: Diagnoza i fix Bug 1
+### Krok 1: Napisz skrypt testowy
 
-1. Pobierz istniejący profil prawy.yaml i nowy biznesciti.yaml — porównaj strukturę
-2. Znajdź gdzie generator rzuca `Input should be a valid string` — Pydantic validation
-3. Fix: upewnij się że nowy profil ma wszystkie wymagane pola (lub generator gracefully obsługuje None)
-4. Nie zmieniaj istniejących profili prawy.yaml i kurier365.yaml
-
-### Krok 2: Diagnoza i fix Bug 2
-
-1. Sprawdź schemat tabeli `transcript_jobs` — jaki typ ma `portal_id`
-2. Sprawdź gdzie w kodzie `portal_id` jest przekazywany do INSERT — znajdź gdzie string zamiast int
-3. Fix opcja A: jeśli portals.id jest integer → przekazuj integer FK (portal.id) nie string
-4. Fix opcja B: jeśli to migration drift → napisz migration ALTER COLUMN portal_id TYPE INTEGER
-5. Sprawdź czy ten sam bug dotyczy innych tabel korzystających z portal_id
-
-### Krok 3: Comprehensive API tests
-
-Napisz skrypt testowy `tests/test_api_integration.py` (lub `scripts/api_smoke_test.py` jeśli brak pytest na VPS).
+Utwórz `scripts/api_smoke_test.py` uruchamiany jako:
+```bash
+python scripts/api_smoke_test.py https://vse.impresjapr.pl
+```
 
 **Testy do pokrycia:**
 
-```python
-# 1. Health
-GET /health → 200
+```
+[HEALTH]
+✔ GET /health → 200
 
-# 2. Profiles
-GET /v1/profiles → 200, lista profili zawiera prawy + kurier365
-POST /v1/profiles → 201, tworzy nowy profil (użyj portal_id: testportal_{timestamp})
-POST /v1/profiles (duplikat) → 409
-POST /v1/profiles (zły default_type) → 422
-POST /v1/profiles (zły portal_id: spacje, wielkie litery) → 422
+[PROFILES — filesystem]
+✔ GET /v1/profiles → 200 + lista zawiera prawy + kurier365
+✔ POST /v1/profiles (valid) → 201
+✔ POST /v1/profiles (duplikat) → 409
+✔ POST /v1/profiles (zły default_type) → 422
+✔ POST /v1/profiles (zły portal_id: spacje/wielkie litery) → 422
+✔ Cleanup: usuń testowy YAML po teście (SSH lub DELETE endpoint jeśli istnieje)
 
-# 3. Portals (DB-backed)
-GET /v1/portals → 200, lista portali
-POST /v1/portals → 201 (jeśli endpoint istnieje)
+[PORTALS — DB-backed]
+✔ GET /v1/portals → 200 + sprawdź typy pól (zwłaszcza portal_id: int czy string?)
+✔ Zbadaj różnicę między Profile (YAML) a Portal (DB)
 
-# 4. Generate flow
-POST /v1/generate z istniejącym profilem (prawy) → job started lub content returned
-POST /v1/generate z nowym profilem → NIE powoduje "Input should be a valid string"
-POST /v1/generate z brakującym portal_id → 422
-POST /v1/generate z nieistniejącym portal_id → 404 lub sensowny błąd
+[GENERATE — główny flow]
+✔ POST /v1/generate z prawy → nie rzuca błędu natychmiastowego
+✔ POST /v1/generate z kurier365 → nie rzuca DatatypeMismatchError
+✔ POST /v1/generate z biznesciti (nowy profil) → nie rzuca "Input should be a valid string"
+✔ POST /v1/generate z nieistniejącym portalem → sensowny błąd (nie 500)
 
-# 5. Transcript jobs
-Sprawdź że INSERT do transcript_jobs nie rzuca DatatypeMismatchError
+[TRANSCRIPT JOBS — DB schema]
+✔ Sprawdź GET endpoint na jobs — co zwraca portal_id: int czy string?
+✔ Porównaj z tym co idzie w INSERT
 ```
 
-Skrypt powinien:
-- Działać przez `python scripts/api_smoke_test.py https://vse.impresjapr.pl`
-- Drukować PASS/FAIL per test
-- Nie wymagać autoryzacji (testy publicznych endpointów)
-- Cleanupować testowe dane (usuwać testportal_{timestamp}.yaml po teście)
+**Format wyjścia:**
+```
+[PASS] GET /health → 200
+[FAIL] POST /v1/generate (kurier365) → 500: DatatypeMismatchError
+       RAW ERROR: ...
+[SKIP] DELETE /v1/profiles (brak endpointu)
+```
 
-### Krok 4: Deploy i weryfikacja
+### Krok 2: Uruchom testy na produkcji
 
+Przez SSH:
 ```bash
-git pull origin main && docker compose ... up -d vse-api
+ssh -i ~/.ssh/oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100 \
+  "cd /home/ubuntu/video-seo-engine && python scripts/api_smoke_test.py https://vse.impresjapr.pl"
 ```
+Albo lokalnie z zewnętrz — jak wolisz, ważny pełny output.
 
-Uruchom smoke test na produkcji. Obydwa błędy muszą być GONE.
+### Krok 3: Diagnoza z kodu (bez modyfikacji)
 
----
+Dla każdego FAIL:
+1. Wskaż dokładne miejsce w kodzie (plik + linia)
+2. Wytłumacz root cause
+3. Opisz fix który należy zastosować (ale NIE implementuj)
+4. Określ ryzyko: czy fix wymaga migracji DB?
 
-## Uwaga od Supervisora — SEO external link
+### Krok 4: Raport
 
-User zgłosił: `seo_external_link` w profilu jest zbędne — VSE jest wpięty w **PressAI** który automatycznie obsługuje linki wewnętrzne i zewnętrzne przy generowaniu artykułu. To pole nie powinno być wymagane ani promowane w UI.
-
-**Akcja:** W tym dispatchu — nie usuwaj pola (backward compat), ale oznacz je jako `deprecated` w komentarzu YAML i ukryj z formularza inline profile creation w AddPortalModal (jeśli jest tam widoczne).
+Raport dual-write z:
+- Pełnymi wynikami testów (PASS/FAIL/SKIP)
+- Root cause analysis per FAIL
+- Proponowane fixy (bez implementacji)
+- Czy `portal_id` w transcript_jobs jest INTEGER — jaki typ, jaka wartość powinna tam trafić
+- Czy to regression z D34/D35 czy istniało wcześniej
 
 ---
 
 ## Deliverable
 
-- [ ] Bug 1 fixed — nowe profile generują bez błędu
-- [ ] Bug 2 fixed — portal_id type mismatch resolved
 - [ ] `scripts/api_smoke_test.py` napisany i działa
-- [ ] Deploy na produkcję
-- [ ] Testy przechodzą na produkcji
-- [ ] Raport dual-write
-
----
-
-## Zasady
-
-- Nie dotykaj prawy.yaml ani kurier365.yaml
-- TypeScript build MUSI przejść bez błędów jeśli dotykasz frontendu
-- Każdy fix musi mieć commit z opisem bug ID
+- [ ] Testy uruchomione na produkcji — pełny output
+- [ ] Raport dual-write: video-seo-engine + sonic-void inbox
+- [ ] ŻADNEGO kodu fixującego — tylko diagnoza
 
 ---
 
