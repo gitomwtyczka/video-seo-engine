@@ -19,6 +19,7 @@ import Link from 'next/link'
 import { useJobLoader } from './use-job-loader'
 import { usePortals, type Portal } from './use-portals'
 import { useProfiles, type Profile } from './use-profiles'
+import EmailVerificationBanner from './email-verification-banner'
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -71,6 +72,7 @@ interface UserPlan {
 
 interface UserProfile {
   email: string
+  is_verified?: boolean
   plan: UserPlan
   usage: { used_this_month: number; quota: number; percent: number }
 }
@@ -1264,6 +1266,11 @@ export default function DashboardInner() {
       {/* Main content */}
       <main className="ml-64 p-8">
         <div className="max-w-3xl">
+          {/* Email verification banner — soft enforcement (RODO) */}
+          <EmailVerificationBanner
+            isVerified={userProfile?.is_verified}
+            accessToken={(session as { accessToken?: string })?.accessToken}
+          />
           <h1 className="text-2xl font-bold text-white mb-1">Video SEO Engine</h1>
           <p className="text-gray-400 mb-8">
             Wklej URL YouTube — AI wygeneruje schema VideoObject + Clip + FAQPage.
