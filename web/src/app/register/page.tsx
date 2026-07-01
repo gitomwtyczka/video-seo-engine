@@ -14,6 +14,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+  const [tosAccepted, setTosAccepted] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -21,6 +22,10 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!tosAccepted) {
+      setError('Musisz zaakceptować Regulamin i Politykę Prywatności, aby założyć konto.')
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -129,20 +134,36 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {/* TOS Checkbox */}
+            <div className="flex items-start gap-3 pt-1">
+              <input
+                id="tos-checkbox"
+                type="checkbox"
+                checked={tosAccepted}
+                onChange={(e) => setTosAccepted(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-white/20 bg-dark-900 accent-brand-500 cursor-pointer flex-shrink-0"
+              />
+              <label htmlFor="tos-checkbox" className="text-dark-400 text-xs leading-relaxed cursor-pointer">
+                Akceptuję{' '}
+                <Link href="/regulamin" className="text-brand-400 hover:text-brand-300 underline" target="_blank">
+                  Regulamin
+                </Link>
+                {' '}i{' '}
+                <Link href="/polityka-prywatnosci" className="text-brand-400 hover:text-brand-300 underline" target="_blank">
+                  Politykę Prywatności
+                </Link>{' '}
+                VSE. Wyrażam zgodę na przetwarzanie moich danych osobowych w celu realizacji usługi.
+              </label>
+            </div>
+
             <button
               id="btn-register"
               type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-400 disabled:opacity-50 text-white font-semibold transition-smooth glow-sm mt-2"
+              disabled={loading || !tosAccepted}
+              className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-smooth glow-sm mt-2"
             >
               {loading ? 'Tworzenie konta...' : 'Załóż konto za darmo'}
             </button>
-
-            <p className="text-dark-400 text-xs text-center mt-4">
-              Rejestrując się akceptujesz nasz{' '}
-              <Link href="/terms" className="text-brand-400 hover:underline">Regulamin</Link>{' '}i{' '}
-              <Link href="/privacy" className="text-brand-400 hover:underline">Politykę Prywatności</Link>.
-            </p>
           </form>
         </div>
       </div>
