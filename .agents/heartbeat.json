@@ -1,17 +1,17 @@
 {
-  "callsign": "vse-dev-38",
-  "status": "blocked",
-  "current_task": "DISPATCH-VSE-DEV-20260701-SETTINGS-MINIMAL",
-  "timestamp": "2026-07-01T19:08:00Z",
+  "callsign": "Supervisor-01",
+  "status": "done",
+  "current_task": "Dispatch 2026-07-01 — ALL 4 DISPATCHES DONE + DEPLOYED",
+  "timestamp": "2026-07-01T19:10:00Z",
   "last_completed": [
-    "settings page commit SHA 35381247579c914bb97941ad78ad575163577a40 (2026-07-01)",
-    "INJECT-MODAL-FIX — dashboard-inner.tsx restored + selectedPortalId/portalName/portalUrl props — commit a7d8494 (2026-07-01)",
-    "EMAIL-VERIFICATION-BANNER integration — import + is_verified interface + JSX — commit c78d5bd (2026-07-01)",
-    "TOS-PRIVACY-POLICY — regulamin + polityka-prywatnosci + footer + register checkbox — commits 7770748,c08952e,629defe,996c9c3 (2026-07-01)",
-    "Deploy: vse-api rebuilt (email verify endpoints), vse-web restarted — all OK"
+    "TOS-PRIVACY-POLICY — /regulamin + /polityka-prywatnosci + footer + register checkbox — commits 7770748,c08952e,629defe,996c9c3",
+    "INJECT-MODAL-FIX — selectedPortalId/portalName/portalUrl do InjectModal — commit a7d8494",
+    "EMAIL-VERIFICATION backend — /verify + /resend-verification + Google auto-verify — commits cf08318,f044dee",
+    "EMAIL-VERIFICATION frontend — EmailVerificationBanner w dashboard — commit c78d5bd",
+    "SETTINGS-MINIMAL — /ustawienia/page.tsx (konto+portale+plan) — commit 3538124",
+    "Deploy: vse-api rebuilt (email verify), vse-web restarted 2x — all OK (Next.js Ready in 75ms)"
   ],
   "pending": [
-    "SETTINGS-MINIMAL deploy — BLOCKED: SSH permission timeout. Deploy command: backup_pre_deploy.sh + git pull + docker compose restart vse-web",
-    "SMTP credentials na VPS — brak SMTP_PASSWORD, emaile nie wysyłane (soft fail)"
+    "SMTP credentials na VPS — brak SMTP_PASSWORD, emaile nie wysyłane (soft fail) — wymaga konfiguracji przez właściciela"
   ]
 }
