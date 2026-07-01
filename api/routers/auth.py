@@ -6,7 +6,7 @@ import secrets
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from api.auth import (
     create_access_token, create_refresh_token,
     get_current_user, SECRET_KEY, ALGORITHM
 )
+from api.utils.email import send_verification_email
 from jose import JWTError, jwt
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
@@ -72,8 +73,16 @@ class GoogleTokenExchangeRequest(BaseModel):
 # --- Endpoints ---
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """Register a new user with email and password."""
+async def register(payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    CO: Rejestracja nowego użytkownika email+hasło.
+
+    PO CO: Tworzy konto i wysyła email weryfikacyjny (RODO).
+           Użytkownik musi potwierdzić adres email przez link.
+
+    JAK: Generuje verification_token, zapisuje w bazie.
+         Wysyła email przez send_verification_email (soft fail — nie blokuje rejestracji).
+    """
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none():
         raise HTTPException(
@@ -87,23 +96,107 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
             detail="Password must be at least 8 characters"
         )
 
+    verification_token = secrets.token_urlsafe(32)
+
     user = User(
         email=payload.email,
         hashed_password=hash_password(payload.password),
         full_name=payload.full_name,
         plan_id="free",
         is_verified=False,
-        verification_token=secrets.token_urlsafe(32)
+        verification_token=verification_token
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
-    # TODO: send verification email (Resend/SendGrid) in Faza 2
+    # Send verification email — soft fail (don’t block registration if SMTP unavailable)
+    base_url = os.getenv("FRONTEND_URL", "https://vse.impresjapr.pl")
+    try:
+        send_verification_email(payload.email, verification_token, base_url)
+    except Exception:  # noqa: BLE001
+        pass  # Email failure must not block registration
 
     return {
-        "message": "Registration successful. Please verify your email.",
+        "message": "Registration successful. Please check your email to verify your account.",
         "user_id": str(user.id)
+    }
+
+
+@router.get("/verify")
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+    """
+    CO: Weryfikuje adres email użytkownika.
+
+    PO CO: Potwierdza tożsamość użytkownika przez kliknięcie linku z emaila.
+           Spełnia wymogi RODO dla potwierdzenia adresu.
+
+    JAK: Szuka usera z danym verification_token.
+         Ustawia is_verified=True, czyści token.
+         Redirectuje na /dashboard?verified=1.
+    """
+    result = await db.execute(
+        select(User).where(User.verification_token == token)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid or expired verification token"
+        )
+
+    user.is_verified = True
+    user.verification_token = None
+    await db.commit()
+
+    frontend_url = os.getenv("FRONTEND_URL", "https://vse.impresjapr.pl")
+    return RedirectResponse(f"{frontend_url}/dashboard?verified=1")
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    CO: Ponownie wysyła email weryfikacyjny.
+
+    PO CO: Użytkownik mógł nie otrzymać pierwszego emaila lub token wygasł.
+           Umożliwia samodzielne wysłanie nowego linku weryfikacyjnego.
+
+    JAK: Generuje nowy token, aktualizuje bazę, wysyła email.
+         Zwraca błąd 400 jeśli konto już zweryfikowane.
+    """
+    if current_user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already verified"
+        )
+
+    # Generate new token
+    new_token = secrets.token_urlsafe(32)
+
+    # Refresh user from DB to get writable instance
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.verification_token = new_token
+    await db.commit()
+
+    base_url = os.getenv("FRONTEND_URL", "https://vse.impresjapr.pl")
+    email_sent = False
+    try:
+        email_sent = send_verification_email(current_user.email, new_token, base_url)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {
+        "message": "Verification email sent" if email_sent else "Token regenerated (email not sent — SMTP not configured)",
+        "email_sent": email_sent
     }
 
 
@@ -179,7 +272,8 @@ async def google_token_exchange(
     1. Weryfikuje Google id_token przez Google tokeninfo endpoint
     2. Pobiera google_id (sub) i email
     3. Upsertuje usera w bazie (create or link by email)
-    4. Zwraca nasz JWT pair — identycznie jak POST /v1/auth/login
+    4. Google OAuth users — auto-verified (is_verified=True)
+    5. Zwraca nasz JWT pair — identycznie jak POST /v1/auth/login
     """
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(
@@ -230,13 +324,17 @@ async def google_token_exchange(
         user = result2.scalar_one_or_none()
         if user:
             user.google_id = google_id
+            # Auto-verify existing user when linking Google account
+            if not user.is_verified and email_verified:
+                user.is_verified = True
+                user.verification_token = None
         else:
             user = User(
                 email=email,
                 full_name=full_name,
                 google_id=google_id,
                 plan_id="free",
-                is_verified=email_verified
+                is_verified=email_verified  # Google-verified = auto-verified
             )
             db.add(user)
 
@@ -302,6 +400,10 @@ async def google_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
         user = result2.scalar_one_or_none()
         if user:
             user.google_id = google_id
+            # Auto-verify when linking Google account
+            if not user.is_verified:
+                user.is_verified = True
+                user.verification_token = None
         else:
             user = User(
                 email=email,
