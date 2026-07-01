@@ -172,7 +172,7 @@ async def _handle_checkout_completed(
     session: Any, db: AsyncSession
 ) -> None:
     """Po udanym checkout — ustaw plan i zapisz stripe IDs."""
-    metadata = session["metadata"] or {}
+    metadata = dict(session["metadata"]) if session["metadata"] else {}
     user_id = metadata.get("user_id")
     plan_id = metadata.get("plan_id")
     customer_id = session["customer"]
