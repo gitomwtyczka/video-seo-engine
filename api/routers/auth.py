@@ -56,17 +56,6 @@ class RefreshRequest(BaseModel):
 
 
 class GoogleTokenExchangeRequest(BaseModel):
-    """
-    CO: Żądanie wymiany tokenu Google na token VSE.
-
-    PO CO: NextAuth GoogleProvider dostarcza id_token podpisany przez Google.
-    Frontned nie posiada naszego backend JWT — dopiero po zamianie tutaj
-    uzyskuje token VSE, z którym może pobrać plan/is_admin przez /v1/users/me.
-
-    JAK: NextAuth jwt callback → POST /v1/auth/google/token-exchange
-    z id_token z konta Google → backend weryfikuje przez Google tokeninfo,
-    upsertuje usera, zwraca nasz JWT pair.
-    """
     id_token: str
 
 
@@ -74,15 +63,6 @@ class GoogleTokenExchangeRequest(BaseModel):
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    """
-    CO: Rejestracja nowego użytkownika email+hasło.
-
-    PO CO: Tworzy konto i wysyła email weryfikacyjny (RODO).
-           Użytkownik musi potwierdzić adres email przez link.
-
-    JAK: Generuje verification_token, zapisuje w bazie.
-         Wysyła email przez send_verification_email (soft fail — nie blokuje rejestracji).
-    """
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none():
         raise HTTPException(
@@ -110,12 +90,11 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
     await db.commit()
     await db.refresh(user)
 
-    # Send verification email — soft fail (don’t block registration if SMTP unavailable)
     base_url = os.getenv("FRONTEND_URL", "https://vse.impresjapr.pl")
     try:
         send_verification_email(payload.email, verification_token, base_url)
     except Exception:  # noqa: BLE001
-        pass  # Email failure must not block registration
+        pass
 
     return {
         "message": "Registration successful. Please check your email to verify your account.",
@@ -125,16 +104,6 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
 
 @router.get("/verify")
 async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
-    """
-    CO: Weryfikuje adres email użytkownika.
-
-    PO CO: Potwierdza tożsamość użytkownika przez kliknięcie linku z emaila.
-           Spełnia wymogi RODO dla potwierdzenia adresu.
-
-    JAK: Szuka usera z danym verification_token.
-         Ustawia is_verified=True, czyści token.
-         Redirectuje na /dashboard?verified=1.
-    """
     result = await db.execute(
         select(User).where(User.verification_token == token)
     )
@@ -161,13 +130,10 @@ async def resend_verification(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    CO: Ponownie wysyła email weryfikacyjny.
-
-    PO CO: Użytkownik mógł nie otrzymać pierwszego emaila lub token wygasł.
-           Umożliwia samodzielne wysłanie nowego linku weryfikacyjnego.
-
-    JAK: Generuje nowy token, aktualizuje bazę, wysyła email.
-         Zwraca błąd 400 jeśli konto już zweryfikowane.
+    CO: Ponownie wysyla email weryfikacyjny.
+    PO CO: Uzytkownik mogl nie otrzymac pierwszego emaila lub token wygasl.
+    JAK: Generuje nowy token, aktualizuje baze, wysyla email.
+         Zwraca blad 400 jesli konto juz zweryfikowane.
     """
     if current_user.is_verified:
         raise HTTPException(
@@ -175,10 +141,8 @@ async def resend_verification(
             detail="Email already verified"
         )
 
-    # Generate new token
     new_token = secrets.token_urlsafe(32)
 
-    # Refresh user from DB to get writable instance
     result = await db.execute(select(User).where(User.id == current_user.id))
     user = result.scalar_one_or_none()
     if not user:
@@ -189,13 +153,22 @@ async def resend_verification(
 
     base_url = os.getenv("FRONTEND_URL", "https://vse.impresjapr.pl")
     email_sent = False
+    email_error = None
     try:
         email_sent = send_verification_email(current_user.email, new_token, base_url)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        email_error = str(exc)
+
+    if email_sent:
+        message = "Verification email sent"
+    elif email_error:
+        message = f"Token regenerated (email send failed: {email_error})"
+    else:
+        # send_verification_email returned False - see api logs for SMTP error details
+        message = "Token regenerated (email not sent - check server logs for SMTP error)"
 
     return {
-        "message": "Verification email sent" if email_sent else "Token regenerated (email not sent — SMTP not configured)",
+        "message": message,
         "email_sent": email_sent
     }
 
@@ -259,29 +232,12 @@ async def google_token_exchange(
     payload: GoogleTokenExchangeRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    CO: Wymienia Google id_token na parę JWT VSE (access_token + refresh_token).
-
-    PO CO: NextAuth GoogleProvider nie przekazuje naszego backend JWT do jwt callback.
-    Ten endpoint uzupełnia brakujące ogniwo: NextAuth dostaje Google id_token
-    z account.id_token, wysyła go tutaj, dostaje nasz JWT, zapisuje do sesji.
-    Dzięki temu plan i is_admin są dostępne natychmiast po pierwszym logowaniu,
-    bez czekania 5 minut na refresh.
-
-    JAK:
-    1. Weryfikuje Google id_token przez Google tokeninfo endpoint
-    2. Pobiera google_id (sub) i email
-    3. Upsertuje usera w bazie (create or link by email)
-    4. Google OAuth users — auto-verified (is_verified=True)
-    5. Zwraca nasz JWT pair — identycznie jak POST /v1/auth/login
-    """
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Google OAuth not configured"
         )
 
-    # Verify the Google id_token via Google's tokeninfo endpoint
     async with httpx.AsyncClient() as client:
         tokeninfo_resp = await client.get(
             "https://oauth2.googleapis.com/tokeninfo",
@@ -296,7 +252,6 @@ async def google_token_exchange(
 
     tokeninfo = tokeninfo_resp.json()
 
-    # Verify the token was issued for our app (security check)
     if tokeninfo.get("aud") != GOOGLE_CLIENT_ID:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -314,17 +269,14 @@ async def google_token_exchange(
             detail="Missing required fields in Google id_token"
         )
 
-    # Upsert user — identycznie jak w /google/callback
     result = await db.execute(select(User).where(User.google_id == google_id))
     user = result.scalar_one_or_none()
 
     if not user:
-        # Check if email already exists (link accounts)
         result2 = await db.execute(select(User).where(User.email == email))
         user = result2.scalar_one_or_none()
         if user:
             user.google_id = google_id
-            # Auto-verify existing user when linking Google account
             if not user.is_verified and email_verified:
                 user.is_verified = True
                 user.verification_token = None
@@ -334,7 +286,7 @@ async def google_token_exchange(
                 full_name=full_name,
                 google_id=google_id,
                 plan_id="free",
-                is_verified=email_verified  # Google-verified = auto-verified
+                is_verified=email_verified
             )
             db.add(user)
 
@@ -364,7 +316,6 @@ async def google_oauth_start():
 async def google_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
     """Handle Google OAuth callback, create/login user, return JWT."""
     async with httpx.AsyncClient() as client:
-        # Exchange code for tokens
         token_resp = await client.post(
             "https://oauth2.googleapis.com/token",
             data={
@@ -379,7 +330,6 @@ async def google_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
         if "error" in token_data:
             raise HTTPException(status_code=400, detail=f"Google OAuth error: {token_data['error']}")
 
-        # Get user info
         userinfo_resp = await client.get(
             "https://www.googleapis.com/oauth2/v3/userinfo",
             headers={"Authorization": f"Bearer {token_data['access_token']}"}
@@ -390,17 +340,14 @@ async def google_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
     email = userinfo.get("email")
     full_name = userinfo.get("name")
 
-    # Upsert user
     result = await db.execute(select(User).where(User.google_id == google_id))
     user = result.scalar_one_or_none()
 
     if not user:
-        # Check if email already exists (link accounts)
         result2 = await db.execute(select(User).where(User.email == email))
         user = result2.scalar_one_or_none()
         if user:
             user.google_id = google_id
-            # Auto-verify when linking Google account
             if not user.is_verified:
                 user.is_verified = True
                 user.verification_token = None
@@ -410,7 +357,7 @@ async def google_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
                 full_name=full_name,
                 google_id=google_id,
                 plan_id="free",
-                is_verified=True  # Google verified email
+                is_verified=True
             )
             db.add(user)
 
@@ -420,7 +367,6 @@ async def google_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
     access_token = create_access_token(str(user.id), user.email)
     refresh_token = create_refresh_token(str(user.id))
 
-    # Redirect to frontend with tokens in query (frontend will store in httpOnly cookie)
     frontend_url = os.getenv("FRONTEND_URL", "https://vse.impresjapr.pl")
     return RedirectResponse(
         f"{frontend_url}/auth/callback?access_token={access_token}&refresh_token={refresh_token}"
