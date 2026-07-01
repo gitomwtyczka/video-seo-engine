@@ -1,17 +1,16 @@
 {
-  "callsign": "Supervisor-01",
+  "callsign": "vse-dev-smtp-01",
   "status": "done",
-  "current_task": "Dispatch 2026-07-01 — ALL 4 DISPATCHES DONE + DEPLOYED",
-  "timestamp": "2026-07-01T19:10:00Z",
+  "current_task": "SMTP configuration on VPS — COMPLETE",
+  "timestamp": "2026-07-01T20:36:00Z",
   "last_completed": [
-    "TOS-PRIVACY-POLICY — /regulamin + /polityka-prywatnosci + footer + register checkbox — commits 7770748,c08952e,629defe,996c9c3",
-    "INJECT-MODAL-FIX — selectedPortalId/portalName/portalUrl do InjectModal — commit a7d8494",
-    "EMAIL-VERIFICATION backend — /verify + /resend-verification + Google auto-verify — commits cf08318,f044dee",
-    "EMAIL-VERIFICATION frontend — EmailVerificationBanner w dashboard — commit c78d5bd",
-    "SETTINGS-MINIMAL — /ustawienia/page.tsx (konto+portale+plan) — commit 3538124",
-    "Deploy: vse-api rebuilt (email verify), vse-web restarted 2x — all OK (Next.js Ready in 75ms)"
+    "Pre-deploy backup — OK",
+    "SMTP vars added to .env (5 keys: HOST, PORT, USER, FROM, PASSWORD) — via Python heredoc",
+    "SMTP_PASSWORD=rX5t-4[-X]1WGxh[ — verified correct (base64 decode check)",
+    "git pull: a729020..b2a84d8 — SMTP_SSL fix included (api/utils/email.py)",
+    "Docker build vse-api — OK",
+    "Docker up vse-api — OK (container started)",
+    "Logs: no SMTP not configured error, API healthy"
   ],
-  "pending": [
-    "SMTP credentials na VPS — brak SMTP_PASSWORD, emaile nie wysyłane (soft fail) — wymaga konfiguracji przez właściciela"
-  ]
+  "pending": []
 }
