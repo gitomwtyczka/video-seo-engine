@@ -112,17 +112,26 @@ async def stripe_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Stripe webhook handler — INSTRUMENTED VERSION with verbose logging."""
+    """Stripe webhook handler — obsługuje eventy subskrypcji.
+
+    CO: Odbiera HTTP POST od Stripe z podpisem HMAC-SHA256.
+    PO CO: Utrzymuje synchronizację między Stripe a DB — aktualizuje plan usera
+           po opłacie, zmianie planu lub anulowaniu subskrypcji.
+    JAK: Weryfikuje sygnaturę przez STRIPE_WEBHOOK_SECRET.
+         Obsługiwane eventy:
+           checkout.session.completed    → aktywuj plan
+           customer.subscription.updated → zmień plan
+           customer.subscription.deleted → downgrade do free
+           invoice.payment_failed        → log warning
+
+    WAŻNE: Endpoint NIE używa JWT auth — Stripe wysyła bez Bearer tokena.
+           Bezpieczeństwo zapewnia weryfikacja sygnatury Stripe.
+    """
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
 
-    logger.info("=== WEBHOOK INCOMING ===")
-    logger.info("payload length: %d", len(payload))
-    logger.info("signature header present: %s", bool(sig_header))
-    logger.info("STRIPE_WEBHOOK_SECRET set: %s", bool(STRIPE_WEBHOOK_SECRET))
-
     if not STRIPE_WEBHOOK_SECRET:
-        logger.warning("STRIPE_WEBHOOK_SECRET not set - skipping signature verification")
+        logger.warning("STRIPE_WEBHOOK_SECRET not set — skipping signature verification")
         event_data = await request.json()
         event = type("Event", (), {"type": event_data.get("type"), "data": type("Data", (), {"object": event_data.get("data", {}).get("object", {})})()} )()
     else:
@@ -137,15 +146,7 @@ async def stripe_webhook(
                 detail="Invalid signature",
             )
 
-    logger.info("Event type: %s", event["type"])
-    logger.info("Event class: %s", type(event).__name__)
-
-    session_obj = event["data"]["object"]
-    logger.info("data.object class: %s", type(session_obj).__name__)
-    logger.info("data.object keys/attrs: %s",
-        list(session_obj.keys()) if hasattr(session_obj, 'keys') else
-        [a for a in dir(session_obj) if not a.startswith('_')][:30]
-    )
+    logger.info("Stripe webhook event: %s", event["type"])
 
     if event["type"] == "checkout.session.completed":
         await _handle_checkout_completed(event["data"]["object"], db)
@@ -160,8 +161,8 @@ async def stripe_webhook(
         invoice = event["data"]["object"]
         logger.warning(
             "invoice.payment_failed: customer=%s, invoice=%s",
-            getattr(invoice, 'customer', 'N/A'),
-            getattr(invoice, 'id', 'N/A'),
+            invoice.get("customer"),
+            invoice.get("id"),
         )
 
     return {"received": True}
@@ -170,121 +171,40 @@ async def stripe_webhook(
 async def _handle_checkout_completed(
     session: Any, db: AsyncSession
 ) -> None:
-    """Po udanym checkout — ustaw plan i zapisz stripe IDs. INSTRUMENTED VERSION."""
-    logger.info("=== CHECKOUT HANDLER START ===")
-    logger.info("session type: %s", type(session).__name__)
+    """Po udanym checkout - ustaw plan i zapisz stripe IDs."""
+    metadata = session.metadata
+    if not metadata:
+        logger.error("checkout.session.completed: no metadata in session")
+        return
 
-    # === METADATA DIAGNOSTICS ===
-    metadata = None
-    user_id = None
-    plan_id = None
-
-    # Test 1: attribute access
-    try:
-        meta_attr = session.metadata
-        logger.info("session.metadata = %s (type: %s)", meta_attr, type(meta_attr).__name__)
-    except Exception as e:
-        logger.error("session.metadata FAILED: %s: %s", type(e).__name__, e)
-        meta_attr = None
-
-    # Test 2: bracket access
-    try:
-        meta_bracket = session["metadata"]
-        logger.info("session['metadata'] = %s (type: %s)", meta_bracket, type(meta_bracket).__name__)
-    except Exception as e:
-        logger.error("session['metadata'] FAILED: %s: %s", type(e).__name__, e)
-        meta_bracket = None
-
-    # Test 3: get on metadata
-    meta_source = meta_attr if meta_attr is not None else meta_bracket
-    if meta_source is not None:
-        for method_name, fn in [
-            (".get('user_id')", lambda: meta_source.get("user_id")),
-            ("['user_id']", lambda: meta_source["user_id"]),
-            (".user_id", lambda: meta_source.user_id),
-            ("dict()['user_id']", lambda: dict(meta_source)["user_id"]),
-        ]:
-            try:
-                val = fn()
-                logger.info("metadata%s = %s OK", method_name, val)
-            except Exception as e:
-                logger.info("metadata%s = FAIL(%s: %s)", method_name, type(e).__name__, e)
-
-    # === ACTUAL ACCESS (try all methods until one works) ===
-    for access_fn, label in [
-        (lambda: (meta_source.get("user_id"), meta_source.get("plan_id")), "meta.get()"),
-        (lambda: (meta_source["user_id"], meta_source["plan_id"]), "meta[key]"),
-        (lambda: (meta_source.user_id, meta_source.plan_id), "meta.attr"),
-        (lambda: (dict(meta_source)["user_id"], dict(meta_source)["plan_id"]), "dict(meta)[key]"),
-    ]:
-        try:
-            user_id, plan_id = access_fn()
-            logger.info("METADATA ACCESS OK via %s: user_id=%s, plan_id=%s", label, user_id, plan_id)
-            break
-        except Exception as e:
-            logger.info("metadata access via %s failed: %s", label, e)
-            continue
-
-    # === CUSTOMER & SUBSCRIPTION ===
-    customer_id = None
-    subscription_id = None
-
-    for attr in ["customer", "subscription"]:
-        for access_fn, label in [
-            (lambda a=attr: getattr(session, a), f"session.{attr}"),
-            (lambda a=attr: session[a], f"session['{attr}']"),
-        ]:
-            try:
-                val = access_fn()
-                logger.info("%s = %s OK", label, val)
-                if attr == "customer":
-                    customer_id = val
-                else:
-                    subscription_id = val
-                break
-            except Exception as e:
-                logger.info("%s FAIL: %s", label, e)
-
-    logger.info("=== FINAL VALUES: user_id=%s, plan_id=%s, customer_id=%s, sub_id=%s ===",
-                user_id, plan_id, customer_id, subscription_id)
+    user_id = metadata["user_id"]
+    plan_id = metadata["plan_id"]
+    customer_id = session.customer
+    subscription_id = session.subscription
 
     if not user_id or not plan_id:
-        logger.error("ABORT: missing user_id or plan_id")
+        logger.error("checkout.session.completed missing metadata: user_id=%s, plan_id=%s", user_id, plan_id)
         return
 
-    # === DB LOOKUP ===
-    try:
-        result = await db.execute(
-            select(User)
-            .options(selectinload(User.plan))
-            .where(User.id == user_id)
-        )
-        user = result.scalar_one_or_none()
-        logger.info("DB lookup: user=%s (plan_id=%s)",
-                    user.email if user else "NOT FOUND",
-                    user.plan_id if user else "N/A")
-    except Exception as e:
-        logger.error("DB LOOKUP FAILED: %s", e)
-        return
-
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.plan))
+        .where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
-        logger.error("User not found: %s", user_id)
+        logger.error("checkout.session.completed: user not found: %s", user_id)
         return
 
-    # === DB UPDATE ===
-    try:
-        old_plan = user.plan_id
-        user.plan_id = plan_id
-        user.stripe_customer_id = customer_id
-        user.stripe_subscription_id = subscription_id
-        await db.commit()
-        logger.info("USER UPDATED: %s -> plan=%s (was %s), customer=%s, sub=%s",
-                    user.email, plan_id, old_plan, customer_id, subscription_id)
-    except Exception as e:
-        logger.error("DB COMMIT FAILED: %s", e)
-        await db.rollback()
-
-    logger.info("=== CHECKOUT HANDLER END ===")
+    old_plan = user.plan_id
+    user.plan_id = plan_id
+    user.stripe_customer_id = customer_id
+    user.stripe_subscription_id = subscription_id
+    await db.commit()
+    logger.info(
+        "User %s upgraded: plan %s -> %s, customer=%s, sub=%s",
+        user.email, old_plan, plan_id, customer_id, subscription_id
+    )
 
 
 async def _handle_subscription_updated(
