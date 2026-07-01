@@ -172,11 +172,12 @@ async def _handle_checkout_completed(
     session: Any, db: AsyncSession
 ) -> None:
     """Po udanym checkout — ustaw plan i zapisz stripe IDs."""
-    metadata = dict(session["metadata"]) if session["metadata"] else {}
+    # Stripe metadata - attribute access
+    metadata = session.metadata or {}
     user_id = metadata.get("user_id")
     plan_id = metadata.get("plan_id")
-    customer_id = session["customer"]
-    subscription_id = session["subscription"]
+    customer_id = session.customer
+    subscription_id = session.subscription
 
     if not user_id or not plan_id:
         logger.error("checkout.session.completed missing metadata: %s", session)
@@ -205,7 +206,7 @@ async def _handle_subscription_updated(
     subscription: Any, db: AsyncSession
 ) -> None:
     """Po zmianie planu w Customer Portal."""
-    customer_id = subscription["customer"]
+    customer_id = subscription.customer
     if not customer_id:
         return
 
@@ -219,11 +220,11 @@ async def _handle_subscription_updated(
         return
 
     # Ustal nowy plan na podstawie price_id
-    items = subscription["items"]
-    items_data = items["data"] if items else []
+    items = subscription.items
+    items_data = items.data if items else []
     if items_data:
-        price_obj = items_data[0]["price"]
-        price_id = price_obj["id"] if price_obj else None
+        price_obj = items_data[0].price
+        price_id = price_obj.id if price_obj else None
         if price_id:
             plan_result = await db.execute(
                 select(Plan).where(Plan.stripe_price_id == price_id)
@@ -231,7 +232,7 @@ async def _handle_subscription_updated(
             plan = plan_result.scalar_one_or_none()
             if plan:
                 user.plan_id = plan.id
-                user.stripe_subscription_id = subscription["id"]
+                user.stripe_subscription_id = subscription.id
                 await db.commit()
                 logger.info(
                     "User %s plan updated to %s via Customer Portal",
@@ -244,8 +245,8 @@ async def _handle_subscription_deleted(
     subscription: Any, db: AsyncSession
 ) -> None:
     """Po anulowaniu subskrypcji — downgrade do free."""
-    customer_id = subscription["customer"]
-    deleted_sub_id = subscription["id"]
+    customer_id = subscription.customer
+    deleted_sub_id = subscription.id
     if not customer_id:
         return
 
