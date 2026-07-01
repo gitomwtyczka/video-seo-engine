@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-06-30 17:22 [vse-dev-01]
+**Ostatnia aktualizacja:** 2026-07-01 20:23 [sup-worker-14]
 
 ---
 
@@ -34,7 +34,7 @@
 |---|---|---|---|
 | A9 VTT Cache + Dedup | vse-analyst-09 | dispatched, czeka | Backlog |
 | A11 Cudzysłowy analiza | vse-analyst-10 | dispatched | 🔴 PRIORYTET |
-| D13 Slug Trim | vse-dev-29 | dispatched | 🟡 Średni |
+| D13 Slug Trim | vse-dev-29 | dispatched | 🟡 Średniosredni |
 
 ## 🟢 Następne
 
@@ -42,9 +42,15 @@
 |---|---|---|
 | E2E retest | po D13+D14+D15 | Ponowny test RankMath, cel: 80+ |
 
+### Nowe dispatche (Supervisor 02, 2026-07-01)
+- DISPATCH-VSE-DEV-20260701-INJECT-MODAL-FIX — KRYTYCZNY — fix selectedPortalId w InjectModal
+- DISPATCH-VSE-DEV-20260701-SETTINGS-MINIMAL — Minimalne Ustawienia przed komercjalizacja
+- DISPATCH-VSE-DEV-20260701-EMAIL-VERIFICATION — Flow weryfikacji emaila (RODO)
+- DISPATCH-VSE-DEV-20260701-TOS-PRIVACY-POLICY — Regulamin + Polityka Prywatnosci (w przygotowaniu)
+
 ---
 
 **RankMath:** 66/100 (cel: 80+)  
 **Faza 2C:** technicznie DONE, 3 bugi blokują cel  
 
-*[vse-dev-01 | video-seo-engine 30.06.2026]*
+*[sup-worker-14 | video-seo-engine 01.07.2026]*
