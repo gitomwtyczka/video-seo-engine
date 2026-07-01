@@ -1,14 +1,10 @@
 {
   "callsign": "vse-dev-40",
-  "status": "working",
-  "current_task": "DISPATCH-VSE-DEV-20260701-TOS-PRIVACY-POLICY — creating regulamin + polityka-prywatnosci pages + footer links + register checkbox",
-  "timestamp": "2026-07-01T20:34:00+02:00",
+  "status": "done",
+  "current_task": "DISPATCH-VSE-DEV-20260701-TOS-PRIVACY-POLICY — COMPLETED",
+  "timestamp": "2026-07-01T20:40:00+02:00",
   "last_completed": [
-    "D36 Portal Bugs & Tests — commit faf2531 (2026-06-30)",
-    "D35 Inline profile creation — commit 64cfb58 (2026-06-30)",
-    "D34 Portal dropdown fix — commit d850cd4 (2026-06-30)"
+    "TOS-PRIVACY-POLICY — regulamin + polityka-prywatnosci + footer + register checkbox — commits: 7770748, c08952e, 629defe, 996c9c3 (2026-07-01)"
   ],
-  "pending": [
-    "TOS-PRIVACY-POLICY — in progress"
-  ]
+  "pending": []
 }
