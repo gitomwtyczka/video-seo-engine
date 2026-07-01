@@ -182,6 +182,19 @@ async def _handle_checkout_completed(
     customer_id = session.customer
     subscription_id = session.subscription
 
+    # Guard: ignoruj checkout sessions z canceled/incomplete subscription
+    if subscription_id:
+        try:
+            sub_obj = stripe.Subscription.retrieve(subscription_id)
+            if sub_obj.status in ("canceled", "incomplete_expired"):
+                logger.info(
+                    "Ignoring checkout for canceled sub=%s (status=%s)",
+                    subscription_id, sub_obj.status
+                )
+                return
+        except Exception as e:
+            logger.warning("Could not verify subscription %s: %s", subscription_id, e)
+
     if not user_id or not plan_id:
         logger.error("checkout.session.completed missing metadata: user_id=%s, plan_id=%s", user_id, plan_id)
         return
