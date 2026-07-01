@@ -42,7 +42,9 @@ export default function HistoriaPage() {
     const fetchHistory = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-        const res = await fetch(`${apiUrl}/v1/jobs/history?limit=50`)
+        const res = await fetch(`${apiUrl}/v1/jobs/history?limit=50`, {
+          headers: { Authorization: `Bearer ${(session as any).accessToken}` },
+        })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
         setJobs(data)
