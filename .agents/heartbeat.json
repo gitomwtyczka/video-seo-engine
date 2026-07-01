@@ -1,17 +1,14 @@
 {
-  "callsign": "Supervisor-01",
+  "callsign": "vse-dev-40",
   "status": "working",
-  "current_task": "Executing 4 dispatches 2026-07-01: INJECT-MODAL-FIX (critical), SETTINGS-MINIMAL, EMAIL-VERIFICATION, TOS-PRIVACY-POLICY",
-  "timestamp": "2026-07-01T20:31:00+02:00",
+  "current_task": "DISPATCH-VSE-DEV-20260701-TOS-PRIVACY-POLICY — creating regulamin + polityka-prywatnosci pages + footer links + register checkbox",
+  "timestamp": "2026-07-01T20:34:00+02:00",
   "last_completed": [
     "D36 Portal Bugs & Tests — commit faf2531 (2026-06-30)",
     "D35 Inline profile creation — commit 64cfb58 (2026-06-30)",
     "D34 Portal dropdown fix — commit d850cd4 (2026-06-30)"
   ],
   "pending": [
-    "INJECT-MODAL-FIX — KRYTYCZNY — dispatching to worker",
-    "SETTINGS-MINIMAL — Sredni-wysoki — dispatching to worker",
-    "EMAIL-VERIFICATION — Sredni-wysoki — dispatching to worker",
-    "TOS-PRIVACY-POLICY — Wysoki — dispatching to worker"
+    "TOS-PRIVACY-POLICY — in progress"
   ]
 }
