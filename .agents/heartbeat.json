@@ -1,10 +1,16 @@
 {
-  "callsign": "vse-dev-40",
-  "status": "done",
-  "current_task": "DISPATCH-VSE-DEV-20260701-TOS-PRIVACY-POLICY — COMPLETED",
-  "timestamp": "2026-07-01T20:40:00+02:00",
+  "callsign": "Supervisor-01",
+  "status": "working",
+  "current_task": "2026-07-01 dispatche — INJECT-MODAL-FIX done + deploy, EMAIL-VERIFICATION done + deploy, TOS-PRIVACY-POLICY done, SETTINGS-MINIMAL in progress",
+  "timestamp": "2026-07-01T19:02:00Z",
   "last_completed": [
-    "TOS-PRIVACY-POLICY — regulamin + polityka-prywatnosci + footer + register checkbox — commits: 7770748, c08952e, 629defe, 996c9c3 (2026-07-01)"
+    "INJECT-MODAL-FIX — dashboard-inner.tsx restored + selectedPortalId/portalName/portalUrl props — commit a7d8494 (2026-07-01)",
+    "EMAIL-VERIFICATION-BANNER integration — import + is_verified interface + JSX — commit c78d5bd (2026-07-01)",
+    "TOS-PRIVACY-POLICY — regulamin + polityka-prywatnosci + footer + register checkbox — commits 7770748,c08952e,629defe,996c9c3 (2026-07-01)",
+    "Deploy: vse-api rebuilt (email verify endpoints), vse-web restarted — all OK"
   ],
-  "pending": []
+  "pending": [
+    "SETTINGS-MINIMAL — /ustawienia/page.tsx — vse-dev-38 in progress",
+    "SMTP credentials na VPS — brak SMTP_PASSWORD, emaile nie wysyłane (soft fail)"
+  ]
 }
