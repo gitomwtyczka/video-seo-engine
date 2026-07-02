@@ -1,13 +1,12 @@
 {
   "callsign": "vse-dev-01",
-  "status": "handoff",
-  "current_task": "Wdrożenie usuwania użytkowników (cascade) i webhook downgrade Stripe - Code pushed, DEPLOY PENDING",
-  "timestamp": "2026-07-02T15:45:00Z",
+  "status": "done",
+  "current_task": "Naprawa cichego błędu podczas publikacji (Bug 2)",
+  "timestamp": "2026-07-02T16:15:00Z",
   "last_completed": [
     "Wdrożenie usuwania użytkowników i fix webhooków Stripe — commit 2e58c4d (2026-07-02)",
-    "Dodanie logowania przez Google do rejestracji (web) — commit 35afbc4 (2026-07-02)"
+    "Dodanie logowania przez Google do rejestracji (web) — commit 35afbc4 (2026-07-02)",
+    "Naprawa cichego błędu podczas publikacji (Bug 2) — commit ddd6a8c (2026-07-02)"
   ],
-  "pending": [
-    "Deploy vse-api i vse-web (czeka na autoryzację Usera)"
-  ]
+  "pending": []
 }
