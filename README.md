@@ -232,6 +232,7 @@ video-seo-engine/
 ### 🔴 Faza 3 — VSE Komercjalizacja MVP (BLOCKER)
 - [ ] 🔴 Stripe checkout flow (Products + Prices + Webhooks)
 - [ ] 🔴 Terms of Service + Privacy Policy (EU/RODO)
+- [ ] 🟡 System kuponów promocyjnych dla Stripe (rabaty na upgrade / nowe abonamenty)
 - [ ] 🟡 Email verification flow (token exists, flow TBD)
 - [ ] 🟡 Google OAuth login (google_id exists, flow TBD)
 - [ ] 🟡 Landing page visual polish + pricing page
