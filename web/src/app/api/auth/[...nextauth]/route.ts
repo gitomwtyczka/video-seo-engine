@@ -18,12 +18,23 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   )
 }
 
+function getTokenExpiration(token: string): number {
+  try {
+    const base64Url = token.split('.')[1]
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(Buffer.from(base64, 'base64').toString())
+    return payload.exp ?? 0
+  } catch (e) {
+    return 0
+  }
+}
+
 providers.push(
   CredentialsProvider({
     name: 'Email',
     credentials: {
       email: { label: 'Email', type: 'email' },
-      password: { label: 'Has\u0142o', type: 'password' },
+      password: { label: 'Hasło', type: 'password' },
     },
     async authorize(credentials) {
       if (!credentials?.email || !credentials?.password) return null
@@ -61,6 +72,7 @@ async function fetchUserProfile(accessToken: string): Promise<{ plan_id: string;
   try {
     const res = await fetch(`${BACKEND_URL}/v1/users/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
     })
     if (!res.ok) return null
     const data = await res.json()
@@ -109,6 +121,36 @@ async function exchangeGoogleToken(
   }
 }
 
+async function refreshAccessToken(token: any) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: token.refreshToken }),
+      cache: 'no-store',
+    })
+
+    if (!res.ok) {
+      throw new Error('Refresh failed')
+    }
+
+    const data = await res.json()
+    
+    return {
+      ...token,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token ?? token.refreshToken,
+      expires_at: data.access_token ? getTokenExpiration(data.access_token) : token.expires_at,
+    }
+  } catch (error) {
+    console.error('[NextAuth] refreshAccessToken error:', error)
+    return {
+      ...token,
+      error: 'RefreshAccessTokenError',
+    }
+  }
+}
+
 export const authOptions = {
   providers,
   callbacks: {
@@ -119,6 +161,9 @@ export const authOptions = {
         token.accessToken = user.accessToken
         token.refreshToken = user.refreshToken
         token.email = user.email
+        if (user.accessToken) {
+          token.expires_at = getTokenExpiration(user.accessToken)
+        }
         // Fetch plan + is_admin immediately after login
         if (user.accessToken) {
           const profile = await fetchUserProfile(user.accessToken)
@@ -145,6 +190,7 @@ export const authOptions = {
           if (exchanged) {
             token.accessToken = exchanged.accessToken
             token.refreshToken = exchanged.refreshToken
+            token.expires_at = getTokenExpiration(exchanged.accessToken)
             // Fetch plan immediately using our fresh backend JWT
             const profile = await fetchUserProfile(exchanged.accessToken)
             if (profile) {
@@ -163,9 +209,18 @@ export const authOptions = {
         }
       }
 
+      // --- Silent Token Rotation ---
+      const now = Math.floor(Date.now() / 1000)
+      if (token.accessToken && token.expires_at) {
+        // Refresh token if it expires in less than 60 seconds
+        const shouldRefreshTime = (token.expires_at as number) - 60
+        if (now > shouldRefreshTime) {
+          token = await refreshAccessToken(token)
+        }
+      }
+
       // --- Periodic plan refresh (every 5 minutes) ---
       // Applies to all providers once token.accessToken is populated
-      const now = Math.floor(Date.now() / 1000)
       const lastPlanFetch = (token.planFetchedAt as number) ?? 0
       if (token.accessToken && !user && !account && (now - lastPlanFetch > 300)) {
         const profile = await fetchUserProfile(token.accessToken as string)
@@ -185,6 +240,11 @@ export const authOptions = {
       // Expose plan and is_admin to client — used by dashboard + middleware
       session.user.plan = token.plan ?? 'free'
       session.user.is_admin = token.is_admin ?? false
+      
+      if (token.error) {
+        session.error = token.error
+      }
+      
       return session
     },
   },
