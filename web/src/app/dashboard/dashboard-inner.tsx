@@ -424,8 +424,12 @@ function InjectModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      let data: InjectResult
+      let data: any
       try { data = await res.json() } catch { data = { error: `HTTP ${res.status}` } }
+      
+      if (!res.ok) {
+        throw new Error(data?.detail || data?.error || `Błąd serwera (HTTP ${res.status})`);
+      }
       setPublishResult(data)
     } catch (e: unknown) {
       setPublishResult({ error: e instanceof Error ? e.message : 'Błąd połączenia' })
