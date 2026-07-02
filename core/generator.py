@@ -594,7 +594,6 @@ Rozdzialy musza:
      D \u2014 POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
    - Cel: widz klika nawet nie znajac goscia z imienia.
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
-5. **wp_slug** \u2014 HARD MAX 60 znakow (ABSOLUTNY LIMIT \u2014 slug bedzie obciety do 60 zn). URL-slug artykulu WP. Tylko male litery, myslniki zamiast spacji, bez polskich znakow (transliteruj). ZACHOWAJ polskie spojniki i przyimki (i, w, z, na, do, o) gdy sa czescia frazy kluczowej \u2014 np. "tytus-romek-i-atomek" ZOSTAJE, bo "i" to czesc nazwy wlasnej. Bez stop-words ktore nie sa czescia frazy. SLUG MUSI ZACZYNAC SIE od transliterowanych slow z focus_keyphrases[0]. Np. fraza "polityka obronna" \u2192 slug "polityka-obronna-...".
 6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa.
 7. **lead** \u2014 2-3 zdania, max 300 znakow. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
 8. **article_body** \u2014 HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
@@ -603,9 +602,7 @@ Rozdzialy musza:
    Nie upychaj sztucznie \u2014 fraza musi brzmiec naturalnie w kontekscie zdania.
    POZYCJA: Pierwszy akapit article_body MUSI zaczynac sie od zdania zawierajacego
    glowna fraze z focus_keyphrases[0].
-   LINKI ZEWNETRZNE (DoFollow): W article_body MUSISZ wplesc MINIMUM 2 linki DoFollow
-   do zewnetrznych zrodel authority. Uzyj anchor textow z pola external_links.
-   Format: <a href='URL' target='_blank'>naturalny anchor text</a>
+   LINKI WEWNETRZNE: Jeśli w sekcji [PROPOZYCJE LINKOW WEWNETRZNYCH] podano URL-e – wstaw 2-4 z nich. Jeśli brak prawdziwych URL-i – wstaw `<!-- TODO: dodać link wewnętrzny -->`.
    KRYTYCZNE DLA JSON: W tagach HTML ZAWSZE uzywaj APOSTROFOW (') zamiast cudzyslowow (") w atrybutach.
    Przyklad poprawny: <a href='https://example.com' target='_blank'>tekst</a>
    Przyklad BLEDNY: <a href="https://example.com" target="_blank">tekst</a>
@@ -664,7 +661,7 @@ yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","wp_slug":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}""" 
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}""" 
 
     logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
     if priority_keywords:
@@ -871,16 +868,6 @@ def process_video(
             "yt_title missing \u2014 fallback to post_title: %r",
             result["yt_title"][:60],
         )
-
-    # D13: Hard limit — wp_slug MUST NOT exceed 60 chars
-    raw_slug = result.get("wp_slug", "")
-    trimmed_slug = _trim_slug(raw_slug, max_len=60)
-    if trimmed_slug != raw_slug:
-        logger.info(
-            "D13 slug trimmed: %r (%d zn) \u2192 %r (%d zn)",
-            raw_slug, len(raw_slug), trimmed_slug, len(trimmed_slug),
-        )
-    result["wp_slug"] = trimmed_slug
 
     # D10: Log external links from LLM output
     ext_links = result.get("external_links", [])

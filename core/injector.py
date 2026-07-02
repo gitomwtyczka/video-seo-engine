@@ -1171,28 +1171,6 @@ def update_post(
         payload["title"] = post_title_val
         logger.info("  WP title -> %r", post_title_val[:60])
 
-    # Slug — use Gemini-generated wp_slug first, fallback to sanitize from post_title
-    # CRITICAL: always set explicit slug to prevent WP from auto-deriving from new title.
-    # For published posts WP won't change existing slug even if we send new one,
-    # but being explicit protects drafts and new articles.
-    wp_slug = seo.get("wp_slug", "").strip()
-    if not wp_slug and post_title_val:
-        wp_slug = _sanitize_slug(post_title_val)
-        logger.info("  WP slug derived (fallback): %r", wp_slug)
-
-    # D7 Faza 3.1: Validate slug contains keyphrase words
-    focus_kp = seo.get("focus_keyphrase", "").strip()
-    if wp_slug and focus_kp:
-        kp_words = set(_sanitize_slug(focus_kp).split("-"))
-        slug_words = set(wp_slug.split("-"))
-        if not kp_words.intersection(slug_words):
-            wp_slug = _sanitize_slug(focus_kp)
-            logger.warning("  D7 wp_slug overridden: keyphrase words missing → %r", wp_slug)
-
-    if wp_slug:
-        payload["slug"] = wp_slug
-        logger.info("  WP slug -> %r", wp_slug)
-
     try:
         resp = requests.post(url, json=payload, auth=auth, timeout=30)
         debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
@@ -1361,13 +1339,6 @@ def inject_video(
     else:
         logger.debug("  YT update disabled for portal %s", (profile or {}).get('portal_id', '?'))
 
-    # Resolve wp_slug for return dict (same logic as in update_post)
-    _wp_slug_ret = seo.get("wp_slug", "").strip()
-    if not _wp_slug_ret:
-        _pt = seo.get("post_title", "").strip()
-        if _pt:
-            _wp_slug_ret = _sanitize_slug(_pt)
-
     return {
         "wp_id": wp_id,
         "yt_id": yt_id,
@@ -1377,7 +1348,7 @@ def inject_video(
         "rankmath_ok": rankmath_ok,
         "yt_update_ok": yt_update_ok,
         "wp_title_updated": bool(seo.get("post_title", "").strip()),
-        "wp_slug_set": bool(_wp_slug_ret),
+        "wp_slug_set": False,
         "images_uploaded": len(uploaded_images),
         "ok": status == 200 or dry_run,
     }
