@@ -79,7 +79,8 @@ class InjectRequest(BaseModel):
     wp_post_id: Optional[int] = None  # None = utwórz nowy post; int = aktualizuj istniejący
     video_url: str
     schema_data: dict
-    site_config: SiteConfig
+    site_config: Optional[SiteConfig] = None
+    portal_id: Optional[str] = None
     post_status: str = "draft"  # "draft" | "publish" — dla nowych postów
     post_format: str = "video"  # WordPress post format: "standard" | "video" | "gallery" | "quote"
 
