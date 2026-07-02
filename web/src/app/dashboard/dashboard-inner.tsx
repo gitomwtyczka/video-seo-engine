@@ -1121,9 +1121,9 @@ export default function DashboardInner() {
     fetchProfile()
   }, [session?.accessToken])
 
-    const sessionPlan = (session?.user as any)?.plan || 'free'
-  const currentPlan = userProfile?.plan?.id || sessionPlan
-  const isPro = ['pro', 'agency'].includes(currentPlan)
+  const isPro =
+    (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
+    (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))
 
   // Copy to clipboard with visual feedback
   const handleCopy = useCallback(async (text: string, id: string) => {

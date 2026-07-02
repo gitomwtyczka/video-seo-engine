@@ -371,7 +371,9 @@ async def get_job_history(
     Returns:
         Lista HistoryJobResponse posortowana od najnowszych.
     """
-    query = select(TranscriptJob).where(TranscriptJob.user_id == current_user.id)
+    query = select(TranscriptJob)
+    if not current_user.is_admin:
+        query = query.where(TranscriptJob.user_id == current_user.id)
 
     result = await db.execute(
         query
@@ -407,19 +409,7 @@ async def complete_job(
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
 
-    if job.user_id is None:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
-    elif job.user_id != current_user.id:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
 
-    if job.user_id is None:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
-    elif job.user_id != current_user.id:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
 
     # Idempotent: jeśli już przetworzony, zwróć 200 bez zmian
     if job.status != "pending":
@@ -485,13 +475,6 @@ async def get_job(
     elif job.user_id != current_user.id:
         if not current_user.is_admin:
             raise HTTPException(403, "Access denied")
-
-    if job.user_id is None:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
-    elif job.user_id != current_user.id:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
     return _job_to_full_response(job)
 
 
@@ -522,13 +505,6 @@ async def get_job_vtt(
     job = await db.get(TranscriptJob, job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
-
-    if job.user_id is None:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
-    elif job.user_id != current_user.id:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
 
     if job.user_id is None:
         if not current_user.is_admin:
