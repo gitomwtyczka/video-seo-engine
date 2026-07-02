@@ -1086,10 +1086,6 @@ export default function DashboardInner() {
   const accessToken = (session as any)?.accessToken as string | undefined;
   const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken);
 
-  if (status === 'loading') {
-    return <div className="flex justify-center items-center h-screen text-gray-500">Wczytywanie sesji...</div>
-  }
-
   // When jobData arrives from history, populate result state
   useEffect(() => {
     if (jobData?.schema_data) {
