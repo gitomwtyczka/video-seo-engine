@@ -375,6 +375,10 @@ def update_rankmath_meta(
     }
     try:
         resp = requests.post(url, json=payload, auth=auth, timeout=20)
+        debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
+        if debug_mode and resp.status_code >= 400:
+            logger.error("  [DEBUG] WP Error Payload: %s", json.dumps(payload))
+            logger.error("  [DEBUG] WP Error Response: %s", resp.text)
         resp.raise_for_status()
         
         if not resp.text.strip():
@@ -1191,6 +1195,10 @@ def update_post(
 
     try:
         resp = requests.post(url, json=payload, auth=auth, timeout=30)
+        debug_mode = os.environ.get("DEBUG_MODE", "false").lower() == "true"
+        if debug_mode and resp.status_code >= 400:
+            logger.error("  [DEBUG] WP Error Payload: %s", json.dumps(payload))
+            logger.error("  [DEBUG] WP Error Response: %s", resp.text)
         link = resp.json().get("link", "?")
         logger.info("  REST API: %s | %s", resp.status_code, link)
         if resp.status_code != 200:
