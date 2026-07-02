@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-07-02 15:45 [vse-dev-01]
+**Ostatnia aktualizacja:** 2026-07-02 18:55 [vse-strateg-01]
 
 ---
 
@@ -8,9 +8,6 @@
 
 | Task | Agent | Commit | Data |
 |---|---|---|---|
-| D1-D3 Publication Quality | vse-dev-17 | sprawozdawcze | 2026-06-19 |
-| D34 Portal dropdown fix | vse-dev-01 | `d850cd4` | 2026-06-30 |
-| D35 Inline profile creation | vse-dev-01 | `64cfb58` | 2026-06-30 |
 | D36 Portal Bugs & Tests | vse-dev-01 | `faf2531` | 2026-06-30 |
 | TOS-PRIVACY-POLICY | vse-dev-40 | `7770748,c08952e` | 2026-07-01 |
 | INJECT-MODAL-FIX | Supervisor-01 | `a7d8494` | 2026-07-01 |
@@ -18,6 +15,9 @@
 | EMAIL-VERIFICATION frontend | Supervisor-01 | `c78d5bd` | 2026-07-01 |
 | EMAIL-VERIFICATION 404 fix | vse-dev-01 | `0139425,9af4c0a` | 2026-07-02 |
 | REGISTER GOOGLE OAUTH | vse-dev-01 | `35afbc4` | 2026-07-02 |
+| BUG 1: DELETE_USER & Stripe Webhooks | vse-dev-01 | (zdeployowane) | 2026-07-02 |
+| BUG 2/4/5: 422 Inject Error & Debug Mode | vse-dev-02 | (zdeployowane) | 2026-07-02 |
+| ROADMAP: System Kuponów & Zniżki | vse-strateg-01 | (w README.md) | 2026-07-02 |
 
 ## 🟡 W toku
 
@@ -25,17 +25,18 @@
 |---|---|---|---|
 | SETTINGS-MINIMAL | vse-dev-38 | in progress | /ustawienia/page.tsx |
 | A9 VTT Cache + Dedup | vse-analyst-09 | dispatched | Backlog |
-| DELETE_USER & WEBHOOKS | vse-dev-01 | waiting deploy | Kod na branchu `main`, czeka na deploy (timeout SSH) |
 
 ## 🟢 Następne
 
 | Task | Opis |
 |---|---|
+| BUG 3: HISTORY LEAK | Admin widzi w historii generacje innych użytkowników (np. `verinarto` pod kontem `tobroz`). Brak filtru na `user_id` w zapytaniu GET /jobs/history? |
+| ROADMAP: System Kuponów | Do analizy przez analityka w następnej sesji |
 | SMTP .env na VPS | brak SMTP_PASSWORD, emaile nie wysyłane (soft fail) |
 | E2E retest | RankMath cel: 80+ |
 
 ---
 
-**Komercjalizacja:** TOS/PP live, email verify backend live, InjectModal fixed  
+**Komercjalizacja:** Ukończono ręczne kasowanie z webhookami Stripe oraz zażegnano wstrzymujący błąd publikacji SEO.
 
-*[vse-dev-01 | video-seo-engine 2026-07-02 15:45]*
+*[vse-strateg-01 | video-seo-engine 2026-07-02 18:55]*
