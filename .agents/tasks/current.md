@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-07-02 18:55 [vse-strateg-01]
+**Ostatnia aktualizacja:** 2026-07-02 19:33 [vse-strateg-01]
 
 ---
 
@@ -18,25 +18,27 @@
 | BUG 1: DELETE_USER & Stripe Webhooks | vse-dev-01 | (zdeployowane) | 2026-07-02 |
 | BUG 2/4/5: 422 Inject Error & Debug Mode | vse-dev-02 | (zdeployowane) | 2026-07-02 |
 | ROADMAP: System Kuponów & Zniżki | vse-strateg-01 | (w README.md) | 2026-07-02 |
+| P0: Publikacja na Złym Portalu (Inject) | vse-strateg-01 | `d1f2206` | 2026-07-02 |
+| SETTINGS-MINIMAL | vse-dev-38 | /ustawienia | 2026-07-02 |
+| SMTP .env na VPS | Supervisor-01 | (VPS config) | 2026-07-02 |
 
 ## 🟡 W toku
 
 | Task | Agent | Status | Notatka |
 |---|---|---|---|
-| SETTINGS-MINIMAL | vse-dev-38 | in progress | /ustawienia/page.tsx |
+| BUG 3: HISTORY LEAK | vse-dev-01 | in progress | wdrażanie autoryzacji |
+| NEXTAUTH PLAN REFRESH BUG | vse-dev-01 | in progress | poprawka sesji NextAuth |
 | A9 VTT Cache + Dedup | vse-analyst-09 | dispatched | Backlog |
 
 ## 🟢 Następne
 
 | Task | Opis |
 |---|---|
-| BUG 3: HISTORY LEAK | Admin widzi w historii generacje innych użytkowników (np. `verinarto` pod kontem `tobroz`). Brak filtru na `user_id` w zapytaniu GET /jobs/history? |
 | ROADMAP: System Kuponów | Do analizy przez analityka w następnej sesji |
-| SMTP .env na VPS | brak SMTP_PASSWORD, emaile nie wysyłane (soft fail) |
 | E2E retest | RankMath cel: 80+ |
 
 ---
 
 **Komercjalizacja:** Ukończono ręczne kasowanie z webhookami Stripe oraz zażegnano wstrzymujący błąd publikacji SEO.
 
-*[vse-strateg-01 | video-seo-engine 2026-07-02 18:55]*
+*[vse-strateg-01 | video-seo-engine 2026-07-02 19:33]*
