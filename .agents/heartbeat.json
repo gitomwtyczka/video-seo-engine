@@ -1,13 +1,12 @@
 {
-  "callsign": "vse-dev-02",
+  "callsign": "vse-dev-01",
   "status": "done",
-  "current_task": "Fix Rules of Hooks in dashboard-inner.tsx (P0 hotfix)",
-  "timestamp": "2026-07-02T21:13:40Z",
+  "current_task": "Silent Token Rotation i no-store cache dla NextAuth",
+  "timestamp": "2026-07-02T21:45:00Z",
   "last_completed": [
-    "Usunięcie wczesnego return (Rules of Hooks) z dashboard-inner.tsx - commit 5c341a4",
-    "VPS pre-deploy backup - completed",
-    "VPS deploy (docker compose up -d --build) - completed",
-    "Dual write raport z poprawki (sonic-void i video-seo-engine)"
+    "Wdrożenie fixu 'no-store' cache dla api (migotanie free plan) - b28d812",
+    "Wdrożenie pobierania exp i Silent Token Rotation z /v1/auth/refresh - b28d812",
+    "Czekam na code review od Supervisora - BEZ DEPLOYU"
   ],
   "pending": []
 }
