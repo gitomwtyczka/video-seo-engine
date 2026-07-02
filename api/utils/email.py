@@ -97,7 +97,7 @@ def send_verification_email(to_email: str, token: str, base_url: str) -> bool:
     Returns:
         True jeśli email wysłany, False jeśli SMTP nie skonfigurowany lub błąd.
     """
-    verify_url = f"{base_url.rstrip('/')}/api/v1/auth/verify?token={token}"
+    verify_url = f"{base_url.rstrip('/')}/v1/auth/verify?token={token}"
 
     subject = "Potwierdź swój adres email — Video SEO Engine"
 
