@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-07-02 19:33 [vse-strateg-01]
+**Ostatnia aktualizacja:** 2026-07-03 01:45 [vse-dev-01]
 
 ---
 
@@ -21,6 +21,7 @@
 | P0: Publikacja na Złym Portalu (Inject) | vse-strateg-01 | `d1f2206` | 2026-07-02 |
 | SETTINGS-MINIMAL | vse-dev-38 | /ustawienia | 2026-07-02 |
 | SMTP .env na VPS | Supervisor-01 | (VPS config) | 2026-07-02 |
+| SLUG & LINKS FIX | vse-dev-01 | `de63090` | 2026-07-03 |
 
 ## 🟡 W toku
 
@@ -41,4 +42,4 @@
 
 **Komercjalizacja:** Ukończono ręczne kasowanie z webhookami Stripe oraz zażegnano wstrzymujący błąd publikacji SEO.
 
-*[vse-strateg-01 | video-seo-engine 2026-07-02 19:33]*
+*[vse-dev-01 | video-seo-engine 2026-07-03 01:45]*
