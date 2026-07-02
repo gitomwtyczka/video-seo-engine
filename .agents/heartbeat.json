@@ -1,9 +1,12 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "NextAuth plan refresh bug & History Leak",
-  "timestamp": "2026-07-02T19:31:36+02:00",
-  "last_completed": [],
+  "status": "done",
+  "current_task": "NextAuth plan refresh bug and History Leak fixes",
+  "timestamp": "2026-07-02T17:45:58.480041+00:00",
+  "last_completed": [
+    "Bug: NextAuth plan refresh 'free' bug (P1)",
+    "Bug 3: History Leak (P1)"
+  ],
   "pending": [
     "BUG: NextAuth plan refresh free bug",
     "BUG 3: HISTORY LEAK"
