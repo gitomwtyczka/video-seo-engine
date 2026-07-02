@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-07-02 15:05 [vse-dev-01]
+**Ostatnia aktualizacja:** 2026-07-02 15:45 [vse-dev-01]
 
 ---
 
@@ -25,6 +25,7 @@
 |---|---|---|---|
 | SETTINGS-MINIMAL | vse-dev-38 | in progress | /ustawienia/page.tsx |
 | A9 VTT Cache + Dedup | vse-analyst-09 | dispatched | Backlog |
+| DELETE_USER & WEBHOOKS | vse-dev-01 | waiting deploy | Kod na branchu `main`, czeka na deploy (timeout SSH) |
 
 ## 🟢 Następne
 
@@ -37,4 +38,4 @@
 
 **Komercjalizacja:** TOS/PP live, email verify backend live, InjectModal fixed  
 
-*[vse-dev-01 | video-seo-engine 2026-07-02 15:05]*
+*[vse-dev-01 | video-seo-engine 2026-07-02 15:45]*

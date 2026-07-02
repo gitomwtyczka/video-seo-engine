@@ -1,12 +1,13 @@
 {
-  "callsign": "vse-architect-01",
-  "status": "working",
-  "current_task": "Planowanie wdrożenia usuwania użytkowników i naprawy wygasania subskrypcji Stripe",
-  "timestamp": "2026-07-02T15:23:00Z",
+  "callsign": "vse-dev-01",
+  "status": "handoff",
+  "current_task": "Wdrożenie usuwania użytkowników (cascade) i webhook downgrade Stripe - Code pushed, DEPLOY PENDING",
+  "timestamp": "2026-07-02T15:45:00Z",
   "last_completed": [
+    "Wdrożenie usuwania użytkowników i fix webhooków Stripe — commit 2e58c4d (2026-07-02)",
     "Dodanie logowania przez Google do rejestracji (web) — commit 35afbc4 (2026-07-02)"
   ],
   "pending": [
-    "Planowanie techniczne dla usuwania kont i webhooks Stripe"
+    "Deploy vse-api i vse-web (czeka na autoryzację Usera)"
   ]
 }
