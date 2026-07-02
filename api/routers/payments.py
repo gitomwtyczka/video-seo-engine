@@ -44,15 +44,7 @@ async def create_checkout_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Tworzy Stripe Checkout Session i zwraca URL do przekierowania.
-
-    CO: Endpoint przyjmuje plan_id, sprawdza stripe_price_id w tabeli plans
-        i tworzy sesję Checkout w trybie 'subscription'.
-    PO CO: User klika 'Subskrybuj' na stronie cennika i jest przekierowany
-           do Stripe-hosted checkout — nie buildujemy custom formularza.
-    JAK: Jeśli user ma już stripe_customer_id, używamy go (continuity).
-         Jeśli nie — Stripe stworzy nowego Customer automatycznie.
-    """
+    """Tworzy Stripe Checkout Session i zwraca URL do przekierowania."""
     if not STRIPE_SECRET_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -112,21 +104,7 @@ async def stripe_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Stripe webhook handler — obsługuje eventy subskrypcji.
-
-    CO: Odbiera HTTP POST od Stripe z podpisem HMAC-SHA256.
-    PO CO: Utrzymuje synchronizację między Stripe a DB — aktualizuje plan usera
-           po opłacie, zmianie planu lub anulowaniu subskrypcji.
-    JAK: Weryfikuje sygnaturę przez STRIPE_WEBHOOK_SECRET.
-         Obsługiwane eventy:
-           checkout.session.completed    → aktywuj plan
-           customer.subscription.updated → zmień plan
-           customer.subscription.deleted → downgrade do free
-           invoice.payment_failed        → log warning
-
-    WAŻNE: Endpoint NIE używa JWT auth — Stripe wysyła bez Bearer tokena.
-           Bezpieczeństwo zapewnia weryfikacja sygnatury Stripe.
-    """
+    """Stripe webhook handler — obsługuje eventy subskrypcji."""
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
 
@@ -237,6 +215,15 @@ async def _handle_subscription_updated(
         logger.warning("subscription.updated: no user for customer %s", customer_id)
         return
 
+    status = subscription.status
+    if status not in ("active", "trialing"):
+        if user.plan_id != "free":
+            user.plan_id = "free"
+            user.stripe_subscription_id = None
+            await db.commit()
+            logger.info("subscription.updated: User %s downgraded to free because status is %s", user.id, status)
+        return
+
     # Ustal nowy plan na podstawie price_id
     items = subscription.items
     items_data = items.data if items else []
@@ -294,13 +281,7 @@ async def _handle_subscription_deleted(
 async def create_portal_session(
     current_user: User = Depends(get_current_user),
 ) -> dict:
-    """Tworzy Stripe Customer Portal URL.
-
-    CO: Zwraca jednorazowy link do Stripe Customer Portal.
-    PO CO: User może zarządzać subskrypcją (zmiana planu, anulowanie,
-           aktualizacja metody płatności) bez budowania custom UI.
-    JAK: Wymaga stripe_customer_id — user musi wcześniej przejść przez checkout.
-    """
+    """Tworzy Stripe Customer Portal URL."""
     if not STRIPE_SECRET_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

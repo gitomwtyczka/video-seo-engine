@@ -15,6 +15,7 @@ from typing import Optional, List
 import logging
 import os
 import uuid
+import stripe
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -199,9 +200,7 @@ async def change_user_plan(
     """
     CO: Zmienia plan subskrypcji wskazanego użytkownika.
     PO CO: Jedyna operacja zapisu w panelu admin. Zastępuje ręczny SQL.
-           Przykład: tobroz@gmail.com free → agency (jedna akcja w UI).
     JAK: Weryfikuje że plan_id istnieje w tabeli plans, potem UPDATE users SET plan_id.
-         selectinload dodany prewencyjnie na wypadek odwołania do user.plan po commit.
     """
     try:
         uid = uuid.UUID(user_id)
@@ -237,6 +236,42 @@ async def change_user_plan(
         new_plan=payload.plan_id,
         message=f"Plan changed: {old_plan} → {payload.plan_id}"
     )
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    CO: Usuwa użytkownika i jego dane (kaskadowo zdefiniowane w modelu).
+    PO CO: Panel admina wymaga opcji 'Danger Zone' do czyszczenia kont.
+    JAK: Sprawdza czy jest stripe_subscription_id, wywołuje API Stripe, potem db.delete(user).
+    """
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user ID format")
+
+    result = await db.execute(select(User).where(User.id == uid))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.stripe_subscription_id:
+        try:
+            stripe.Subscription.delete(user.stripe_subscription_id)
+            logger.info("Anulowano subskrypcję Stripe %s dla usera %s", user.stripe_subscription_id, user_id)
+        except stripe.error.InvalidRequestError:
+            logger.warning("Subskrypcja nie istnieje w Stripe.")
+        except Exception as e:
+            logger.error("Błąd Stripe przy kasowaniu %s: %s", user.stripe_subscription_id, e)
+            raise HTTPException(status_code=500, detail="Błąd komunikacji ze Stripe. Konto nie zostało usunięte.")
+
+    await db.delete(user)
+    await db.commit()
+    return {"message": "Użytkownik usunięty pomyślnie"}
 
 
 @router.get("/stats", response_model=AdminStatsResponse)
@@ -299,8 +334,6 @@ async def get_debug_mode(
     CO: Zwraca aktualny stan trybu debug (enabled/disabled).
     PO CO: Admin panel odczytuje stan przy załadowaniu strony.
     JAK: Odczytuje klucz 'debug_mode' z tabeli app_settings.
-         Jeśli nie ma wpisu — zwraca enabled=False (domyślny stan).
-         Env DEBUG_MODE ma wyższy priorytet niż BD.
     """
     # Env variable takes precedence
     env_debug = os.getenv("DEBUG_MODE", "").lower()
@@ -323,11 +356,7 @@ async def set_debug_mode(
 ):
     """
     CO: Włącza lub wyłącza tryb debug.
-    PO CO: Admin może włączyć verbose logging bez SSH na VPS i bez restartu kontenera.
-           ErrorLoggingMiddleware czyta DEBUG_MODE z env — zapis do BD jest sygnałem
-           dla przyszłych restartów lub widgetów UI.
-    JAK: UPSERT do tabeli app_settings (key=debug_mode, value=true/false).
-         Ustawia też env var DEBUG_MODE w biejącym procesie (działa do restartu).
+    PO CO: Admin może włączyć verbose logging bez SSH na VPS.
     """
     value = "true" if payload.enabled else "false"
 

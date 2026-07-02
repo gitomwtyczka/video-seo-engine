@@ -191,6 +191,97 @@ function ChangePlanModal({
   )
 }
 
+// ─── Delete User Modal ────────────────────────────────────────────────────────
+
+function DeleteUserModal({
+  user,
+  onClose,
+  onSuccess,
+  accessToken,
+}: {
+  user: AdminUser
+  onClose: () => void
+  onSuccess: (userId: string) => void
+  accessToken: string
+}) {
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleDelete = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/admin/users/${user.id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+      onSuccess(user.id)
+      onClose()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Nieznany błąd')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="text-lg font-semibold text-red-500">Usuń użytkownika</h3>
+            <p className="text-sm text-gray-400 mt-0.5 truncate max-w-xs">{user.email}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors p-1">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="space-y-2 mb-5">
+          <p className="text-sm text-gray-300">
+            Czy na pewno chcesz usunąć to konto? Tej akcji <strong>nie da się cofnąć</strong>. Użytkownik, jego ustawienia, logi oraz subskrypcja zostaną bezpowrotnie usunięte.
+          </p>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+            ⚠️ {error}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="flex-1 py-2.5 border border-gray-700 text-gray-300 rounded-xl hover:border-gray-600 hover:text-white transition-colors text-sm font-medium"
+          >
+            Anuluj
+          </button>
+          <button
+            id="confirm-delete-user-btn"
+            onClick={handleDelete}
+            disabled={saving}
+            className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex items-center justify-center gap-2"
+          >
+            {saving ? (
+              <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Usuwanie...</>
+            ) : (
+              'Usuń konto'
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Stats Card ────────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
@@ -311,6 +402,7 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [modalUser, setModalUser] = useState<AdminUser | null>(null)
+  const [deleteModalUser, setDeleteModalUser] = useState<AdminUser | null>(null)
   const [planFilter, setPlanFilter] = useState<string>('all')
 
   const accessToken = (session?.accessToken as string) || ''
@@ -366,6 +458,15 @@ export default function AdminPage() {
       )
     )
   }, [])
+
+  const handleDeleteSuccess = useCallback((userId: string) => {
+    setUsers((prev) => prev.filter((u) => u.id !== userId))
+    setStats((prev) => {
+      if (!prev) return prev
+      return { ...prev, total_users: prev.total_users > 0 ? prev.total_users - 1 : 0 }
+    })
+  }, [])
+
 
   // Filtered users
   const filteredUsers = users.filter((u) => {
@@ -636,13 +737,22 @@ export default function AdminPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        id={`change-plan-btn-${idx}`}
-                        onClick={() => setModalUser(user)}
-                        className="px-3 py-1.5 text-xs font-medium bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:border-violet-500/50 hover:text-violet-400 transition-colors"
-                      >
-                        Zmień plan
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          id={`change-plan-btn-${idx}`}
+                          onClick={() => setModalUser(user)}
+                          className="px-3 py-1.5 text-xs font-medium bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:border-violet-500/50 hover:text-violet-400 transition-colors"
+                        >
+                          Zmień plan
+                        </button>
+                        <button
+                          id={`delete-user-btn-${idx}`}
+                          onClick={() => setDeleteModalUser(user)}
+                          className="px-3 py-1.5 text-xs font-medium bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
+                        >
+                          Usuń
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -658,6 +768,16 @@ export default function AdminPage() {
           user={modalUser}
           onClose={() => setModalUser(null)}
           onSuccess={handlePlanSuccess}
+          accessToken={accessToken}
+        />
+      )}
+
+      {/* Delete User Modal */}
+      {deleteModalUser && (
+        <DeleteUserModal
+          user={deleteModalUser}
+          onClose={() => setDeleteModalUser(null)}
+          onSuccess={handleDeleteSuccess}
           accessToken={accessToken}
         />
       )}

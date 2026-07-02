@@ -68,8 +68,8 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    usage_logs = relationship("UsageLog", back_populates="user")
-    api_keys = relationship("ApiKey", back_populates="user")
+    usage_logs = relationship("UsageLog", back_populates="user", cascade="all, delete-orphan")
+    api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan")
     portals = relationship("WpPortal", back_populates="user", cascade="all, delete-orphan")
 
 
