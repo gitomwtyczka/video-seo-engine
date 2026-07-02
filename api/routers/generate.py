@@ -21,7 +21,9 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from api.auth import get_current_user
+from api.models.user import User
 from sqlalchemy import select, desc
 
 from api.db import AsyncSessionLocal
@@ -34,7 +36,7 @@ router = APIRouter(prefix="/v1", tags=["generate"])
 logger = logging.getLogger(__name__)
 
 
-async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Optional[str] = None) -> None:
+async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
     """Zapisuje schema_data do najnowszego job'u dla danego video_url.
 
     CO: Persystencja wyniku generowania w DB.
@@ -62,6 +64,8 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
                 job.schema_data = schema_data
                 job.portal_id = portal_id
                 job.status = "done"
+                if user_id and job.user_id is None:
+                    job.user_id = user_id
                 await db.commit()
                 logger.info(
                     "[generate] Saved schema_data to job %s (status=done)",
@@ -75,6 +79,7 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
                     status="done",
                     schema_data=schema_data,
                     portal_id=portal_id,
+                    user_id=user_id,
                 )
                 db.add(new_job)
                 await db.commit()
@@ -90,7 +95,7 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
+async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(get_current_user)) -> GenerateResponse:
     """Fetch YouTube transcript and generate SEO schema via LLM.
 
     Does NOT write to WordPress. Returns the full schema_data dict
@@ -118,7 +123,7 @@ async def generate_endpoint(req: GenerateRequest) -> GenerateResponse:
         schema_data = result["seo"]
 
         # Persystuj schema do DB dla historii
-        await _save_schema_to_job(req.video_url, schema_data, req.portal_id)
+        await _save_schema_to_job(req.video_url, schema_data, req.portal_id, current_user.id)
 
         return GenerateResponse(
             status="ok",
