@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-07-02 14:47 [vse-dev-01]
+**Ostatnia aktualizacja:** 2026-07-02 15:05 [vse-dev-01]
 
 ---
 
@@ -17,6 +17,7 @@
 | EMAIL-VERIFICATION backend | vse-dev-39 | `cf08318,f044dee` | 2026-07-01 |
 | EMAIL-VERIFICATION frontend | Supervisor-01 | `c78d5bd` | 2026-07-01 |
 | EMAIL-VERIFICATION 404 fix | vse-dev-01 | `0139425,9af4c0a` | 2026-07-02 |
+| REGISTER GOOGLE OAUTH | vse-dev-01 | `35afbc4` | 2026-07-02 |
 
 ## 🟡 W toku
 
@@ -36,4 +37,4 @@
 
 **Komercjalizacja:** TOS/PP live, email verify backend live, InjectModal fixed  
 
-*[vse-dev-01 | video-seo-engine 2026-07-02 14:47]*
+*[vse-dev-01 | video-seo-engine 2026-07-02 15:05]*
