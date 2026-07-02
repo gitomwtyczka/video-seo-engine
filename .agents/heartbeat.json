@@ -1,19 +1,13 @@
 {
-  "callsign": "vse-dev-smtp-03",
+  "callsign": "vse-tester-email-01",
   "status": "done",
-  "current_task": "SMTP env fix + CyberFolks rate-limit diagnosis",
-  "timestamp": "2026-07-01T21:14:00Z",
+  "current_task": "Test email weryfikacyjny po resecie limitu CyberFolks",
+  "timestamp": "2026-07-02T10:11:00Z",
   "last_completed": [
-    "SMTP vars confirmed in container: 5 keys (HOST, PORT, USER, FROM, PASSWORD) — OK",
-    "Root cause: NOT missing env vars. SMTP 550 rate-limit: noreply@impresjapr.pl sent too many emails",
-    "SMTP connection + auth = OK (Python direct test: Connected OK, Login OK)",
-    "Oracle port 465 = NOT blocked (connection succeeds)",
-    "auth.py misleading message fixed: commit 2e2fb57 on main",
-    "Deploy: git pull + docker build + up vse-api — OK",
-    "Verdict: SMTP infra dziala, problem = CyberFolks rate limit konta noreply@impresjapr.pl"
+    "SMTP LOGIN OK — noreply@impresjapr.pl auth dziala po resecie limitu",
+    "Email testowy wyslany do tobroz@gmail.com — OK",
+    "API resend-verification: email_sent: true",
+    "Logi api: Sent 'Potwierdź swój adres email — Video SEO Engine' to test-auto-2026@mailinator.com"
   ],
-  "pending": [
-    "CyberFolks: zresetowac limit wyslanych emaili (panel hostingowy lub support)",
-    "Test wysylki po resecie limitu"
-  ]
+  "pending": []
 }
