@@ -1,12 +1,15 @@
 {
   "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "Silent Token Rotation i no-store cache dla NextAuth",
-  "timestamp": "2026-07-02T21:45:00Z",
+  "status": "working",
+  "current_task": "Naprawa linków wewnętrznych i problemu długich slugów",
+  "timestamp": "2026-07-03T01:38:18+02:00",
   "last_completed": [
     "Wdrożenie fixu 'no-store' cache dla api (migotanie free plan) - b28d812",
-    "Wdrożenie pobierania exp i Silent Token Rotation z /v1/auth/refresh - b28d812",
-    "Czekam na code review od Supervisora - BEZ DEPLOYU"
+    "Wdrożenie pobierania exp i Silent Token Rotation z /v1/auth/refresh - b28d812"
   ],
-  "pending": []
+  "pending": [
+    "Usuń z promptu nakaz generowania wp_slug i popraw polecenie o linkach - w toku",
+    "Usuń wp_slug z modeli JSON/Pydantic - do zrobienia",
+    "Usuń pole slug wysyłane do WordPress API z core/injector.py - do zrobienia"
+  ]
 }
