@@ -1,8 +1,9 @@
 'use client'
 import { useState } from 'react'
+import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Video, Mail, Lock, User } from 'lucide-react'
+import { Video, Mail, Lock, User, Chrome } from 'lucide-react'
 
 // CO: API_URL fallback musi byc '' (pusty string), NIE '/api'
 // PO CO: nginx routuje /api/ -> Next.js (nie FastAPI). FastAPI zyje pod /v1/*.
@@ -79,6 +80,22 @@ export default function RegisterPage() {
         </div>
 
         <div className="glass rounded-2xl p-8">
+          {/* Google OAuth */}
+          <button
+            type="button"
+            onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
+            className="w-full flex items-center justify-center gap-3 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium transition-smooth mb-6"
+          >
+            <Chrome className="w-5 h-5" />
+            Kontynuuj z Google
+          </button>
+
+          <div className="flex items-center gap-4 mb-6">
+            <div className="flex-1 h-px bg-white/10" />
+            <span className="text-dark-400 text-sm">lub</span>
+            <div className="flex-1 h-px bg-white/10" />
+          </div>
+
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
               {error}
