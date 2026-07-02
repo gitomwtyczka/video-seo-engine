@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 /**
  * CO: Dashboard — główny widok aplikacji po zalogowaniu
  * PO CO: Daje użytkownikowi dwie ścieżki:
@@ -1083,7 +1083,12 @@ export default function DashboardInner() {
   }, [portals])
 
   // ─── Load from history (?job_id in URL) ─────────────────────────────────
-  const { jobId, jobData, jobLoading, jobError } = useJobLoader()
+  const accessToken = (session as any)?.accessToken as string | undefined;
+  const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken);
+
+  if (status === 'loading') {
+    return <div className="flex justify-center items-center h-screen text-gray-500">Wczytywanie sesji...</div>
+  }
 
   // When jobData arrives from history, populate result state
   useEffect(() => {
