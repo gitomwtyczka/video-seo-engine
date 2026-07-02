@@ -805,7 +805,7 @@ async def run_inject(
 
     video_id = _extract_video_id(video_url)
     
-    # Resolving Portal ID from DB via Job
+    # Resolving Profile Config from DB via Job (Do NOT overwrite site_config credentials!)
     wp_base_url = site_config["wp_base_url"]
     wp_user = site_config["wp_user"]
     wp_app_password = site_config["wp_app_password"]
@@ -823,12 +823,8 @@ async def run_inject(
             try:
                 uid = uuid.UUID(job.portal_id)
                 portal = await db.get(WpPortal, uid)
-                if portal:
-                    wp_base_url = portal.url
-                    wp_user = portal.wp_username
-                    wp_app_password = portal.wp_app_password
-                    if portal.profile_id:
-                        profile_config = _load_profile_config(portal.profile_id)
+                if portal and portal.profile_id:
+                    profile_config = _load_profile_config(portal.profile_id)
             except ValueError:
                 pass
 
