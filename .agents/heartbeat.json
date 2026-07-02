@@ -1,13 +1,12 @@
 {
-  "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "Dodanie logowania przez Google do rejestracji (web)",
-  "timestamp": "2026-07-02T15:05:00Z",
+  "callsign": "vse-architect-01",
+  "status": "working",
+  "current_task": "Planowanie wdrożenia usuwania użytkowników i naprawy wygasania subskrypcji Stripe",
+  "timestamp": "2026-07-02T15:23:00Z",
   "last_completed": [
-    "Usunięcie /api z linku verify_url w email.py — commit 0139425 (2026-07-02)",
-    "Usunięcie /api z fallback GOOGLE_REDIRECT_URI w auth.py — commit 9af4c0a (2026-07-02)",
-    "Deploy API na VPS (backup + docker build) — OK",
-    "Dodanie przycisku Google na /register — commit 35afbc4 (2026-07-02)"
+    "Dodanie logowania przez Google do rejestracji (web) — commit 35afbc4 (2026-07-02)"
   ],
-  "pending": []
+  "pending": [
+    "Planowanie techniczne dla usuwania kont i webhooks Stripe"
+  ]
 }
