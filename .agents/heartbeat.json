@@ -1,12 +1,15 @@
 {
   "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "Hotfix from DISPATCH-VSE-DEV-20260702-HOTFIX-P0.md applied (awaiting GO)",
-  "timestamp": "2026-07-02T19:13:00Z",
+  "status": "working",
+  "current_task": "Deploying Hotfix P0 to VPS",
+  "timestamp": "2026-07-02T19:18:55Z",
   "last_completed": [
-    "Hotfix P0: jobs.py (1A, 1B, 1C) & dashboard-inner.tsx (Fix 2) - commit c1115c5 (2026-07-02)"
+    "Hotfix P0: jobs.py (1A, 1B, 1C) & dashboard-inner.tsx (Fix 2) - commit c1115c5 (2026-07-02)",
+    "VPS pre-deploy backup - completed (2026-07-02)"
   ],
   "pending": [
-    "Oczekuje na weryfikację i GO od Supervisora przed wdrożeniem przez docker compose up"
+    "Deploy na VPS: git pull i docker compose up -d --build",
+    "Pobranie logów z vse-api i weryfikacja startu",
+    "Raport z wdrożenia"
   ]
 }
