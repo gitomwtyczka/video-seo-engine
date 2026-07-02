@@ -16,7 +16,7 @@ interface JobData {
   schema_data: Record<string, unknown> | null
 }
 
-export function useJobLoader() {
+export function useJobLoader(accessToken?: string) {
   const searchParams = useSearchParams()
   const jobId = searchParams.get('job_id')
   const [jobData, setJobData] = useState<JobData | null>(null)
@@ -31,7 +31,9 @@ export function useJobLoader() {
       setJobError('')
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-        const res = await fetch(`${apiUrl}/v1/jobs/${jobId}`)
+        const res = await fetch(`${apiUrl}/v1/jobs/${jobId}`, {
+          headers: { ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }
+        })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
         if (!data.schema_data) {
@@ -46,7 +48,7 @@ export function useJobLoader() {
     }
 
     loadJob()
-  }, [jobId])
+  }, [jobId, accessToken])
 
   return { jobId, jobData, jobLoading, jobError }
 }
