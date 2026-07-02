@@ -428,7 +428,11 @@ function InjectModal({
       try { data = await res.json() } catch { data = { error: `HTTP ${res.status}` } }
       
       if (!res.ok) {
-        throw new Error(data?.detail || data?.error || `Błąd serwera (HTTP ${res.status})`);
+        let errStr = data?.detail || data?.error || `Błąd serwera (HTTP ${res.status})`;
+        if (typeof errStr === 'object') {
+            errStr = JSON.stringify(errStr, null, 2);
+        }
+        throw new Error(errStr);
       }
       setPublishResult(data)
     } catch (e: unknown) {
