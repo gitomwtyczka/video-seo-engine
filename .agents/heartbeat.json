@@ -1,14 +1,13 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
+  "status": "done",
   "current_task": "Dodanie logowania przez Google do rejestracji (web)",
-  "timestamp": "2026-07-02T15:01:00Z",
+  "timestamp": "2026-07-02T15:05:00Z",
   "last_completed": [
     "Usunięcie /api z linku verify_url w email.py — commit 0139425 (2026-07-02)",
     "Usunięcie /api z fallback GOOGLE_REDIRECT_URI w auth.py — commit 9af4c0a (2026-07-02)",
-    "Deploy API na VPS (backup + docker build) — OK"
+    "Deploy API na VPS (backup + docker build) — OK",
+    "Dodanie przycisku Google na /register — commit 35afbc4 (2026-07-02)"
   ],
-  "pending": [
-    "Dodanie przycisku Google na /register"
-  ]
+  "pending": []
 }
