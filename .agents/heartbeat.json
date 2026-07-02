@@ -1,13 +1,13 @@
 {
-  "callsign": "vse-strateg-01",
-  "status": "done",
-  "current_task": "Fix błędu 422 Inject & Tryb Debug",
-  "timestamp": "2026-07-02T16:55:00Z",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "BUG 3: HISTORY LEAK — filtrowanie user_id",
+  "timestamp": "2026-07-02T16:58:00Z",
   "last_completed": [
     "Naprawa błędu publikacji (Inject) + Debug Log (2026-07-02)"
   ],
   "pending": [
-    "BUG 3: HISTORY LEAK — filtrowanie user_id (Backlog)",
+    "BUG 3: HISTORY LEAK — filtrowanie user_id",
     "ROADMAP: System Kuponów (Do analizy)"
   ]
 }
