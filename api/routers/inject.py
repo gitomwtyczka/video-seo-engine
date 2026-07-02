@@ -44,11 +44,36 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
         req.post_format,
     )
     try:
+        site_config_dict = {}
+        if req.site_config:
+            site_config_dict = req.site_config.model_dump()
+        elif req.portal_id:
+            from api.db import AsyncSessionLocal
+            from api.models.portal import WpPortal
+            import uuid
+            
+            async with AsyncSessionLocal() as db:
+                try:
+                    uid = uuid.UUID(req.portal_id)
+                    portal = await db.get(WpPortal, uid)
+                    if portal:
+                        site_config_dict = {
+                            "wp_base_url": portal.url,
+                            "wp_user": portal.wp_username,
+                            "wp_app_password": portal.wp_app_password
+                        }
+                    else:
+                        raise ValueError(f"Portal not found: {req.portal_id}")
+                except ValueError as e:
+                    raise ValueError(f"Invalid portal_id: {e}")
+        else:
+            raise ValueError("Either site_config or portal_id must be provided")
+
         result = await run_inject(
             wp_post_id=req.wp_post_id,
             video_url=req.video_url,
             schema_data=req.schema_data,
-            site_config=req.site_config.model_dump(),
+            site_config=site_config_dict,
             post_status=req.post_status,
             post_format=req.post_format,
         )
