@@ -296,6 +296,7 @@ class HistoryJobResponse(BaseModel):
 @router.post("/", response_model=JobResponse, status_code=201)
 async def create_job(
     body: CreateJobRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(_get_db),
 ) -> JobResponse:
     """Tworzy nowe zadanie transkrypcji w kolejce Local Runner'a.
@@ -310,6 +311,7 @@ async def create_job(
     job = TranscriptJob(
         video_url=body.video_url,
         status="pending",
+        user_id=current_user.id,
     )
     db.add(job)
     await db.commit()
@@ -369,9 +371,7 @@ async def get_job_history(
     Returns:
         Lista HistoryJobResponse posortowana od najnowszych.
     """
-    query = select(TranscriptJob)
-    if not current_user.is_admin:
-        query = query.where(TranscriptJob.user_id == current_user.id)
+    query = select(TranscriptJob).where(TranscriptJob.user_id == current_user.id)
 
     result = await db.execute(
         query
@@ -406,6 +406,20 @@ async def complete_job(
     job = await db.get(TranscriptJob, job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
+
+    if job.user_id is None:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+    elif job.user_id != current_user.id:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+
+    if job.user_id is None:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+    elif job.user_id != current_user.id:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
 
     # Idempotent: jeśli już przetworzony, zwróć 200 bez zmian
     if job.status != "pending":
@@ -447,6 +461,7 @@ async def complete_job(
 @router.get("/{job_id}", response_model=FullJobResponse)
 async def get_job(
     job_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(_get_db),
 ) -> FullJobResponse:
     """Pobiera pełne dane zadania transkrypcji (w tym schema_data).
@@ -463,12 +478,27 @@ async def get_job(
     job = await db.get(TranscriptJob, job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
+
+    if job.user_id is None:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+    elif job.user_id != current_user.id:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+
+    if job.user_id is None:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+    elif job.user_id != current_user.id:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
     return _job_to_full_response(job)
 
 
 @router.get("/{job_id}/vtt")
 async def get_job_vtt(
     job_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(_get_db),
 ) -> Response:
     """Pobiera transkrypt VTT jako plik do pobrania.
@@ -492,6 +522,20 @@ async def get_job_vtt(
     job = await db.get(TranscriptJob, job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
+
+    if job.user_id is None:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+    elif job.user_id != current_user.id:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+
+    if job.user_id is None:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
+    elif job.user_id != current_user.id:
+        if not current_user.is_admin:
+            raise HTTPException(403, "Access denied")
 
     if not job.transcript:
         raise HTTPException(404, "No transcript available for this job")
