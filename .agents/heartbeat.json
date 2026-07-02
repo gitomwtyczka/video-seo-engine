@@ -1,12 +1,13 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-strateg-01",
   "status": "done",
-  "current_task": "Naprawa cichego błędu podczas publikacji (Bug 2)",
-  "timestamp": "2026-07-02T16:15:00Z",
+  "current_task": "Fix błędu 422 Inject & Tryb Debug",
+  "timestamp": "2026-07-02T16:55:00Z",
   "last_completed": [
-    "Wdrożenie usuwania użytkowników i fix webhooków Stripe — commit 2e58c4d (2026-07-02)",
-    "Dodanie logowania przez Google do rejestracji (web) — commit 35afbc4 (2026-07-02)",
-    "Naprawa cichego błędu podczas publikacji (Bug 2) — commit ddd6a8c (2026-07-02)"
+    "Naprawa błędu publikacji (Inject) + Debug Log (2026-07-02)"
   ],
-  "pending": []
+  "pending": [
+    "BUG 3: HISTORY LEAK — filtrowanie user_id (Backlog)",
+    "ROADMAP: System Kuponów (Do analizy)"
+  ]
 }
