@@ -39,7 +39,6 @@ mcp_github_get_file_contents:
 ### Agenci analityczni (`vse-analyst`, `vse-strateg`) — NIE deployują
 
 Rola analityczna = diagnoza, raportowanie, planowanie. **Nie implementuj, nie deployuj.**
-- ❌ SSH do VPS (nie Twoja rola)
 - ❌ docker compose up/build
 - ✅ Curl do publicznych endpointów (weryfikacja)
 - ✅ GitHub MCP (odczyt kodu)
@@ -220,3 +219,12 @@ Cel: najlepsze video SEO na rynku — potwierdzone benchmarkiem (8/10 vs konkure
 *Zaktualizowano: 2026-06-15 [sup-worker-01] — sekcja VPS access*
 *Zaktualizowano: 2026-06-29 [Supervisor 01] — reguła VPS per rola (analityk vs worker), SSH jako standard*
 *Zaktualizowano: 2026-06-30 [vse-dev-ops] — dodano mandatory pre-deploy backup*
+
+## SSH z PowerShell — jeden wzorzec, zawsze ten sam
+
+Tryb A (prosta, 1 linia): `ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100 "komenda"`
+
+Tryb B (złożona, domyślny): `write_to_file` → `scp pełna ścieżka` → `ssh bash /tmp/skrypt.sh`
+
+Zasada kciuka: >1 cudzysłów lub $zmienna = Tryb B.
+Dlaczego: PowerShell interpoluje zmienne i mangluje cudzysłowy zanim dotrą do SSH. Plik omija escapowanie.
