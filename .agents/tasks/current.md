@@ -1,6 +1,6 @@
 # VSE — Current Tasks Status
 
-**Ostatnia aktualizacja:** 2026-07-03 01:45 [vse-dev-01]
+**Ostatnia aktualizacja:** 2026-07-09 12:20 [vse-analyst-01]
 
 ---
 
@@ -22,6 +22,7 @@
 | SETTINGS-MINIMAL | vse-dev-38 | /ustawienia | 2026-07-02 |
 | SMTP .env na VPS | Supervisor-01 | (VPS config) | 2026-07-02 |
 | SLUG & LINKS FIX | vse-dev-01 | `de63090` | 2026-07-03 |
+| Diagnoza błędu metadata_fetch_failed | vse-analyst-01 | (raporty) | 2026-07-09 |
 
 ## 🟡 W toku
 
@@ -42,4 +43,4 @@
 
 **Komercjalizacja:** Ukończono ręczne kasowanie z webhookami Stripe oraz zażegnano wstrzymujący błąd publikacji SEO.
 
-*[vse-dev-01 | video-seo-engine 2026-07-03 01:45]*
+*[vse-analyst-01 | video-seo-engine 2026-07-09 12:20]*
