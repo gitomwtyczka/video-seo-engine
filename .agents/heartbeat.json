@@ -1,14 +1,14 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-dev-02",
   "status": "working",
-  "current_task": "FIX A (graceful degradation bez transkryptu) + FIX D (user-friendly errors) — pipeline.py, generate.py, generator.py",
-  "timestamp": "2026-07-10T18:01:00+02:00",
-  "last_completed": [
-    "Diagnoza błędu metadata_fetch_failed — raport wygenerowany (2026-07-09)"
-  ],
+  "current_task": "Wdrożenie Kanałów YouTube (OAuth & Stopka)",
+  "timestamp": "2026-07-10T20:44:00+02:00",
+  "last_completed": [],
   "pending": [
-    "FIX D — user-friendly error message w generate.py",
-    "FIX A — graceful degradation w pipeline.py + generator.py",
-    "Deploy na VPS"
+    "Revert brudnego commitu",
+    "Model YouTubeChannel",
+    "Pola w modelu WpPortal",
+    "Endpointy autoryzacyjne",
+    "Proste UI"
   ]
 }
