@@ -37,11 +37,12 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
     and want to push it to WP without re-running the full pipeline.
     """
     logger.info(
-        "[/v1/inject] wp_post_id=%s video_url=%s mode=%s format=%s",
+        "[/v1/inject] wp_post_id=%s video_url=%s mode=%s format=%s yt_channels=%d",
         req.wp_post_id,
         req.video_url,
         "create" if req.wp_post_id is None else "update",
         req.post_format,
+        len(req.yt_channel_ids) if req.yt_channel_ids else 0,
     )
     try:
         site_config_dict = {}
@@ -76,6 +77,7 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
             site_config=site_config_dict,
             post_status=req.post_status,
             post_format=req.post_format,
+            yt_channel_ids=req.yt_channel_ids,
         )
         return InjectResponse(**result)
     except ValueError as exc:
