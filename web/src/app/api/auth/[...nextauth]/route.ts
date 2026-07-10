@@ -30,9 +30,9 @@ providers.push(
       try {
         const res = await fetch(`${BACKEND_URL}/v1/auth/login`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            username: credentials.email,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: credentials.email,
             password: credentials.password,
           }),
         })
