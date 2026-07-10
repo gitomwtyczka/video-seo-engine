@@ -9,7 +9,7 @@ from api.db import get_db
 from api.models.user import User
 from api.models.youtube_channel import YouTubeChannel
 from api.models.oauth_state import OAuthState
-from api.middleware.auth import get_current_user
+from api.auth import get_current_user
 
 router = APIRouter(prefix="/v1/youtube", tags=["youtube"])
 
