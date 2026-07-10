@@ -74,7 +74,8 @@ FIX A (2026-07-10, vse-dev-01):
     - LOCAL_RUNNER_MODE=false: brak vtt_path w meta → vtt_path=None (nie rzucamy)
     - generate_schema() wywołane z vtt_path=None → generate_schema_without_transcript()
     - run_generate() zwraca has_transcript=False, partial_result=True w wyniku
-    - meta przekazywane do generate_schema dla opisu/duration w trybie partial"""
+    - meta przekazywane do generate_schema dla opisu/duration w trybie partial
+"""
 import asyncio
 import logging
 import os
@@ -847,6 +848,7 @@ async def run_inject(
     post_status: str = "draft",
     post_format: str = "video",
     saas_data: Optional[dict] = None,
+    yt_channel_ids: Optional[list[str]] = None,
 ) -> dict:
     """Inject pre-generated schema into a WP post, or create a new post."""
     from core.injector import inject_video
@@ -886,7 +888,7 @@ async def run_inject(
 
     if wp_post_id is None:
         logger.info("[inject] No wp_post_id — creating new WP post (status=%s, format=%s)", post_status, post_format)
-        result = await asyncio.to_thread(
+        final_result = await asyncio.to_thread(
             _create_wp_post,
             schema_data,
             video_id,
@@ -898,29 +900,76 @@ async def run_inject(
             post_format,
             saas_data,
         )
-        return result
+    else:
+        raw_result = await asyncio.to_thread(
+            inject_video,
+            wp_post_id,
+            video_id,
+            schema_data,
+            wp_base_url,
+            wp_user,
+            wp_app_password,
+            None,
+            False,
+            False,
+            profile_config,
+            saas_data,
+        )
+        final_result = {
+            "status": "ok" if raw_result.get("ok") else "error",
+            "wp_post_id": wp_post_id,
+            "video_id": video_id,
+            "rankmath_ok": raw_result.get("rankmath_ok", False),
+            "youtube_updated": raw_result.get("yt_update_ok", False),
+            "created": False,
+            "post_url": raw_result.get("link") or None,
+            "error": None if raw_result.get("ok") else "Injection failed — check logs",
+        }
 
-    result = await asyncio.to_thread(
-        inject_video,
-        wp_post_id,
-        video_id,
-        schema_data,
-        wp_base_url,
-        wp_user,
-        wp_app_password,
-        None,
-        False,
-        False,
-        profile_config,
-        saas_data,
-    )
-    return {
-        "status": "ok" if result.get("ok") else "error",
-        "wp_post_id": wp_post_id,
-        "video_id": video_id,
-        "rankmath_ok": result.get("rankmath_ok", False),
-        "youtube_updated": result.get("yt_update_ok", False),
-        "created": False,
-        "post_url": result.get("link") or None,
-        "error": None if result.get("ok") else "Injection failed — check logs",
-    }
+    post_url = final_result.get("post_url")
+    yt_results = []
+
+    if yt_channel_ids and post_url and final_result.get("status") == "ok":
+        from api.models.youtube_channel import YouTubeChannel
+        from core.yt_admin import update_video_title_and_description
+        
+        async with AsyncSessionLocal() as session:
+            for channel_uuid_str in yt_channel_ids:
+                try:
+                    import os
+                    channel_uuid = uuid.UUID(channel_uuid_str)
+                    channel_record = await session.get(YouTubeChannel, channel_uuid)
+                    
+                    if not channel_record:
+                        yt_results.append({"channel_id": channel_uuid_str, "status": "error", "detail": "not found"})
+                        continue
+                        
+                    channel_config = {
+                        "channel_id": channel_record.youtube_channel_id,
+                        "yt_oauth": {
+                            "client_id": os.environ.get("YT_CLIENT_ID", ""),
+                            "client_secret": os.environ.get("YT_CLIENT_SECRET", ""),
+                            "refresh_token": channel_record.refresh_token
+                        }
+                    }
+                    
+                    ok = await asyncio.to_thread(
+                        update_video_title_and_description,
+                        video_id,
+                        schema_data,
+                        post_url,
+                        False,
+                        channel_config
+                    )
+                    
+                    if ok:
+                        yt_results.append({"channel_id": channel_uuid_str, "status": "ok"})
+                    else:
+                        yt_results.append({"channel_id": channel_uuid_str, "status": "error", "detail": "API update failed"})
+                        
+                except Exception as e:
+                    logger.error("[inject] YT update failed for channel %s: %s", channel_uuid_str, e)
+                    yt_results.append({"channel_id": channel_uuid_str, "status": "error", "detail": str(e)})
+
+    final_result["yt_channels"] = yt_results
+    return final_result
