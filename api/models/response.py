@@ -30,13 +30,25 @@ class ProcessResponse(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    """Response from the generate-only endpoint."""
+    """Response from the generate-only endpoint.
+
+    FIX D (2026-07-10, vse-dev-01):
+      - error_code: machine-readable error code for frontend handling.
+        Values: 'NO_TRANSCRIPT', 'VIDEO_UNAVAILABLE', 'UNKNOWN_ERROR', None.
+
+    FIX A (2026-07-10, vse-dev-01):
+      - transcript_available: True when transcript was used for generation.
+      - partial_result: True when schema generated without transcript (degraded mode).
+    """
 
     status: str
     video_id: str
     processing_time_s: float = 0.0
     schema_data: Optional[dict] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None  # FIX D: 'NO_TRANSCRIPT' | 'VIDEO_UNAVAILABLE' | 'UNKNOWN_ERROR' | None
+    transcript_available: Optional[bool] = None  # FIX A: True = with transcript, False = partial
+    partial_result: Optional[bool] = None  # FIX A: True = generated without transcript
 
 
 class InjectResponse(BaseModel):
