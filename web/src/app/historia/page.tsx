@@ -74,6 +74,29 @@ export default function HistoriaPage() {
     )
   }
 
+  const handleDownloadVtt = async (jobId: string, videoId: string | null) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/jobs/${jobId}/vtt`, {
+        headers: { Authorization: `Bearer ${(session as any).accessToken}` },
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${videoId || 'transcript'}.vtt`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Błąd pobierania VTT:', e)
+      alert('Nie udało się pobrać pliku VTT.')
+    }
+  }
+
   const formatDate = (iso: string) => {
     try {
       const d = new Date(iso)
@@ -99,7 +122,7 @@ export default function HistoriaPage() {
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             </div>
             <div>
@@ -193,10 +216,8 @@ export default function HistoriaPage() {
                           <div className="flex items-center gap-2 mt-1">
                             {statusBadge(job.status)}
                             {job.has_vtt && (
-                              <a
-                                href={`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/jobs/${job.id}/vtt`}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                onClick={() => handleDownloadVtt(job.id, job.video_id)}
                                 title="Pobierz transkrypt VTT"
                                 className="px-2 py-0.5 text-xs rounded-full border bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/40 hover:text-blue-300 transition-all cursor-pointer inline-flex items-center gap-1"
                               >
@@ -204,7 +225,7 @@ export default function HistoriaPage() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
                                 VTT
-                              </a>
+                              </button>
                             )}
                             <span className="text-xs text-gray-600">{formatDate(job.created_at)}</span>
                           </div>
