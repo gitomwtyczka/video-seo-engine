@@ -10,7 +10,7 @@ D6b (2026-06-20, vse-dev-21):
 D9 (2026-06-20, vse-dev-23):
   - GenerateRequest: added profile_id field for dashboard portal selector
 """
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 
@@ -81,6 +81,7 @@ class InjectRequest(BaseModel):
     schema_data: dict
     site_config: Optional[SiteConfig] = None
     portal_id: Optional[str] = None
+    yt_channel_ids: List[str] = []
     post_status: str = "draft"  # "draft" | "publish" — dla nowych postów
     post_format: str = "video"  # WordPress post format: "standard" | "video" | "gallery" | "quote"
 
