@@ -71,6 +71,7 @@ class User(Base):
     usage_logs = relationship("UsageLog", back_populates="user", cascade="all, delete-orphan")
     api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan")
     portals = relationship("WpPortal", back_populates="user", cascade="all, delete-orphan")
+    youtube_channels = relationship("YouTubeChannel", back_populates="user", cascade="all, delete-orphan")
 
 
 class UsageLog(Base):
