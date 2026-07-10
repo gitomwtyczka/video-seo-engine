@@ -56,9 +56,18 @@ D13 Slug Trim (2026-06-21, vse-dev-29):
 D15 JSON Sanitizer (2026-06-29, vse-dev-30):
   - _sanitize_llm_json() applied before json.loads() in generate_seo_v4()
   - PRIMARY: json-repair library (pip install json-repair) — structural repair
-  - FALLBACK: regex restricted to HTML attr values (attr=\"val\" → attr='val')
+  - FALLBACK: regex restricted to HTML attr values (attr=\\"val\\" → attr='val')
   - Zero false positives on plain text, multiline, nested HTML
   - Eliminates 500 errors from LLM outputting raw HTML with unescaped quotes
+
+FIX A (2026-07-10, vse-dev-01):
+  - process_video() now accepts vtt_path=None (Optional[str])
+  - When vtt_path is None → calls generate_schema_without_transcript()
+  - generate_schema_without_transcript(): LLM generates SEO from title+desc only
+    - chapters = [] (no VTT → no anchors)
+    - faq_items = [] (skipped)
+    - VideoObject + meta description + focus_keyphrase: generated normally
+  - Result marked with partial_result=True, transcript_available=False
 
 Dependencies:
   pip install google-genai anthropic python-dotenv json-repair
@@ -276,7 +285,7 @@ def _sanitize_llm_json(raw_text: str) -> str:
       1. PRIMARY: json-repair (pip install json-repair) — rozumie strukturę JSON,
          naprawia semantycznie, zero false positives.
       2. FALLBACK (gdy json-repair niedostępny): regex wyizolowany do wartości
-         atrybutów HTML (attr="val" → attr='val'), działa wyłącznie wewnątrz
+         atrybutów HTML (attr=\"val\" → attr='val'), działa wyłącznie wewnątrz
          sekwencji wyglądających jak HTML tag. NIE dotyka zwykłego tekstu.
 
     Passthrough: jeśli raw_text jest już poprawnym JSON — zwracany bez zmian
@@ -326,7 +335,7 @@ def _sanitize_llm_json(raw_text: str) -> str:
         # Replace: attr="val" → attr='val'
         # The pattern is anchored to look like HTML attr=" ... "
         fixed = re.sub(
-            r'(\b[\w-]+)=\\"((?:[^\\\\"]|\\\\.)*)\\"',
+            r'(\b[\w-]+)=\\"((?:[^\\\\\"]|\\\\.)*)\\"',
             r"\1='\2'",
             raw_text,
         )
@@ -602,7 +611,7 @@ Rozdzialy musza:
    Nie upychaj sztucznie \u2014 fraza musi brzmiec naturalnie w kontekscie zdania.
    POZYCJA: Pierwszy akapit article_body MUSI zaczynac sie od zdania zawierajacego
    glowna fraze z focus_keyphrases[0].
-   LINKI WEWNETRZNE: Jeśli w sekcji [PROPOZYCJE LINKOW WEWNETRZNYCH] podano URL-e – wstaw 2-4 z nich. Jeśli brak prawdziwych URL-i – wstaw `<!-- TODO: dodać link wewnętrzny -->`.
+   LINKI WEWNETRZNE: Jesli w sekcji [PROPOZYCJE LINKOW WEWNETRZNYCH] podano URL-e - wstaw 2-4 z nich. Jesli brak prawdziwych URL-i - wstaw `<!-- TODO: dodac link wewnetrzny -->`.
    KRYTYCZNE DLA JSON: W tagach HTML ZAWSZE uzywaj APOSTROFOW (') zamiast cudzyslowow (") w atrybutach.
    Przyklad poprawny: <a href='https://example.com' target='_blank'>tekst</a>
    Przyklad BLEDNY: <a href="https://example.com" target="_blank">tekst</a>
@@ -661,7 +670,7 @@ yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}""" 
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}"""
 
     logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
     if priority_keywords:
@@ -781,6 +790,174 @@ def _trim_slug(slug: str, max_len: int = 60) -> str:
 
 
 # ============================================================
+# FIX A: PARTIAL SCHEMA — generate SEO without transcript
+# ============================================================
+
+def generate_schema_without_transcript(
+    youtube_id: str,
+    wp_id: int,
+    post_title: str,
+    yt_url: str,
+    api_key: str,
+    provider: str = "gemini",
+    priority_keywords: Optional[list[str]] = None,
+    internal_links: Optional[list[dict]] = None,
+    site_brand: Optional[str] = None,
+    publication_type: str = "full_analysis",
+    meta: Optional[dict] = None,
+) -> dict:
+    """Generate partial SEO schema from title and description only (no VTT).
+
+    CO: Generuje częściowy pakiet SEO gdy brak transkryptu VTT.
+
+    PO CO: Filmy bez napisów (livestreamy, część contentów) nie mają VTT.
+    Zamiast zwracać błąd 500, generujemy to co możliwe:
+    - focus_keyphrases, post_title, seo_title, meta_description, lead
+    - article_body (z tytułu i opisu YT)
+    - youtube_description, video_description, tags
+    - POMIJAMY: chapters (wymaga VTT do anchor-matchowania)
+    - POMIJAMY: quotes (wymagają VTT z timestampami)
+    - FAQ: minimalne 1-2 pytania z tytułu
+
+    JAK: Wywołuje LLM z uproszczonym promptem bez sekcji transkryptu.
+    Zwraca dict z chapters=[], quotes=[], partial_result=True.
+
+    Args:
+        youtube_id: YouTube video ID.
+        wp_id: WordPress post ID.
+        post_title: Video title (from YouTube metadata).
+        yt_url: Full YouTube watch URL.
+        api_key: API key for the selected LLM provider.
+        provider: LLM provider: 'gemini' (default) or 'claude'.
+        priority_keywords: Optional GSC keywords.
+        internal_links: Optional internal links.
+        site_brand: Optional portal brand name.
+        publication_type: Article type.
+        meta: Optional metadata dict (may contain description, duration).
+
+    Returns:
+        Partial SEO dict with transcript_available=False, partial_result=True.
+    """
+    logger.info(
+        "[FIX A] generate_schema_without_transcript: %s via %s [type=%s]",
+        youtube_id, provider, publication_type,
+    )
+
+    # Extract description from meta if available
+    video_description_hint = ""
+    duration_seconds = 0
+    if meta:
+        video_description_hint = meta.get("description", "") or ""
+        duration_seconds = meta.get("duration", 0) or 0
+        if video_description_hint:
+            video_description_hint = video_description_hint[:3000]
+
+    saas_section = _build_saas_prompt_section(priority_keywords, internal_links)
+
+    if site_brand:
+        seo_title_instruction = (
+            f"**seo_title** \u2014 max 60 znakow. Z branding pipe: '| {site_brand}'."
+        )
+    else:
+        seo_title_instruction = "**seo_title** \u2014 max 60 znakow. Bez branding pipe."
+
+    desc_section = f"\nOpis wideo (YouTube):\n{video_description_hint}" if video_description_hint else ""
+
+    prompt = f"""Jestes ekspertem SEO. Przygotuj pakiet SEO dla materialu wideo.
+NIE MASZ TRANSKRYPTU — bazuj tylko na tytule i opisie.
+
+## DANE WEJSCIOWE
+Tytul: {post_title}
+URL: {yt_url}{desc_section}
+{saas_section}
+## CO WYGENEROWAC
+
+1. **focus_keyphrases** — lista 2-3 fraz kluczowych (kazda 2-4 slowa).
+2. **post_title** — max 80 znakow, SEO-first, z glowna fraza.
+3. {seo_title_instruction}
+4. **yt_title** — 40-65 znakow, inny niz post_title, angazujacy YouTubowy tytul.
+5. **meta_description** — max 155 znakow, z fraza kluczowa.
+6. **lead** — 2-3 zdania, max 300 znakow. Pierwsza fraza w pierwszym zdaniu.
+7. **article_body** — HTML: 2-3 <p>, ~600-900 zn. Uzyj glownej frazy 2-3 razy.
+   KRYTYCZNE DLA JSON: W atrybutach HTML ZAWSZE apostrofy ('), NIE cudzyslow (").
+8. **faq** — 1-2 pytania i odpowiedzi na podstawie tytulu.
+9. **youtube_description** — max 400 zn, z hashtagami.
+10. **video_description** — max 200 zn.
+11. **tags** — 5-8 tagow lowercase.
+12. **external_links** — 1-2 linki do authority sources (Wikipedia, .gov.pl).
+    Format: {{"url": "...", "anchor_text": "...", "reason": "..."}}
+13. **image_descriptions** — 1 opis screenshota.
+    Format: {{"alt_text": "...", "caption": "...", "context": "po akapicie 1"}}
+
+NIE generuj: chapters, quotes (brak transkryptu).
+Odpowiedz TYLKO JSON (bez markdown):
+{{"focus_keyphrases":[],"post_title":"","seo_title":"","yt_title":"","meta_description":"","lead":"","article_body":"","chapters":[],"quotes":[],"faq":[{{"question":"","answer":""}}],"youtube_description":"","video_description":"","tags":[],"external_links":[],"image_descriptions":[{{"alt_text":"","caption":"","context":""}}]}}"""
+
+    try:
+        text = _call_llm(prompt, api_key, provider)
+        text = text.strip()
+        text = re.sub(r"^```json\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        text = _sanitize_llm_json(text)
+        result = json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.error(
+            "[FIX A] JSON parse failed at %d: %s\nRaw (first 1000):\n%s",
+            e.pos, e.msg, text[:1000]
+        )
+        # Minimal retry
+        retry_prompt = (
+            f"Napraw JSON (blad na poz. {e.pos}: {e.msg}). "
+            "W atrybutach HTML uzywaj apostrofow ('), nie cudzyslowow. "
+            f"Do naprawy:\n{text}"
+        )
+        text2 = _call_llm(retry_prompt, api_key, provider)
+        text2 = text2.strip()
+        text2 = re.sub(r"^```json\s*", "", text2)
+        text2 = re.sub(r"\s*```$", "", text2)
+        text2 = _sanitize_llm_json(text2)
+        result = json.loads(text2)
+
+    # Normalize keyphrases
+    keyphrases = _normalize_keyphrases(result)
+    result["focus_keyphrases"] = keyphrases
+    result["focus_keyphrase"] = keyphrases[0] if keyphrases else ""
+
+    # Ensure chapters and quotes are empty (no VTT)
+    result["chapters"] = []
+    result["quotes"] = []
+
+    # Fallback titles
+    if not result.get("post_title", "").strip():
+        result["post_title"] = result.get("seo_title", post_title)
+    if not result.get("yt_title", "").strip():
+        result["yt_title"] = result.get("post_title", post_title)[:100]
+
+    # Attach metadata
+    result["wp_id"] = wp_id
+    result["youtube_id"] = youtube_id
+    result["original_title"] = post_title
+    result["yt_url"] = yt_url
+    result["total_duration"] = int(duration_seconds)
+    result["duration_seconds"] = int(duration_seconds)
+    result["duration_iso"] = format_duration_iso(duration_seconds)
+    result["llm_provider"] = provider
+    result["publication_type"] = publication_type
+    result["saas_enriched"] = bool(priority_keywords)
+    result["transcript_available"] = False  # FIX A flag
+    result["partial_result"] = True          # FIX A flag
+
+    if priority_keywords:
+        result["saas_keywords_count"] = len(priority_keywords)
+
+    logger.info(
+        "[FIX A] Partial schema generated: keyphrases=%r type=%s brand=%s",
+        keyphrases, publication_type, site_brand or "none",
+    )
+    return result
+
+
+# ============================================================
 # FULL PIPELINE — VTT → LLM → resolved chapters
 # ============================================================
 
@@ -789,7 +966,7 @@ def process_video(
     wp_id: int,
     post_title: str,
     yt_url: str,
-    vtt_path: str,
+    vtt_path: Optional[str],
     api_key: str,
     out_dir: Optional[str] = None,
     sleep_between: int = 0,
@@ -798,6 +975,7 @@ def process_video(
     internal_links: Optional[list[dict]] = None,
     site_brand: Optional[str] = None,
     publication_type: str = "full_analysis",
+    meta: Optional[dict] = None,
 ) -> dict:
     """Run the full generation pipeline for a single video.
 
@@ -806,12 +984,17 @@ def process_video(
     D13: wp_slug is hard-trimmed to 60 chars at word boundary after LLM call.
     D15: _sanitize_llm_json() applied before json.loads() in generate_seo_v4().
 
+    FIX A (2026-07-10, vse-dev-01):
+    vtt_path is now Optional[str]. When None, calls generate_schema_without_transcript()
+    which generates partial SEO (no chapters/quotes) from title+description only.
+    Result contains transcript_available=False and partial_result=True.
+
     Args:
         youtube_id: YouTube video ID.
         wp_id: WordPress post ID.
         post_title: WordPress post title.
         yt_url: Full YouTube watch URL.
-        vtt_path: Path to the .vtt transcript file.
+        vtt_path: Path to the .vtt transcript file, or None if unavailable.
         api_key: API key for the selected LLM provider.
         out_dir: Directory to save the result JSON. If None, does not save.
         sleep_between: Seconds to sleep after the LLM call (rate-limit guard).
@@ -820,15 +1003,36 @@ def process_video(
         internal_links: Optional list of dicts with 'url' and 'title' for linking.
         site_brand: Optional portal brand name for seo_title branding pipe.
         publication_type: Article type: 'full_analysis', 'watching_page', 'discover'.
+        meta: Optional metadata dict (used in no-transcript path for description/duration).
 
     Returns:
         SEO result dict with all fields + resolved chapters + duration metadata.
+        When vtt_path is None: chapters=[], quotes=[], partial_result=True.
 
     Raises:
-        FileNotFoundError: If vtt_path does not exist.
         json.JSONDecodeError: If LLM returns malformed JSON.
     """
     logger.info("Processing video: %s (WP#%s) via %s [type=%s]", youtube_id, wp_id, provider, publication_type)
+
+    # FIX A: Guard — when vtt_path is None, use partial schema generator
+    if vtt_path is None:
+        logger.warning(
+            "[FIX A] vtt_path=None for %s — calling generate_schema_without_transcript()",
+            youtube_id,
+        )
+        return generate_schema_without_transcript(
+            youtube_id=youtube_id,
+            wp_id=wp_id,
+            post_title=post_title,
+            yt_url=yt_url,
+            api_key=api_key,
+            provider=provider,
+            priority_keywords=priority_keywords,
+            internal_links=internal_links,
+            site_brand=site_brand,
+            publication_type=publication_type,
+            meta=meta,
+        )
 
     timestamped, segments, duration = parse_vtt_full(vtt_path)
     dur_min = int(duration // 60)
@@ -924,6 +1128,8 @@ def process_video(
     result["duration_iso"] = format_duration_iso(duration)
     result["llm_provider"] = provider
     result["publication_type"] = publication_type  # D6b.6: track type in output
+    result["transcript_available"] = True   # FIX A: full transcript was used
+    result["partial_result"] = False         # FIX A: full result
 
     # Track SAAS enrichment in result metadata
     if priority_keywords:
