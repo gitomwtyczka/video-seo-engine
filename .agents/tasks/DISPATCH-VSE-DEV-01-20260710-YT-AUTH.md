@@ -1,18 +1,19 @@
 # DISPATCH — Wdrożenie Kanałów YouTube (OAuth & Stopka)
-**Data:** 2026-07-10 | **Dla:** vse-dev-01 | **Od:** vse-strateg-01
+**Data:** 2026-07-10 | **Dla:** vse-dev-02 | **Od:** vse-strateg-01
 
 Zadaniem w tej iteracji jest porzucenie statycznej konfiguracji stopek z YAML na rzecz bazy danych, połączonej z uwierzytelnieniem kanałów. Zmieniamy architekturę tak, by można było przypiąć wiele kanałów do konta użytkownika VSE poprzez Google OAuth (odczytujemy kanały YouTube z powiązanego konta `youtube.channels.list(mine=true)`), a w bazie przechowujemy `refresh_token` offline do modyfikowania filmów.
+Oraz **nowość:** w portalu WP dodajemy dropdown (relację) do kanału, by na sztywno łączyć Portal WP -> Kanał YT.
 
 ## ⚠️ ZNANE PUŁAPKI (przeczytaj ZANIM zaczniesz)
 1. **GitHub MCP:** Zawsze pracuj przez GitHub MCP `get_file_contents` / `create_or_update_file` (lokalne pliki mogą być nieaktualne - pamiętaj o newlines i sha przy aktualizacjach).
-2. **PostgreSQL/Alembic:** Model Usera jest w `api/models/user.py`. Modele musisz zaimportować do Base, upewnij się czy mamy tam alembic, jeśli nie, SQLAlchemy `.metadata.create_all` uaktualnia schematy lokalnie (albo poleć usera do migracji bazy `docker exec`). Tworzysz plik `api/models/youtube_channel.py`.
-3. **Logika autoryzacyjna (FastAPI):** Tworzysz dwa szybkie endpointy OAuth dla YT w `api/routers/youtube.py` (lub zintegrowane w innym) `/v1/youtube/oauth/login` oraz `/callback`. Trzeba wymusić "offline" żeby otrzymać `refresh_token`. W modelu `YouTubeChannel` ląduje id kanału, `refresh_token`, text stopki (z defaultem pustym).
-4. **core/yt_admin.py:** Nadpisz starą metodę czytającą `.yaml` tak, by używała bazy, z której pobierze `refresh_token` i stopkę. Następnie buduje odświeżony token per wywołanie aktualizacji i dokonuje patchowania YT API za pomocą `update_video_title_and_description()`. 
-5. **Testowanie:** UI na razie może być uproszczone (jakikolwiek przycisk łączący konto na dashboardzie, i zwracający potwierdzenie podpięcia z przypisanym defaultowym tekstem stopki, który będziemy edytować później).
+2. **KRYTYCZNE ZASADY:** Jesteś Workerem pod Supervisorem. Twoim zadaniem jest napisanie i sprawdzenie kodu w swoim środowisku, a przed podaniem zmian z `create_or_update_file` MUSISZ PRZESŁAĆ RAPORT z kodem do Supervisora. **NIE PUSZUJ NIC BEZ WYRAŹNEJ ZGODY**.
+3. **Zrewertuj Śmieci:** Zanim cokolwiek napiszesz, użyj gita w worktree by usunąć commit "include youtube router in main.py [vse-dev-01]". Inny agent pobrudził tam main.
 
 ## KROKI DLA DEVA (CHECKLIST)
-1. Zbudowanie modelu `YouTubeChannel` i powiązanie z `User`.
-2. Zbudowanie endpointów autoryzacyjnych do Google'a i przechwytywanie autoryzacji (zapis Kanału lub Kanałów usera wyciągniętych przez Data API do DB). Zabezpieczenie tokenów offline.
-3. Przepisanie fragmentu z `core/yt_admin.py` na logikę korzystającą ze wspomnianych wyżej tabel.
+1. **ZREVERTUJ BRUDNY COMMIT** (użyj `run_command`: `git revert 439808ecb28d9c619d5d6fe2d83207a84184c36a --no-edit && git push origin HEAD:main` lub po prostu pracuj czysto by nie pushować go na remote).
+2. Budowa modelu `YouTubeChannel` i powiązanie z `User`.
+3. Budowa pola w modelu `WpPortal` wskazującego na `YouTubeChannel`.
+4. Zbudowanie endpointów autoryzacyjnych do Google'a z zapisem `refresh_token`.
+5. Proste UI uaktualnione o te modele (Dropdown).
 
-Rozpocznij wdrażanie. Raportuj błędy i postępy.
+Pamiętaj - napisz raport koncepcyjny i proszę o zielone światło przed puszowaniem zmian.
