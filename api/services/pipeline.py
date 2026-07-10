@@ -25,7 +25,7 @@ SAAS Enrichment (2026-06-17, vse-dev-14):
   Krok 0 w run_generate(): jeśli SAAS_API_URL skonfigurowany w .env,
   pipeline pobiera frazy kluczowe z GSC i top pages portalu docelowego.
   Dane są przekazywane do generatora jako priority_keywords + internal_links.
-  Integracja jest opcjonalna — jeśli SAAS niedostępny, pipeline działa jak dotąd.
+  Integracja jest opcjonalna — jeśli SAAS niedostępny, pipeline działa jak dotad.
 
 GSC Status Surfacing (2026-06-17, sup-worker-01, KROK 4):
   run_generate() teraz zwraca pole "gsc" z status/message/connect_url/upgrade_url.
@@ -63,7 +63,17 @@ D11 Video Screenshots (2026-06-21, vse-dev-26):
          ImageObject w JSON-LD jest wymagany przez RankMath do 80+ score.
   JAK: Po Step 1 (fetch) dodaje Step 1b (thumbnails) + Step 1c (SAAS Vision API
        opisy obrazów). SAAS primary, LLM fallback. Wynik w seo["image_data"].
-"""
+
+FIX A (2026-07-10, vse-dev-01):
+  CO: Graceful degradation — pipeline nie crasha gdy brak transkryptu.
+  PO CO: Filmy bez napisw (np. livestreamy, część treningowych) do tej pory
+  rzucały RuntimeError i user dostał komunikat błędu zamiast SEO.
+  Teraz pipeline generuje częściowe SEO z tytułu + opisu — bez chapterków/FAQ.
+  JAK:
+    - LOCAL_RUNNER_MODE=true: RuntimeError z "No transcript available" → vtt_path=None
+    - LOCAL_RUNNER_MODE=false: brak vtt_path w meta → vtt_path=None (nie rzucamy)
+    - generate_schema() wywołane z vtt_path=None → generate_schema_without_transcript()
+    - run_generate() zwraca has_transcript=False, partial_result=True w wyniku"""
 import asyncio
 import logging
 import os
@@ -183,8 +193,14 @@ async def _wait_for_transcript(job_id: str) -> str:
                 return job.transcript
 
             if job.status == "failed":
+                # FIX A: propagate runner failure reason for upstream handling
+                error_msg = job.error or ""
+                if "No transcript" in error_msg or "no transcript" in error_msg.lower():
+                    raise RuntimeError(
+                        f"No transcript available for job {job_id}: {error_msg}"
+                    )
                 raise RuntimeError(
-                    f"Local Runner failed for job {job_id}: {job.error}"
+                    f"Local Runner failed for job {job_id}: {error_msg}"
                 )
 
             logger.debug(
@@ -421,7 +437,12 @@ async def run_generate(
     publication_type: str = "full_analysis",
     portal_id: Optional[str] = None,
 ) -> dict:
-    """Fetch transcript + generate SEO schema. No WP write."""
+    """Fetch transcript + generate SEO schema. No WP write.
+
+    FIX A: When transcript is unavailable, continues with vtt_path=None
+    and generates partial SEO schema (VideoObject + meta, no chapters/FAQ).
+    Returns has_transcript=False and partial_result=True in result dict.
+    """
     from core.fetcher import process_video as fetch_video
     from core.fetcher import fetch_video_thumbnails
     from core.generator import process_video as generate_schema
@@ -433,7 +454,7 @@ async def run_generate(
     profile_config = None
     site_brand = None
     profile_id = None
-    
+
     # D9/VSE-DEV: Load profile config via portal_id
     if portal_id:
         async with AsyncSessionLocal() as db:
@@ -444,7 +465,7 @@ async def run_generate(
                     profile_id = portal.profile_id
             except ValueError:
                 pass
-                
+
         if profile_id:
             profile_config = _load_profile_config(profile_id)
             if profile_config:
@@ -468,7 +489,7 @@ async def run_generate(
         site_url = _resolve_site_url_from_profile(profile_config)
     else:
         site_url = _resolve_site_url_from_env()
-    
+
     if site_url:
         priority_keywords, internal_links, gsc_meta, saas_data = await _fetch_saas_enrichment(site_url)
     else:
@@ -544,6 +565,10 @@ async def run_generate(
                     "[generate] D11 image[%d]: SAAS Vision unavailable — LLM fallback pending", idx,
                 )
 
+        # FIX A: Transcript branch with graceful degradation
+        vtt_path: Optional[str] = None
+        has_transcript = True
+
         if local_runner_mode:
             logger.info(
                 "[generate] LOCAL_RUNNER_MODE=true — delegating transcript to Local Runner"
@@ -552,33 +577,47 @@ async def run_generate(
                 transcript_text = await _fetch_transcript_local_runner(
                     f"https://www.youtube.com/watch?v={video_id}"
                 )
+
+                import pathlib
+                vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")
+
+                if transcript_text.startswith("__VTT__"):
+                    logger.info(
+                        "[generate] __VTT__ format detected — converting to WebVTT for generator"
+                    )
+                    webvtt_content = _vtt_runner_to_webvtt(transcript_text)
+                    pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
+                else:
+                    logger.warning(
+                        "[generate] Plain text transcript (no timestamps) — "
+                        "chapters will have approximate times. Upgrade runner to v2.0."
+                    )
+                    pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
+
+                meta["vtt_path"] = vtt_path
+
             except RuntimeError as e:
-                raise RuntimeError(f"Local Runner transcript failed: {e}") from e
-
-            import pathlib
-            vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")
-
-            if transcript_text.startswith("__VTT__"):
-                logger.info(
-                    "[generate] __VTT__ format detected — converting to WebVTT for generator"
-                )
-                webvtt_content = _vtt_runner_to_webvtt(transcript_text)
-                pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
-            else:
-                logger.warning(
-                    "[generate] Plain text transcript (no timestamps) — "
-                    "chapters will have approximate times. Upgrade runner to v2.0."
-                )
-                pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
-
-            meta["vtt_path"] = vtt_path
+                exc_str = str(e)
+                # FIX A: Graceful degradation — no transcript → continue without
+                if "No transcript available" in exc_str:
+                    logger.warning(
+                        "[generate] FIX A: No transcript available for %s — "
+                        "continuing without (partial_result=True)", video_id
+                    )
+                    vtt_path = None
+                    has_transcript = False
+                else:
+                    # Other errors (timeout, DB failure) — re-raise
+                    raise RuntimeError(f"Local Runner transcript failed: {e}") from e
         else:
+            # FIX A: No hard RuntimeError when vtt_path missing — graceful degradation
             vtt_path = meta.get("vtt_path")
             if not vtt_path:
-                raise RuntimeError(
-                    f"No transcript available for {video_id}. "
-                    "Hint: set LOCAL_RUNNER_MODE=true and run VSELocalRunner on local PC."
+                logger.warning(
+                    "[generate] FIX A: No transcript (vtt_path) for %s — "
+                    "continuing without (partial_result=True)", video_id
                 )
+                has_transcript = False
 
         post_title = post_title_override or meta.get("title", video_id)
         yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
@@ -590,7 +629,7 @@ async def run_generate(
             wp_id_placeholder,
             post_title,
             yt_url,
-            vtt_path,
+            vtt_path,  # FIX A: may be None — generator handles it
             api_key,
             None,
             0,
@@ -633,16 +672,23 @@ async def run_generate(
 
         seo["image_data"] = image_data
 
-    logger.info("[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s portal_id=%s images=%d",
-                video_id, seo.get("focus_keyphrases", seo.get("focus_keyphrase", "?")),
-                "enriched" if seo.get("saas_enriched") else "standalone",
-                gsc_meta["status"], publication_type, portal_id, len(image_data))
+    partial_result = not has_transcript
+    logger.info(
+        "[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s "
+        "portal_id=%s images=%d has_transcript=%s partial=%s",
+        video_id, seo.get("focus_keyphrases", seo.get("focus_keyphrase", "?")),
+        "enriched" if seo.get("saas_enriched") else "standalone",
+        gsc_meta["status"], publication_type, portal_id, len(image_data),
+        has_transcript, partial_result,
+    )
     return {
         "video_id": video_id,
         "meta": meta,
         "seo": seo,
         "gsc": gsc_meta,
         "saas_data": saas_data,
+        "has_transcript": has_transcript,    # FIX A
+        "partial_result": partial_result,    # FIX A
     }
 
 
@@ -804,13 +850,13 @@ async def run_inject(
     from core.injector import inject_video
 
     video_id = _extract_video_id(video_url)
-    
+
     # Resolving Profile Config from DB via Job (Do NOT overwrite site_config credentials!)
     wp_base_url = site_config["wp_base_url"]
     wp_user = site_config["wp_user"]
     wp_app_password = site_config["wp_app_password"]
     profile_config = None
-    
+
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(TranscriptJob)
