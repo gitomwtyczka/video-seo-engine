@@ -15,6 +15,13 @@ D6b (2026-06-20, vse-dev-21):
 D9 (2026-06-20, vse-dev-23):
   - Passes portal_id from request to pipeline.run_generate()
   - Portal determines site_url for SAAS enrichment and site_brand for generator
+
+FIX D (2026-07-10, vse-dev-01):
+  - RuntimeError messages parsed into user-friendly Polish messages
+  - error_code field added: 'NO_TRANSCRIPT', 'VIDEO_UNAVAILABLE', 'UNKNOWN_ERROR'
+
+FIX A (2026-07-10, vse-dev-01):
+  - transcript_available and partial_result propagated from pipeline result
 """
 import json
 import logging
@@ -34,6 +41,44 @@ from api.services.pipeline import run_generate
 
 router = APIRouter(prefix="/v1", tags=["generate"])
 logger = logging.getLogger(__name__)
+
+
+def _parse_runtime_error(exc: RuntimeError) -> tuple[str, str]:
+    """Parse RuntimeError into user-friendly Polish message and error_code.
+
+    CO: Przekształca techniczne wyjątki RuntimeError na czytelne komunikaty po polsku.
+
+    PO CO: Surowe komunikaty RuntimeError (np. 'No transcript available for xyz...')
+    trafiały prosto do frontendu, dezorientując użytkownika. Frontend potrzebuje
+    human-friendly message + machine-readable code do warunkowego renderowania UI.
+
+    JAK: Sprawdza kluczowe frazy w treści wyjątku i zwraca odpowiedni
+    komunikat PL + kod błędu. Fallback = oryginalny str(exc).
+
+    Args:
+        exc: RuntimeError z pipeline.run_generate().
+
+    Returns:
+        Tuple (error_message: str, error_code: str).
+    """
+    exc_str = str(exc)
+
+    if "No transcript available" in exc_str:
+        return (
+            "Brak dostępnych napisów dla tego wideo. "
+            "Film zostanie przetworzony na podstawie tytułu i opisu.",
+            "NO_TRANSCRIPT",
+        )
+
+    if "metadata_fetch_failed" in exc_str or "VideoUnavailable" in exc_str:
+        return (
+            "Nie można pobrać danych wideo. "
+            "Sprawdź czy link jest poprawny i film jest publiczny.",
+            "VIDEO_UNAVAILABLE",
+        )
+
+    # Fallback: raw error message
+    return exc_str, "UNKNOWN_ERROR"
 
 
 async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
@@ -104,6 +149,8 @@ async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(g
 
     D6b: Accepts publication_type to control article format.
     D9: Accepts portal_id to select server-side YAML profile.
+    FIX D: RuntimeError messages parsed to user-friendly Polish messages + error_code.
+    FIX A: transcript_available and partial_result propagated from pipeline.
     """
     logger.info(
         "[/v1/generate] video_url=%s provider=%s type=%s portal_id=%s",
@@ -125,22 +172,31 @@ async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(g
         # Persystuj schema do DB dla historii
         await _save_schema_to_job(req.video_url, schema_data, req.portal_id, current_user.id)
 
+        # FIX A: propagate transcript availability flags from pipeline
+        has_transcript = result.get("has_transcript", True)
+        is_partial = result.get("partial_result", False)
+
         return GenerateResponse(
             status="ok",
             video_id=result["video_id"],
             processing_time_s=round(time.time() - start, 2),
             schema_data=schema_data,
+            transcript_available=has_transcript,
+            partial_result=is_partial if is_partial else None,
         )
     except ValueError as exc:
         logger.error("[/v1/generate] ValueError: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         logger.error("[/v1/generate] RuntimeError: %s", exc)
+        # FIX D: Parse error into user-friendly Polish message + error_code
+        error_message, error_code = _parse_runtime_error(exc)
         return GenerateResponse(
             status="error",
             video_id="unknown",
             processing_time_s=round(time.time() - start, 2),
-            error=str(exc),
+            error=error_message,
+            error_code=error_code,
         )
     except Exception as exc:
         logger.exception("[/v1/generate] Unexpected error")
