@@ -34,6 +34,8 @@ Endpoints:
   POST /v1/payments/create-checkout-session — create Stripe Checkout Session
   POST /v1/payments/webhook   — Stripe webhook (subscription lifecycle)
   GET  /v1/payments/portal-session — Stripe Customer Portal URL
+  GET  /v1/youtube/oauth/login — Redirect to Google OAuth for YT
+  GET  /v1/youtube/oauth/callback — Callback from Google OAuth for YT
   GET  /docs                  — Swagger UI
 """
 import logging
@@ -51,6 +53,7 @@ from api.routers.admin import router as admin_router
 from api.routers.portals import router as portals_router
 from api.routers.profiles import router as profiles_router
 from api.routers.payments import router as payments_router
+from api.routers.youtube import router as youtube_router
 from api.models.response import HealthResponse
 from api.middleware.error_logging import ErrorLoggingMiddleware
 from api.db import engine, Base, AsyncSessionLocal
@@ -111,6 +114,9 @@ app.include_router(profiles_router)
 # PO CO: Umożliwia monetyzację VSE — user może kupić plan Starter/Pro/Agency.
 app.include_router(payments_router)
 
+# YouTube router (OAuth channels)
+app.include_router(youtube_router)
+
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 async def health() -> HealthResponse:
@@ -161,9 +167,10 @@ async def startup_event() -> None:
         from api.models.job import TranscriptJob  # noqa: F401
         from api.models.app_settings import AppSettings  # noqa: F401
         from api.models.portal import WpPortal  # noqa: F401
+        from api.models.youtube_channel import YouTubeChannel # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals).")
+        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals, youtube_channels).")
     except Exception as e:
         logger.warning(f"DB init skipped (no DB configured?): {e}")
         return
