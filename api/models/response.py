@@ -2,7 +2,7 @@
 
 All response models include a `status` field ("ok" | "error").
 """
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 
@@ -69,6 +69,7 @@ class InjectResponse(BaseModel):
     youtube_updated: bool = False
     created: bool = False  # True = nowy post został utworzony; False = aktualizacja
     post_url: Optional[str] = None  # URL nowego/zaktualizowanego posta (gdy dostępny)
+    yt_channels: List[dict] = []
     error: Optional[str] = None
 
 
