@@ -168,9 +168,17 @@ async def startup_event() -> None:
         from api.models.app_settings import AppSettings  # noqa: F401
         from api.models.portal import WpPortal  # noqa: F401
         from api.models.youtube_channel import YouTubeChannel # noqa: F401
+        from api.models.oauth_state import OAuthState # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals, youtube_channels).")
+        
+        from sqlalchemy import delete
+        from datetime import datetime, timezone
+        async with AsyncSessionLocal() as session:
+            await session.execute(delete(OAuthState).where(OAuthState.expires_at < datetime.now(timezone.utc)))
+            await session.commit()
+            
     except Exception as e:
         logger.warning(f"DB init skipped (no DB configured?): {e}")
         return
