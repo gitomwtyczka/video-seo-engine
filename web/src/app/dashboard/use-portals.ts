@@ -40,7 +40,11 @@ export function usePortals() {
   const token = session?.accessToken as string | undefined
 
   const fetchPortals = useCallback(async () => {
-    if (!token) { setLoading(false); return }
+    if (!token) {
+      // Defer setState to avoid React #310 — updating state during another component's render
+      Promise.resolve().then(() => setLoading(false))
+      return
+    }
     setLoading(true)
     setError(null)
     try {
