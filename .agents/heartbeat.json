@@ -1,15 +1,14 @@
 {
-  "callsign": "vse-strateg-01",
-  "status": "done",
-  "current_task": "Wdrożenie Fazy 3, Analiza Handoff",
-  "timestamp": "2026-07-10T22:36:00+02:00",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "Naprawa Client-side exception przy logowaniu (HTTP 500 w NextAuth)",
+  "timestamp": "2026-07-10T23:24:00+02:00",
   "last_completed": [
-    "Przeanalizowano Handoff poprzednika",
-    "Rozdysponowano dispatch wdrożeniowy",
-    "Wygenerowano klucz Fernet do .env na VPS",
-    "Wykonano rebuild kontenerów",
-    "Zmigrowano bazę autorskim skryptem api.migrate zamiast Alembica",
     "Wdrożenie Fazy 3 gotowe"
   ],
-  "pending": []
+  "pending": [
+    "Naprawa HTTP 500 NextAuth - Auth fix",
+    "Pre-deploy backup na VPS",
+    "Deploy zmian na VPS"
+  ]
 }
