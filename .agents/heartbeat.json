@@ -1,13 +1,12 @@
 {
   "callsign": "vse-dev-01",
   "status": "working",
-  "current_task": "Dodanie ErrorBoundary do VSE Dashboard",
-  "timestamp": "2026-07-11T12:43:00Z",
+  "current_task": "Weryfikacja błędu redirect_uri_mismatch i konfiguracji NEXTAUTH_URL",
+  "timestamp": "2026-07-11T13:50:58.039Z",
   "last_completed": [
-    "Weryfikacja propagacji kluczy w Google Cloud / usunięcie błędu redirect_uri_mismatch"
+    "Przeczytanie handoff yt-oauth-mismatch"
   ],
   "pending": [
-    "Utworzenie error-boundary.tsx",
-    "Integracja z dashboard-inner.tsx"
+    "Powitanie użytkownika i weryfikacja czy problem ustąpił po zmianie projektu w GCP"
   ]
 }
