@@ -1,12 +1,14 @@
 {
   "callsign": "vse-dev-01",
   "status": "working",
-  "current_task": "Weryfikacja błędu redirect_uri_mismatch i konfiguracji NEXTAUTH_URL",
-  "timestamp": "2026-07-11T13:50:58.039Z",
+  "current_task": "Wyjaśnienie i poprawka problemu restartu kontenerów z nowym .env",
+  "timestamp": "2026-07-11T13:59:45Z",
   "last_completed": [
-    "Przeczytanie handoff yt-oauth-mismatch"
+    "Przeczytanie handoff yt-oauth-mismatch",
+    "Analiza zmiennych wewnątrz kontenerów vse-api i vse-web",
+    "Wykonanie docker compose up -d w celu przeładowania .env"
   ],
   "pending": [
-    "Powitanie użytkownika i weryfikacja czy problem ustąpił po zmianie projektu w GCP"
+    "Oczekiwanie na finalne logowanie użytkownika"
   ]
 }
