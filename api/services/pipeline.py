@@ -929,47 +929,5 @@ async def run_inject(
     post_url = final_result.get("post_url")
     yt_results = []
 
-    if yt_channel_ids and post_url and final_result.get("status") == "ok":
-        from api.models.youtube_channel import YouTubeChannel
-        from core.yt_admin import update_video_title_and_description
-        
-        async with AsyncSessionLocal() as session:
-            for channel_uuid_str in yt_channel_ids:
-                try:
-                    import os
-                    channel_uuid = uuid.UUID(channel_uuid_str)
-                    channel_record = await session.get(YouTubeChannel, channel_uuid)
-                    
-                    if not channel_record:
-                        yt_results.append({"channel_id": channel_uuid_str, "status": "error", "detail": "not found"})
-                        continue
-                        
-                    channel_config = {
-                        "channel_id": channel_record.youtube_channel_id,
-                        "yt_oauth": {
-                            "client_id": os.environ.get("YT_CLIENT_ID", ""),
-                            "client_secret": os.environ.get("YT_CLIENT_SECRET", ""),
-                            "refresh_token": channel_record.refresh_token
-                        }
-                    }
-                    
-                    ok = await asyncio.to_thread(
-                        update_video_title_and_description,
-                        video_id,
-                        schema_data,
-                        post_url,
-                        False,
-                        channel_config
-                    )
-                    
-                    if ok:
-                        yt_results.append({"channel_id": channel_uuid_str, "status": "ok"})
-                    else:
-                        yt_results.append({"channel_id": channel_uuid_str, "status": "error", "detail": "API update failed"})
-                        
-                except Exception as e:
-                    logger.error("[inject] YT update failed for channel %s: %s", channel_uuid_str, e)
-                    yt_results.append({"channel_id": channel_uuid_str, "status": "error", "detail": str(e)})
-
     final_result["yt_channels"] = yt_results
     return final_result

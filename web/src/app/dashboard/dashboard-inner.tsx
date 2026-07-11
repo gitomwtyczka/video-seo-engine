@@ -740,31 +740,7 @@ function InjectModal({
 
   const modalRef = useRef<HTMLDivElement>(null)
 
-  // YouTube channels
-  const [ytChannels, setYtChannels] = useState<YtChannel[]>([])
-  const [selectedYtChannelIds, setSelectedYtChannelIds] = useState<string[]>([])
-  const [ytLoading, setYtLoading] = useState(false)
 
-  useEffect(() => {
-    if (!accessToken) return
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-    setYtLoading(true)
-    fetch(`${apiUrl}/v1/youtube/channels`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((r) => r.ok ? r.json() : [])
-      .then((data) => setYtChannels(Array.isArray(data) ? data : []))
-      .catch(() => setYtChannels([]))
-      .finally(() => setYtLoading(false))
-  }, [accessToken])
-
-  const toggleYtChannel = (channelId: string) => {
-    setSelectedYtChannelIds((prev) =>
-      prev.includes(channelId)
-        ? prev.filter((id) => id !== channelId)
-        : [...prev, channelId]
-    )
-  }
 
 
 
@@ -842,9 +818,6 @@ function InjectModal({
         post_status: postStatus,
 
         post_format: postFormat,
-
-        yt_channel_ids: selectedYtChannelIds,
-
       }
 
       if (isManual) {
@@ -1122,29 +1095,6 @@ function InjectModal({
 
 
 
-          {/* YouTube channels */}
-          {ytLoading && (
-            <p className="text-xs text-gray-500">Ładowanie kanałów YouTube...</p>
-          )}
-          {!ytLoading && ytChannels.length > 0 && (
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Kanały YouTube (opcjonalnie)</label>
-              <div className="space-y-2 max-h-32 overflow-y-auto">
-                {ytChannels.map((ch) => (
-                  <label key={ch.id} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedYtChannelIds.includes(ch.channel_id)}
-                      onChange={() => toggleYtChannel(ch.channel_id)}
-                      className="accent-red-500"
-                    />
-                    {ch.channel_thumbnail && (
-                      <img src={ch.channel_thumbnail} alt="" className="w-5 h-5 rounded-full" />
-                    )}
-                    <span className="text-sm text-gray-300">{ch.channel_title}</span>
-                  </label>
-                ))}
-              </div>
             </div>
           )}
           {!ytLoading && ytChannels.length === 0 && accessToken && (
