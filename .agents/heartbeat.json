@@ -1,1 +1,13 @@
-{"callsign": "vse-dev-01", "status": "working", "current_task": "Integracja YT Publishing w inject.py + zmiana promptu", "timestamp": "2026-07-11T21:32:49+02:00", "last_completed": ["Analiza specyfikacji YouTube Description 2026 (raport wysłany)"]}
+{
+  "callsign": "vse-dev-01",
+  "status": "done",
+  "current_task": "Krok 3 — Integracja YT Publishing w inject.py + zmiana promptu",
+  "timestamp": "2026-07-11T19:41:00Z",
+  "last_completed": [
+    "Integracja api/routers/inject.py z YT - commit 367c92e9655d0aa84a81546f16d5c670c68e82f9",
+    "Raporty wygenerowane i przesłane do inboxa oraz VSE"
+  ],
+  "pending": [
+    "Commit A (core/generator.py) oczekuje na ręczne zacommitowanie z lokalnego workspace'a."
+  ]
+}
