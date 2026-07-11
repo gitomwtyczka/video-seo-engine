@@ -1,31 +1,29 @@
-# Raport Handoff: Architektura publikacji YouTube [vse-dev-01]
+# Raport Handoff: Architektura publikacji YouTube [Aktualizacja: Obiektywne Błędy]
 
 **Data:** 2026-07-12
-**Cel:** Analiza i propozycja naprawy flow publikacji na YouTube z historii.
+**Cel:** Analiza obiektywnych nieprawidłowości w działaniu aplikacji (obszar publikacji YT/WP).
 
-## 1. Stan faktyczny i popełnione błędy
+## 1. Fakty: Nieprawidłowości w działaniu aplikacji (Stan obecny i historyczny)
 
-**Błąd pierwotny:** 
-Użytkownik zgłosił błąd przy publikacji na YouTube z okna publikacji (historii). Przyczyną był błąd w kodzie `api/services/pipeline.py`, gdzie funkcja próbowała parsować tekstowe ID kanału YouTube (`UCoH...`) jako `uuid.UUID`. Skutkowało to wewnętrznym błędem 500, który nie był komunikowany na frontendzie (cichy fail).
+### A. Brak obsługi błędu (Cichy Fail) przy publikacji YT
+Historycznie, gdy użytkownik zaznaczał kanał YT w oknie publikacji, proces na backendzie kończył się błędem 500 (próba parsowania tekstowego ID `UCoH...` jako UUID w pliku `pipeline.py`).
+**Skutek dla użytkownika:** Aplikacja nie publikowała na YT, ale na frontendzie nie pojawiał się absolutnie żaden komunikat o błędzie (Silent Failure). Użytkownik pozostawał w przekonaniu, że proces trwa lub zakończył się poprawnie (w przypadku udanej publikacji WP, ale nie YT).
 
-**Mój błąd operacyjny (błędne założenie):**
-Widząc, że w projekcie istnieje osobny komponent `YouTubePublishModal` oraz przycisk `▶️ Wyślij na YouTube` w głównym widoku dashboardu, błędnie założyłem, że intencją architektoniczną jest *całkowite oddzielenie* publikacji WordPress od YouTube. W ramach "naprawy" usunąłem sekcję wyboru kanałów YouTube z `InjectModal`. 
-Jak słusznie zauważył użytkownik, zepsuło to jego naturalny workflow – oczekiwał on możliwości jednoczesnej publikacji na WP i YT bezpośrednio z okna `InjectModal`, gdzie "wcześniej były kanały które są podłączone z checkboxami".
+### B. Regresja UX: Brak wyboru kanału YT w głównym oknie publikacji
+W obecnej wersji na branchu `main`, w oknie `InjectModal` brakuje sekcji wyboru kanału YouTube (checkboxy zniknęły). 
+**Skutek dla użytkownika:** Rozbicie spójnego procesu. Aby opublikować materiał na WP i YT, użytkownik musi wywołać publikację na WP, poczekać na zakończenie, zamknąć okno, a następnie odszukać osobny przycisk "▶️ Wyślij na YouTube" pod spodem w widoku historii. Jest to wada architektoniczna i regresja względem poprzedniego (oczekiwanego) zachowania aplikacji.
 
-## 2. Diagnoza backendu (Dobra wiadomość)
+### C. Problem z walidacją przycisku publikacji (Zależność od WP)
+Nawet przy przywróceniu wyboru YT wewnątrz okna, istnieje wada logiki w `InjectModal`: przycisk "🚀 Opublikuj na portalu" (i jego stan `disabled`) jest ściśle powiązany z posiadaniem portalu WordPress (`selectedPortalId`). 
+**Skutek dla użytkownika:** Jeśli użytkownik chce opublikować materiał *tylko* na YouTube, puste pole wyboru portalu zablokuje przycisk, uniemożliwiając akcję.
 
-Mimo błędnej decyzji o usunięciu UI na frontendzie, **backend został już poprawnie naprawiony w commicie `ca39ec9`**:
-1. Usunąłem problematyczne rzutowanie do UUID w `pipeline.py`.
-2. Plik `api/routers/inject.py` posiada już zaimplementowaną i działającą logikę, która przyjmuje listę `yt_channel_ids` bezpośrednio z requestu `/v1/inject` i poprawnie wywołuje `update_youtube_description`.
+## 2. Diagnoza Backendowa (Fakty z kodu)
 
-Oznacza to, że backend jest teraz w 100% gotowy do jednoczesnej publikacji (WordPress + YouTube), bez błędu z UUID.
+1. Funkcja `inject_and_publish` z `pipeline.py` **nie wymusza już** UUID dla `yt_channel_id`. Ten konkretny crash został usunięty (`ca39ec9`).
+2. API endpoint `/v1/inject` wywołuje kod: `if req.yt_channel_ids: update_youtube_description(...)`. Oznacza to, że pojedynczy strzał HTTP POST z frontendu jest w stanie obsłużyć obie publikacje (WP + YT) równolegle, o ile frontend wyśle oba parametry.
 
-## 3. Plan naprawczy (Sposób zaradzenia)
+## 3. Rekomendowany Sposób Zaradzenia (Dla kolejnej sesji)
 
-Aby przywrócić oczekiwaną funkcjonalność i zachować stabilność, następny agent / Supervisor powinien zatwierdzić poniższe kroki:
-
-1. **Frontend (Przywrócenie UI):** W pliku `web/src/app/dashboard/dashboard-inner.tsx` należy przywrócić usunięty kod renderujący listę checkboxów dla kanałów YouTube wewnątrz `InjectModal` (sekcja `ytChannels.map`).
-2. **Frontend (Logika przycisku):** Upewnić się, że główny przycisk "🚀 Opublikuj na portalu" w `InjectModal` aktywuje się poprawnie nie tylko wtedy, gdy wybrano portal WP, ale również (lub tylko) gdy zaznaczono kanał YouTube.
-3. **Frontend (Stan):** Upewnić się, że zaznaczone `selectedYtChannelIds` są z powrotem przekazywane w payloadzie POST do `/v1/inject`.
-
-Zaraz po przywróceniu tych elementów na frontendzie, cały proces publikacji (WP + YT) z okna historii będzie w pełni funkcjonalny. Zostawiam ten dokument do decyzji Supervisora.
+1. **Przywrócenie UI w `InjectModal`:** Odbudowanie mapowania `ytChannels` do postaci checkboxów w oknie publikacji.
+2. **Naprawa walidacji:** Odpięcie twardej blokady przycisku w `InjectModal` tak, aby przycisk był aktywny jeśli `selectedPortalId != ""` LUB `selectedYtChannelIds.length > 0`.
+3. **Wdrożenie jawnych komunikatów błędu (Toast):** Frontend musi sprawdzać w odpowiedzi z `/v1/inject` pole `yt_channels` i statusy publikacji dla YouTube. Jeśli wystąpi błąd specyficzny dla YT, aplikacja musi wyświetlić odpowiedni toast (np. "Błąd publikacji YT: ..."), zapobiegając cichym awariom w przyszłości.
