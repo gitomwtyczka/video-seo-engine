@@ -95,10 +95,60 @@ async def inject_endpoint(
             site_config=site_config_dict,
             post_status=req.post_status,
             post_format=req.post_format,
-            # ROADMAP F2B: yt_channel_ids odebrane ale ignorowane — implementacja w youtube_publish.py (Scenariusz A)
-            # Patrz: docs/ARCHITECTURE_decisions.md ADR-12 (planowane)
             yt_channel_ids=req.yt_channel_ids,
         )
+
+        # YouTube Immediate Publish — Scenariusz A
+        # ROADMAP F2B: integracja youtube_publish.py — commit [ten commit]
+        if req.yt_channel_ids:
+            from api.core.youtube_publish import update_youtube_description
+            from api.db import AsyncSessionLocal
+            
+            job_result = req.schema_data or {}
+            hook = job_result.get("youtube_description_hook") or job_result.get("youtube_description", "")
+            hashtags_list = job_result.get("youtube_hashtags", [])
+            hashtags_str = " ".join(hashtags_list) if isinstance(hashtags_list, list) else ""
+            
+            chapters = job_result.get("resolved_chapters") or job_result.get("chapters", [])
+            chapters_text = ""
+            if isinstance(chapters, list) and chapters:
+                lines = []
+                for ch in chapters:
+                    time_str = ch.get("time_str", "00:00")
+                    label = ch.get("label", "")
+                    if label:
+                        lines.append(f"{time_str} - {label}")
+                chapters_text = "\n".join(lines)
+            
+            wp_article_url = result.get("post_url")
+            full_yt_description = hook
+            if wp_article_url:
+                full_yt_description += f"\n\n🔗 Pełny artykuł: {wp_article_url}"
+            if chapters_text:
+                full_yt_description += f"\n\n⏱️ Rozdziały:\n{chapters_text}"
+            if hashtags_str:
+                full_yt_description += f"\n\n---\n{hashtags_str}"
+            
+            video_id = job_result.get("video_id") or job_result.get("youtube_id", "")
+            if video_id:
+                try:
+                    async with AsyncSessionLocal() as db:
+                        yt_results = await update_youtube_description(
+                            db=db,
+                            user_id=current_user.id,
+                            channel_ids=req.yt_channel_ids,
+                            video_id=video_id,
+                            new_description=full_yt_description,
+                        )
+                except Exception as yt_err:
+                    logger.error("[/v1/inject] YouTube update failed: %s", yt_err)
+                    yt_results = {"error": str(yt_err)}
+            else:
+                yt_results = {"error": "video_id not found in job result"}
+            
+            result["yt_channels"] = [{"channel_id": k, "status": v} for k, v in yt_results.items()]
+            result["youtube_updated"] = True
+
         return InjectResponse(**result)
     except HTTPException:
         raise
