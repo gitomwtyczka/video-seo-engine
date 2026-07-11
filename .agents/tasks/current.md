@@ -7,9 +7,9 @@
 - Wyodrębnienie przyczyny rzucania Application Error przez NextAuth
 - Poprawa CORS przy YouTube OAuth (zamiana RedirectResponse na zwrot JSON)
 - Nowe poświadczenia OAuth w GCP (nowy projekt) i na serwerze
+- Rozwiązanie problemu `redirect_uri_mismatch` (usunięcie zbędnego prefixu `/api` z YOUTUBE_OAUTH_REDIRECT_URI)
 
 ## 🟡 W toku
-- Rozwiązanie problemu `redirect_uri_mismatch` dla NextAuth po zmianie Google Cloud Project
 - [ZAWIESZONE] Wdrożenie łatki na błąd logowania HTTP 500
 
 ## 🔵 Następne
