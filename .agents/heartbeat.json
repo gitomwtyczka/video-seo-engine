@@ -1,16 +1,12 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-worker",
   "status": "done",
-  "current_task": "Dodano ErrorBoundary do VSE Dashboard",
-  "timestamp": "2026-07-11T14:40:00Z",
+  "current_task": "Diagnostyka REDIRECT_URI z VPS dla Supervisora",
+  "timestamp": "2026-07-11T14:40:01Z",
   "last_completed": [
-    "Diagnoza problemu redirect_uri_mismatch: nginx przekazywał pełne URI bez ucinania prefixu /api/",
-    "Fix: Usunięto prefiks /api z YOUTUBE_OAUTH_REDIRECT_URI w api/routers/youtube.py — commit 09fe3053",
-    "Deploy: Aktualizacja obrazu vse-api i restart kontenera",
-    "Weryfikacja: poprawka jest prawidłowa, adres na ekranie błędu w 100% zgadza się z dodanym do GCP",
-    "Sporządzono raport eskalacyjny dla Supervisora",
-    "Dodano ErrorBoundary do dashboard-inner.tsx (commit 109cc) oraz error-boundary.tsx (commit 395b7)",
-    "Zapisano raporty dual-write do repozytoriów"
+    "Wykonano komendy diagnostyczne zadane przez Supervisor-03",
+    "Zapisano raport wideo-seo-engine/.agents/reports/2026-07-11_vse-worker_redirect-uri-check.md",
+    "Zapisano raport sonic-void/.agents/reports/inbox/2026-07-11_vse-worker_redirect-uri-check.md"
   ],
   "pending": []
 }
