@@ -2200,7 +2200,7 @@ export default function DashboardInner() {
   useEffect(() => {
     if (!session?.accessToken) return
     fetch('/api/youtube/channels', {
-      headers: { Authorization: Bearer  }
+      headers: { Authorization: `Bearer ${session.accessToken}` }
     })
       .then((r) => r.ok ? r.json() : [])
       .then((data) => setYtChannels(Array.isArray(data) ? data : []))
