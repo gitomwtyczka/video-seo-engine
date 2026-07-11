@@ -10,6 +10,7 @@ from api.models.user import User
 from api.models.youtube_channel import YouTubeChannel
 from api.models.oauth_state import OAuthState
 from api.auth import get_current_user
+from api.models.request import YouTubePublishRequest
 
 router = APIRouter(prefix="/v1/youtube", tags=["youtube"])
 
@@ -128,3 +129,31 @@ async def disconnect_channel(channel_id: str, current_user: User = Depends(get_c
     channel.is_active = False
     await db.commit()
     return {"status": "disconnected"}
+
+
+@router.post("/publish-description")
+async def publish_youtube_description(
+    req: YouTubePublishRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Aktualizuje opis wideo na YouTube dla wybranych kanalow.
+    Endpoint niezalezny od /v1/inject — WP i YT sa osobnymi akcjami.
+    ROADMAP F2B: YouTube Publishing Scenariusz A — Immediate Publish
+    """
+    from api.core.youtube_publish import update_youtube_description
+
+    if not req.channel_ids:
+        raise HTTPException(status_code=400, detail="channel_ids cannot be empty")
+    if not req.video_id:
+        raise HTTPException(status_code=400, detail="video_id is required")
+
+    results = await update_youtube_description(
+        db=db,
+        user_id=current_user.id,
+        channel_ids=req.channel_ids,
+        video_id=req.video_id,
+        new_description=req.description,
+    )
+    return {"results": results, "video_id": req.video_id}
