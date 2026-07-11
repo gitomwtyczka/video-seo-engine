@@ -15,7 +15,8 @@ router = APIRouter(prefix="/v1/youtube", tags=["youtube"])
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("YOUTUBE_OAUTH_REDIRECT_URI", "https://vse.impresjapr.pl/v1/youtube/oauth/callback")
+# Fixed REDIRECT_URI to include /api prefix because nginx routes /api/v1 to backend
+REDIRECT_URI = os.getenv("YOUTUBE_OAUTH_REDIRECT_URI", "https://vse.impresjapr.pl/api/v1/youtube/oauth/callback")
 
 # WAZNE: force-ssl = najwezszy scope z prawem zapisu (videos.update)
 # NIE uzywaj youtube.readonly — pipeline inject nie zadziala
