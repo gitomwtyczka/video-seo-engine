@@ -1,15 +1,10 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "DISPATCH-VSE-DEV-03A — Portal Management: Backend",
-  "timestamp": "2026-07-11T21:08:00Z",
-  "last_completed": [],
-  "pending": [
-    "Migration DB wp_portals (profile_id + DELETE)",
-    "API CRUD portali (/v1/portals)",
-    "Pipeline - Generowanie i Inject połączone (portal_id -> profile_id)",
-    "Bug #1 RankMath",
-    "Bug #2 Brand fallback",
-    "Bug #5 json-repair"
-  ]
+  "status": "done",
+  "current_task": "Krok 3A Backend implementation",
+  "timestamp": "2026-07-11T21:28:00Z",
+  "last_completed": [
+    "Krok 3A Backend (request models, youtube publish endpoint, generator prompt update) - commits 57ae2ce, 58d471f"
+  ],
+  "pending": []
 }
