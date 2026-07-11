@@ -1,18 +1,24 @@
 # BIEŻĄCE ZADANIA
 
 ## ✅ Zamknięte
-- Poprawki UX dla integracji YouTube (Bug 2: redirect po błędzie/sukcesie w oauth callback, Bug 3: toast powiadomienia i blokada duplikacji kanału na froncie)
-- Integracja Kanałów YouTube w panelu Ustawienia
-- Wdrożenie Fazy 3 (OAuth + Fernet)
-- Rozpoznanie logów i infrastruktury VPS
-- Wyodrębnienie przyczyny rzucania Application Error przez NextAuth
-- Poprawa CORS przy YouTube OAuth (zamiana RedirectResponse na zwrot JSON)
-- Nowe poświadczenia OAuth w GCP (nowy projekt) i na serwerze
-- Rozwiązanie problemu `redirect_uri_mismatch` (usunięcie zbędnego prefixu `/api` z YOUTUBE_OAUTH_REDIRECT_URI)
+- ErrorBoundary — wdrożony na produkcji (commit 109cc4f, 395b710)
+- YouTube OAuth — nowe credentials GCP 934133075831, redirect_uri fix
+- YouTube kanały — podłączanie działa end-to-end
+- fix: channel_id/channel_title mismatch w API (commit 429b274)
+- fix: duplicate channel → yt=connected zamiast yt=error (commit 429b274)
+- UX: redirect po OAuth callback + zielony/czerwony toast (vse-worker)
+- Google Auth Platform — NextAuth callback URI dodany, propagacja powinna być gotowa
+- Audit: zakładka YT w dashboardzie — NIE ISTNIEJE, trzeba zbudować od zera
 
 ## 🟡 W toku
-- [ZAWIESZONE] Wdrożenie łatki na błąd logowania HTTP 500
+- [DISPATCH OCZEKUJE] Implementacja zakładki YouTube w dashboardzie
+  → dispatch task: `2026-07-11_Supervisor-03_vse-analyst_yt-dashboard-audit.md` (zakończony)
+  → implementacja: DO ZLECENIA nowemu workerowi
 
 ## 🔵 Następne
-- Przekazanie raportu do Supervisora w celu zatwierdzenia zmiany w integracji frontendu z backendem
-- Analiza logów NextAuth w trybie `debug: true` przez dedykowanego workera.
+- Implementacja zakładki YouTube w dashboardzie (duże wdrożenie architektoniczne)
+  - backend: endpointy harmonogramu/kolejki/historii YT
+  - frontend: nowa sekcja w dashboardzie
+  - DB: nowe tabele (pipeline_jobs, yt_publish_queue lub podobne)
+- Sprawa 2: izolacja kont (różni userzy widzą nawzajem swoje zasoby) — wymaga zbadania
+- Weryfikacja logowania przez Google po propagacji GCP
