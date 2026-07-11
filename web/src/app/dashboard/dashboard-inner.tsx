@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 /**
 
@@ -41,6 +41,7 @@ import { usePortals, type Portal } from './use-portals'
 import { useProfiles, type Profile } from './use-profiles'
 
 import EmailVerificationBanner from './email-verification-banner'
+import { ErrorBoundary } from './error-boundary'
 
 
 
@@ -3620,6 +3621,7 @@ function WpQuickPanel() {
    */
 
   return (
+    <ErrorBoundary>
 
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
 
@@ -3676,6 +3678,7 @@ function WpQuickPanel() {
       </div>
 
     </div>
+    </ErrorBoundary>
 
   )
 
