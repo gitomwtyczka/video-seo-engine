@@ -12,7 +12,7 @@
  */
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import Link from 'next/link'
 import { usePortals, type Portal, type PortalCreatePayload } from '../dashboard/use-portals'
 import { useProfiles, type Profile } from '../dashboard/use-profiles'
@@ -299,7 +299,7 @@ function SidebarLink({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function UstawieniaPage() {
+function UstawieniaContent() {
   /**
    * CO: Strona /ustawienia — hub zarządzania kontem.
    * PO CO: Użytkownik widzi swój email, plan, zarządza portalami WP i subskrypcją.
@@ -775,5 +775,17 @@ export default function UstawieniaPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function UstawieniaPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-500" />
+      </div>
+    }>
+      <UstawieniaContent />
+    </Suspense>
   )
 }
