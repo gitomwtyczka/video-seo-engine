@@ -1,15 +1,1 @@
-{
-  "callsign": "vse-strateg-01",
-  "status": "handoff",
-  "current_task": "Auth Error Analysis po migracji Fazy 3",
-  "timestamp": "2026-07-10T23:28:15+02:00",
-  "last_completed": [
-    "Przerwano debugowanie na żądanie użytkownika",
-    "Zabito aktywnego subagenta vse-dev-01 chroniąc produkcję przed błędnymi deployami",
-    "Wygenerowano twardy raport z ustaleń dla Supervisora"
-  ],
-  "pending": [
-    "Zaktualizowanie API auth Next.js zgodnie z wynikami śledztwa",
-    "Decyzja Supervisora odnośnie nowej strategii logowania w backendzie"
-  ]
-}
+{\n  "callsign": "vse-worker",\n  "status": "working",\n  "current_task": "Diagnoza 401 Unauthorized — zbieranie danych dla dispatchu",\n  "timestamp": "2026-07-11T10:02:45Z"\n}
