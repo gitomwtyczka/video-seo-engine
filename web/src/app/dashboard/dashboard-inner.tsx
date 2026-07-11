@@ -2467,7 +2467,8 @@ export default function DashboardInner() {
 
   return (
 
-    <div className="min-h-screen bg-gray-950 text-white">
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gray-950 text-white">
 
       {/* Sidebar */}
 
@@ -3528,6 +3529,7 @@ export default function DashboardInner() {
 
     </div>
 
+      </ErrorBoundary>
   )
 
 }
