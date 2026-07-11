@@ -736,6 +736,33 @@ function InjectModal({
 
   const modalRef = useRef<HTMLDivElement>(null)
 
+  // YouTube channels
+  const [ytChannels, setYtChannels] = useState<YtChannel[]>([])
+  const [selectedYtChannelIds, setSelectedYtChannelIds] = useState<string[]>([])
+  const [ytLoading, setYtLoading] = useState(false)
+
+  useEffect(() => {
+    if (!accessToken) return
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+    setYtLoading(true)
+    fetch(`${apiUrl}/v1/youtube/channels`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setYtChannels(Array.isArray(data) ? data : []))
+      .catch(() => setYtChannels([]))
+      .finally(() => setYtLoading(false))
+  }, [accessToken])
+
+  const toggleYtChannel = (channelId: string) => {
+    setSelectedYtChannelIds((prev) =>
+      prev.includes(channelId)
+        ? prev.filter((id) => id !== channelId)
+        : [...prev, channelId]
+    )
+  }
+
+
 
 
   // Close on Escape
