@@ -43,12 +43,12 @@ async def youtube_oauth_callback(code: str, state: str, db: AsyncSession = Depen
     result = await db.execute(select(OAuthState).where(OAuthState.state_token == state))
     oauth_state = result.scalar_one_or_none()
     if not oauth_state or not oauth_state.is_valid():
-        raise HTTPException(status_code=403, detail="Invalid or expired OAuth state.")
+        return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=error", status_code=302)
     user_id = oauth_state.user_id
     # 2. Weryfikuj user
     user_result = await db.execute(select(User).where(User.id == user_id))
     if not user_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="User not found")
+        return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=error", status_code=302)
     # 3. Zuzyt state (jednorazowy)
     await db.delete(oauth_state)
     # 4. Wymiana code na tokeny
@@ -59,7 +59,7 @@ async def youtube_oauth_callback(code: str, state: str, db: AsyncSession = Depen
         })
         if token_resp.status_code != 200:
             await db.rollback()
-            raise HTTPException(status_code=400, detail="Token exchange failed")
+            return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=error", status_code=302)
         token_data = token_resp.json()
         # 5. Pobierz dane kanalu
         channels_resp = await client.get(
@@ -68,10 +68,10 @@ async def youtube_oauth_callback(code: str, state: str, db: AsyncSession = Depen
         )
         if channels_resp.status_code != 200:
             await db.rollback()
-            raise HTTPException(status_code=400, detail="Failed to fetch channel info")
+            return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=error", status_code=302)
         items = channels_resp.json().get("items", [])
         if not items:
-            raise HTTPException(status_code=404, detail="No YouTube channel found")
+            return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=error", status_code=302)
         channel_info = items[0]
         # 6. Zapisz kanal (setter szyfruje automatycznie)
         channel = YouTubeChannel(
@@ -85,8 +85,8 @@ async def youtube_oauth_callback(code: str, state: str, db: AsyncSession = Depen
             await db.commit()
         except Exception:
             await db.rollback()
-            raise HTTPException(status_code=409, detail="Channel already connected")
-    return {"status": "ok", "channel_id": channel_info["id"], "channel_title": channel_info["snippet"]["title"]}
+            return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=error", status_code=302)
+    return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=connected", status_code=302)
 
 
 @router.get("/channels")
