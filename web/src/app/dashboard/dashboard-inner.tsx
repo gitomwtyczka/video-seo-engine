@@ -1095,11 +1095,6 @@ function InjectModal({
 
 
 
-            </div>
-          )}
-          {!ytLoading && ytChannels.length === 0 && accessToken && (
-            <p className="text-xs text-gray-600">Brak podłączonych kanałów YouTube. <a href="/ustawienia" className="text-violet-400 hover:underline">Podłącz kanał →</a></p>
-          )}
 
           {/* Post ID + Status + Format */}
 
