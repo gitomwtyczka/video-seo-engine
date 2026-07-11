@@ -1,14 +1,12 @@
 {
   "callsign": "vse-dev-01",
   "status": "working",
-  "current_task": "Wyjaśnienie i poprawka problemu restartu kontenerów z nowym .env",
-  "timestamp": "2026-07-11T13:59:45Z",
+  "current_task": "Instrukcja dodawania testowych użytkowników w GCP",
+  "timestamp": "2026-07-11T14:04:45Z",
   "last_completed": [
-    "Przeczytanie handoff yt-oauth-mismatch",
-    "Analiza zmiennych wewnątrz kontenerów vse-api i vse-web",
-    "Wykonanie docker compose up -d w celu przeładowania .env"
+    "Przeładowanie kontenerów (usunięty błąd redirect_uri_mismatch)"
   ],
   "pending": [
-    "Oczekiwanie na finalne logowanie użytkownika"
+    "Użytkownik musi dodać maile do 'Test users' na ekranie zgody OAuth"
   ]
 }
