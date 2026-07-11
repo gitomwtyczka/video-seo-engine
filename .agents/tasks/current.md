@@ -1,6 +1,7 @@
-# VSE — Current State (aktualizacja: 2026-07-11 22:30)
+# VSE — Current State (aktualizacja: 2026-07-11 23:59)
 
 ## Zakonczone (sesja 2026-07-11)
+- Krok 3A/3B: Integracja youtube_publish.py, modal frontend, agregacja opsu YT
 - Security fix: POST /v1/inject wymaga JWT + user_id isolation — commit 7174fb1
 - Hotfix frontend: Authorization header w fetch /v1/inject — commit bd1bbc5
 - YouTube OAuth connect/disconnect, toast UX, callback redirect
@@ -9,13 +10,10 @@
 - ADR-11 dodany do docs/ARCHITECTURE_decisions.md
 
 ## W toku
-- Krok 3: Integracja inject.py -> youtube_publish.py (Scenariusz A)
-  + zmiana promptu w core/generator.py
-  + dispatch wysłany do VSE worker
-
-## Nastepne (w kolejnosci)
 - Krok 4: Stopka opisu YT per-user w app_settings + UI
 - Krok 4b: Osobne przyciski WP / YT w InjectModal
+
+## Nastepne (w kolejnosci)
 - E2E test YouTube: sprawdzic czy opis wideo faktycznie sie zmienia
 - Krok 5: Bulk Worker (osobna sesja)
 
