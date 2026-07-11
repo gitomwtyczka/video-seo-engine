@@ -42,6 +42,7 @@ import { useProfiles, type Profile } from './use-profiles'
 
 import EmailVerificationBanner from './email-verification-banner'
 import { ErrorBoundary } from './error-boundary'
+import { YouTubePublishModal } from './YouTubePublishModal'
 
 
 
@@ -2193,6 +2194,7 @@ export default function DashboardInner() {
   const [activeTab, setActiveTab] = useState<TabKey>('article')
 
   const [showInjectModal, setShowInjectModal] = useState(false)
+  const [ytModalOpen, setYtModalOpen] = useState(false)
 
 
 
@@ -3001,6 +3003,15 @@ export default function DashboardInner() {
 
                   )}
 
+                  {ytChannels.length > 0 && (
+                    <button
+                      onClick={() => setYtModalOpen(true)}
+                      className="px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2"
+                    >
+                      ▶️ Wyślij na YouTube
+                    </button>
+                  )}
+
                 </div>
 
               </div>
@@ -3513,6 +3524,36 @@ export default function DashboardInner() {
       })()}
 
 
+
+      {ytModalOpen && result && (() => {
+        const hook = result.raw?.youtube_description_hook || result.raw?.youtube_description || "";
+        const hashtags = Array.isArray(result.raw?.youtube_hashtags)
+          ? result.raw.youtube_hashtags.join(" ")
+          : "";
+        const parsedChapters = typeof extractChapters === 'function' ? extractChapters(result.raw) : [];
+        const chaptersStr = parsedChapters ? parsedChapters.map((c: any) => `${typeof secToTimestamp === 'function' ? secToTimestamp(c.startOffset ?? c.time) : (c.startOffset ?? c.time)} ${c.name ?? c.label ?? ''}`).join('\n') : "";
+        const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || "";
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+
+        const ytDescription = [
+          hook,
+          wpUrl ? `\n\n🔗 Pełny artykuł: ${wpUrl}` : "",
+          chaptersStr ? `\n\n⏱️ Rozdziały:\n${chaptersStr}` : "",
+          hashtags ? `\n\n---\n${hashtags}` : "",
+        ].join("");
+
+        return (
+          <YouTubePublishModal
+            isOpen={ytModalOpen}
+            onClose={() => setYtModalOpen(false)}
+            videoId={result.raw?.video_id || result.inputUrl?.split('v=')[1] || ""}
+            description={ytDescription}
+            channels={ytChannels}
+            accessToken={accessToken || ""}
+            apiUrl={apiUrl}
+          />
+        )
+      })()}
 
       {showAddPortalModal && (
 
