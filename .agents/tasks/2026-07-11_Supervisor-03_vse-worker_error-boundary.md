@@ -6,9 +6,23 @@
 
 ---
 
+## ⚠️ ZNANE PUŁAPKI
+1. Plik `dashboard-inner.tsx` ma ok. 77KB — weryfikuj rozmiar po zapisie.
+2. SHA pobierz przez `get_file_contents` tuż przed `create_or_update_file`.
+3. **NIE ROBIMY DEPLOYU** — patrz sekcja STOP niżej.
+
+---
+
+## 🛑 STOP — BEZ DEPLOYU
+
+Ten dispatch wykonuje **wyłącznie commity do GitHub**. Nie uruchamiaj SSH rebuild/docker compose.
+Deploy wykona Supervisor osobnym poleceniem po zakończeniu równoległego dispatcha `yt-settings`.
+
+---
+
 ## CEL
 
-Audit wykazał brak `ErrorBoundary` w VSE — każdy `ReferenceError` lub nieobsłużony wyjątek React powoduje biay ekran bez informacji o błędzie. Dodaj `ErrorBoundary` który:
+Audit wykazał brak `ErrorBoundary` w VSE — każdy `ReferenceError` lub nieobsłużony wyjątek React powoduje biały ekran bez informacji o błędzie. Dodaj `ErrorBoundary` który:
 - Wyświetla czytelny komunikat zamiast białego ekranu
 - Pokazuje nazwę błędu (np. `ReferenceError: accessToken is not defined`)
 - Ma przycisk "Odśwież stronę"
@@ -104,10 +118,7 @@ Opakuj return DashboardInner w ErrorBoundary. Znajdź ostatni `return (` w funkc
 2. Pobierz `dashboard-inner.tsx` przez `get_file_contents` i dodaj import + opakowanie
 3. Wgraj `dashboard-inner.tsx` przez `create_or_update_file`
 4. Zweryfikuj `get_file_contents` że import `ErrorBoundary` jest w pliku
-5. SSH rebuild (tylko jeśli fix `accesstoken-fix` już został wdrożony, żeby nie robić dwóch rebuildów):
-```powershell
-ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100 "cd /home/ubuntu/video-seo-engine && git pull origin main && docker compose -f docker-compose.vse.yml up -d --build vse-web 2>&1 | tail -5"
-```
+5. **STOP — nie robimy deployu. Zakończ na commitach.**
 
 ---
 
@@ -116,7 +127,7 @@ ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key -o StrictHostKeyChecking=no ubunt
 1. `video-seo-engine/.agents/reports/2026-07-11_vse-worker_error-boundary.md`
 2. `sonic-void/.agents/reports/inbox/2026-07-11_vse-worker_error-boundary.md`
 
-Raport: commit SHA dla error-boundary.tsx + commit SHA dla dashboard-inner.tsx + `✓ Compiled successfully`.
+Raport: commit SHA dla `error-boundary.tsx` + commit SHA dla `dashboard-inner.tsx`. BEZ informacji o deployu.
 
 ---
 *[Supervisor-03 | sonic-void 11.07.2026]*
