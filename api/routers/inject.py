@@ -95,6 +95,8 @@ async def inject_endpoint(
             site_config=site_config_dict,
             post_status=req.post_status,
             post_format=req.post_format,
+            # ROADMAP F2B: yt_channel_ids odebrane ale ignorowane — implementacja w youtube_publish.py (Scenariusz A)
+            # Patrz: docs/ARCHITECTURE_decisions.md ADR-12 (planowane)
             yt_channel_ids=req.yt_channel_ids,
         )
         return InjectResponse(**result)
