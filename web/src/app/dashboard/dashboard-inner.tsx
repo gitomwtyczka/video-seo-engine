@@ -2196,6 +2196,18 @@ export default function DashboardInner() {
   const [showInjectModal, setShowInjectModal] = useState(false)
   const [ytModalOpen, setYtModalOpen] = useState(false)
 
+  const [ytChannels, setYtChannels] = useState<any[]>([])
+  useEffect(() => {
+    if (!session?.accessToken) return
+    fetch('/api/youtube/channels', {
+      headers: { Authorization: Bearer  }
+    })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setYtChannels(Array.isArray(data) ? data : []))
+      .catch(() => setYtChannels([]))
+  }, [session?.accessToken])
+
+
 
 
   // Portal selector + publication type
