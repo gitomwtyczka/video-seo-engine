@@ -11,7 +11,7 @@
  *   free: 0 | starter: 3 | pro: 10 | agency: 999
  */
 import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePortals, type Portal, type PortalCreatePayload } from '../dashboard/use-portals'
@@ -315,6 +315,17 @@ export default function UstawieniaPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
 
+  const searchParams = useSearchParams()
+  const [ytStatus, setYtStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    const yt = searchParams.get('yt')
+    if (yt) {
+      setYtStatus(yt)
+      window.history.replaceState({}, '', '/ustawienia')
+    }
+  }, [searchParams])
+
   const [ytChannels, setYtChannels] = useState<YtChannel[]>([])
   const [ytLoading, setYtLoading] = useState(false)
   const [ytConnecting, setYtConnecting] = useState(false)
@@ -375,6 +386,10 @@ export default function UstawieniaPage() {
       const res = await fetch(`${apiUrl}/v1/youtube/oauth/login`, {
         headers: { Authorization: `Bearer ${session.accessToken as string}` },
       })
+      if (res.status === 409) {
+        alert('Ten kanał jest już podłączony.')
+        return
+      }
       if (res.ok) {
         const { authorization_url } = await res.json()
         window.location.href = authorization_url
@@ -646,6 +661,16 @@ export default function UstawieniaPage() {
 
           {/* ── YouTube Channels ─────────────────────────────────────────── */}
           <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6 space-y-4">
+            {ytStatus === 'connected' && (
+              <div className="bg-emerald-900/30 border border-emerald-500/30 rounded-xl px-4 py-3 text-sm text-emerald-400 flex items-center gap-2">
+                <span>✅</span> Kanał YouTube został pomyślnie podłączony!
+              </div>
+            )}
+            {ytStatus === 'error' && (
+              <div className="bg-red-900/30 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
+                <span>⚠️</span> Błąd podczas podłączania kanału. Spróbuj ponownie.
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-red-600/20 flex items-center justify-center text-sm">
