@@ -1,13 +1,15 @@
 {
   "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "Krok 3 — Integracja YT Publishing w inject.py + zmiana promptu",
-  "timestamp": "2026-07-11T19:41:00Z",
-  "last_completed": [
-    "Integracja api/routers/inject.py z YT - commit 367c92e9655d0aa84a81546f16d5c670c68e82f9",
-    "Raporty wygenerowane i przesłane do inboxa oraz VSE"
-  ],
+  "status": "working",
+  "current_task": "DISPATCH-VSE-DEV-03A — Portal Management: Backend",
+  "timestamp": "2026-07-11T21:08:00Z",
+  "last_completed": [],
   "pending": [
-    "Commit A (core/generator.py) oczekuje na ręczne zacommitowanie z lokalnego workspace'a."
+    "Migration DB wp_portals (profile_id + DELETE)",
+    "API CRUD portali (/v1/portals)",
+    "Pipeline - Generowanie i Inject połączone (portal_id -> profile_id)",
+    "Bug #1 RankMath",
+    "Bug #2 Brand fallback",
+    "Bug #5 json-repair"
   ]
 }
