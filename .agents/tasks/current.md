@@ -1,24 +1,24 @@
-# BIEŻĄCE ZADANIA
+# VSE — Current State (aktualizacja: 2026-07-11)
 
-## ✅ Zamknięte
-- ErrorBoundary — wdrożony na produkcji (commit 109cc4f, 395b710)
-- YouTube OAuth — nowe credentials GCP 934133075831, redirect_uri fix
-- YouTube kanały — podłączanie działa end-to-end
-- fix: channel_id/channel_title mismatch w API (commit 429b274)
-- fix: duplicate channel → yt=connected zamiast yt=error (commit 429b274)
-- UX: redirect po OAuth callback + zielony/czerwony toast (vse-worker)
-- Google Auth Platform — NextAuth callback URI dodany, propagacja powinna być gotowa
-- Audit: zakładka YT w dashboardzie — NIE ISTNIEJE, trzeba zbudować od zera
+## ✅ Zakończone (ostatnia sesja)
+- Security fix: POST /v1/inject wymaga JWT + user_id isolation — commit 7174fb1
+- YouTube OAuth connect/disconnect, toast UX, callback redirect — dc51996, b25374c
+- yt_channel_ids do body /v1/inject (fix InjectModal) — 5bf7946
+- ErrorBoundary dashboard — wdrożony
+- Logowanie Google (NextAuth) — URI w GCP Console dodany
 
-## 🟡 W toku
-- [DISPATCH OCZEKUJE] Implementacja zakładki YouTube w dashboardzie
-  → dispatch task: `2026-07-11_Supervisor-03_vse-analyst_yt-dashboard-audit.md` (zakończony)
-  → implementacja: DO ZLECENIA nowemu workerowi
+## 🟡 W toku / Następne
+- **Krok 1:** Spec opisu YouTube (analityk — YT description best practices 2026)
+- **Krok 2:** `youtube_publish.py` (serwis videos.update + refresh token)
+- **Krok 3:** Integracja z /v1/inject (Scenariusz A: WP → YT sekwencja)
+- **Krok 4:** Stopka opisu per-user w app_settings + UI
+- **Krok 5:** Bulk Worker (osobna sesja po weryfikacji kroków 1-4)
 
-## 🔵 Następne
-- Implementacja zakładki YouTube w dashboardzie (duże wdrożenie architektoniczne)
-  - backend: endpointy harmonogramu/kolejki/historii YT
-  - frontend: nowa sekcja w dashboardzie
-  - DB: nowe tabele (pipeline_jobs, yt_publish_queue lub podobne)
-- Sprawa 2: izolacja kont (różni userzy widzą nawzajem swoje zasoby) — wymaga zbadania
-- Weryfikacja logowania przez Google po propagacji GCP
+## ⚠️ Otwarte bugi
+- Plan Agency widoczny dla obu test-kont (powiązane z izolacją — do zbadania)
+- profiles.py: POST /v1/profiles bez auth (niski priorytet)
+
+## Infrastruktura
+- VPS: ubuntu@147.224.162.100
+- Docker: docker-compose.vse.yml (vse-api, vse-web, vse-postgres)
+- Deploy: `git pull origin main && docker compose -f docker-compose.vse.yml up -d --build [serwis]`
