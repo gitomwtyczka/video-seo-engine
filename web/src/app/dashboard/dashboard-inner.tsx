@@ -842,6 +842,8 @@ function InjectModal({
 
         post_format: postFormat,
 
+        yt_channel_ids: selectedYtChannelIds,
+
       }
 
       if (isManual) {
