@@ -73,7 +73,22 @@ async def youtube_oauth_callback(code: str, state: str, db: AsyncSession = Depen
         if not items:
             return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=error", status_code=302)
         channel_info = items[0]
-        # 6. Zapisz kanal (setter szyfruje automatycznie)
+        # 6. Sprawdz czy kanal juz istnieje (obsługa re-connect / unique constraint)
+        existing_result = await db.execute(
+            select(YouTubeChannel).where(
+                YouTubeChannel.user_id == user_id,
+                YouTubeChannel.youtube_channel_id == channel_info["id"]
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            # Kanal juz podlaczony — reaktywuj jesli nieaktywny, zaktualizuj token
+            existing.is_active = True
+            if token_data.get("refresh_token"):
+                existing.refresh_token = token_data.get("refresh_token")
+            await db.commit()
+            return RedirectResponse(url="https://vse.impresjapr.pl/ustawienia?yt=connected", status_code=302)
+        # 7. Zapisz nowy kanal (setter szyfruje automatycznie)
         channel = YouTubeChannel(
             user_id=user_id,
             youtube_channel_id=channel_info["id"],
@@ -98,7 +113,8 @@ async def list_user_channels(current_user: User = Depends(get_current_user), db:
         .order_by(YouTubeChannel.created_at)
     )
     channels = result.scalars().all()
-    return [{"id": str(ch.id), "youtube_channel_id": ch.youtube_channel_id, "title": ch.title} for ch in channels]
+    # Zwracaj channel_id i channel_title — zgodnie z oczekiwaniami frontendu
+    return [{"id": str(ch.id), "channel_id": ch.youtube_channel_id, "channel_title": ch.title} for ch in channels]
 
 
 @router.delete("/channels/{channel_id}")
