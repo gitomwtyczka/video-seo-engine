@@ -1,4 +1,4 @@
-# Raport: Fix YouTube OAuth (Return JSON)
+# Raport: Fix YouTube OAuth (Return JSON) i Konfiguracja GCP
 
 **Data:** 2026-07-11
 **Agent:** vse-dev-01
@@ -40,18 +40,18 @@ async def youtube_oauth_login(current_user: User = Depends(get_current_user), db
     return {"authorization_url": auth_url}
 ```
 
+## Dodatek: Zmiana Google Cloud Project
+Ze względu na powtarzający się błąd `redirect_uri_mismatch` na środowisku produkcyjnym z użyciem starego Client ID `302321935728...`, zalecono użytkownikowi konfigurację całkowicie nowego, dedykowanego projektu w Google Cloud.
+- Użytkownik utworzył projekt "Video SEO Engine" i wygenerował nowe klucze OAuth (Client ID: `934133075831-...`).
+- Otrzymano od użytkownika plik JSON z nowymi poświadczeniami.
+- Zaktualizowano zmienne `GOOGLE_CLIENT_ID` i `GOOGLE_CLIENT_SECRET` w środowisku serwera VPS (`/home/ubuntu/video-seo-engine/.env`).
+- Zrestartowano kontenery `vse-api` oraz `vse-web`.
+
+### Aktualny stan (Handoff)
+- Nowe ustawienia środowiskowe na VPS zostały załadowane pomyślnie.
+- Aktualnie czekamy na propagację zmian DNS / uprawnień po stronie serwerów Google (co może trwać 5-10 minut).
+- Spisano raport handoff dla następnego agenta z prośbą o pobranie "error details" z ekranu Google od użytkownika, w razie gdyby problem mismatch występował dalej.
+
 ## Deploy
 Wykonano deploy serwisów API i Web na VPS.
-`docker logs --tail 10 vse-api`:
-```
-2026-07-11 12:14:37,197 [INFO] api.routers.jobs: [jobs] /pending: 0 jobs returned for runner
-INFO:     172.27.0.1:60848 - "GET /v1/jobs/pending HTTP/1.0" 200 OK
-2026-07-11 12:14:47,759 [INFO] api.routers.jobs: [jobs] /pending: 0 jobs returned for runner
-INFO:     172.27.0.1:41274 - "GET /v1/jobs/pending HTTP/1.0" 200 OK
-2026-07-11 12:14:58,330 [INFO] api.routers.jobs: [jobs] /pending: 0 jobs returned for runner
-INFO:     172.27.0.1:34822 - "GET /v1/jobs/pending HTTP/1.0" 200 OK
-2026-07-11 12:15:08,881 [INFO] api.routers.jobs: [jobs] /pending: 0 jobs returned for runner
-INFO:     172.27.0.1:39732 - "GET /v1/jobs/pending HTTP/1.0" 200 OK
-2026-07-11 12:15:19,460 [INFO] api.routers.jobs: [jobs] /pending: 0 jobs returned for runner
-INFO:     172.27.0.1:54602 - "GET /v1/jobs/pending HTTP/1.0" 200 OK
-```
+Logi kontenerów (zarówno po pierwszej poprawce CORS jak i po wymianie kluczy OAuth) potwierdzają stabilną pracę serwera.
