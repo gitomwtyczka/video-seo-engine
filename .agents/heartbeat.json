@@ -1,19 +1,6 @@
 {
-  "callsign": "Supervisor-03",
-  "status": "handoff",
-  "current_task": "Handoff do nowego Supervisora — wyczerpany kontekst sesji",
-  "timestamp": "2026-07-11T17:56:00Z",
-  "last_completed": [
-    "fix: ErrorBoundary deploy — commit 109cc4f (dashboard-inner.tsx)",
-    "fix: YouTube OAuth redirect_uri — nowy projekt GCP 934133075831",
-    "fix: channel_id/channel_title mismatch w API — commit 429b274",
-    "fix: duplicate channel handling (UNIQUE CONSTRAINT) — commit 429b274",
-    "feat: redirect po OAuth callback + toast UX — worker commit (vse-web)",
-    "audit: zakładka YouTube w dashboardzie NIE ISTNIEJE — raport analyst"
-  ],
-  "pending": [
-    "Implementacja zakładki YouTube w dashboardzie (od zera — backend + frontend)",
-    "Sprawa 2: izolacja kont (verinarto widzi kanały tobroz) — nie zbadana",
-    "Google OAuth propagacja — logowanie przez Google powinno już działać"
-  ]
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "Utworzenie serwisu youtube_publish.py",
+  "timestamp": "2026-07-11T20:38:00+02:00"
 }
