@@ -876,7 +876,10 @@ function InjectModal({
 
         method: 'POST',
 
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
+      },
 
         body: JSON.stringify(body),
 
