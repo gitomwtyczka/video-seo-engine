@@ -1,6 +1,7 @@
 # BIEŻĄCE ZADANIA
 
 ## ✅ Zamknięte
+- Poprawki UX dla integracji YouTube (Bug 2: redirect po błędzie/sukcesie w oauth callback, Bug 3: toast powiadomienia i blokada duplikacji kanału na froncie)
 - Integracja Kanałów YouTube w panelu Ustawienia
 - Wdrożenie Fazy 3 (OAuth + Fernet)
 - Rozpoznanie logów i infrastruktury VPS
