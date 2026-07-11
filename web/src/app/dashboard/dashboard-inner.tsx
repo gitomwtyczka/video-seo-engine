@@ -697,6 +697,7 @@ function InjectModal({
   portalName,
 
   portalUrl,
+  accessToken,
 
   onClose,
 
@@ -711,6 +712,7 @@ function InjectModal({
   portalName?: string
 
   portalUrl?: string
+  accessToken?: string
 
   onClose: () => void
 
