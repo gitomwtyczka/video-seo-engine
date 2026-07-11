@@ -3487,6 +3487,7 @@ export default function DashboardInner() {
             schemaData={result.raw}
 
             videoUrl={result.inputUrl}
+            accessToken={accessToken}
 
             onClose={() => setShowInjectModal(false)}
 
