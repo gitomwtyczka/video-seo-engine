@@ -33,7 +33,7 @@ async def youtube_oauth_login(current_user: User = Depends(get_current_user), db
         f"&scope={YT_SCOPE}&access_type=offline&prompt=consent"
         f"&state={oauth_state.state_token}"
     )
-    return RedirectResponse(auth_url)
+    return {"authorization_url": auth_url}
 
 
 @router.get("/oauth/callback")
