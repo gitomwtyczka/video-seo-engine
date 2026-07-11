@@ -13,8 +13,10 @@ JAK:
 """
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from api.auth import get_current_user
+from api.models.user import User
 from api.models.request import InjectRequest
 from api.models.response import InjectResponse
 from api.services.pipeline import run_inject
@@ -24,7 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/inject", response_model=InjectResponse)
-async def inject_endpoint(req: InjectRequest) -> InjectResponse:
+async def inject_endpoint(
+    req: InjectRequest,
+    current_user: User = Depends(get_current_user),
+) -> InjectResponse:
     """Inject a pre-generated SEO schema dict into a WordPress post.
 
     Behaviour depends on wp_post_id:
@@ -37,7 +42,8 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
     and want to push it to WP without re-running the full pipeline.
     """
     logger.info(
-        "[/v1/inject] wp_post_id=%s video_url=%s mode=%s format=%s yt_channels=%d",
+        "[/v1/inject] user=%s wp_post_id=%s video_url=%s mode=%s format=%s yt_channels=%d",
+        current_user.id,
         req.wp_post_id,
         req.video_url,
         "create" if req.wp_post_id is None else "update",
@@ -51,12 +57,19 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
         elif req.portal_id:
             from api.db import AsyncSessionLocal
             from api.models.portal import WpPortal
+            from sqlalchemy.future import select
             import uuid
-            
+
             async with AsyncSessionLocal() as db:
                 try:
                     uid = uuid.UUID(req.portal_id)
-                    portal = await db.get(WpPortal, uid)
+                    result = await db.execute(
+                        select(WpPortal).where(
+                            WpPortal.id == uid,
+                            WpPortal.user_id == current_user.id,
+                        )
+                    )
+                    portal = result.scalar_one_or_none()
                     if portal:
                         site_config_dict = {
                             "wp_base_url": portal.url,
@@ -64,7 +77,12 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
                             "wp_app_password": portal.wp_app_password
                         }
                     else:
-                        raise ValueError(f"Portal not found: {req.portal_id}")
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Portal not found or access denied",
+                        )
+                except HTTPException:
+                    raise
                 except ValueError as e:
                     raise ValueError(f"Invalid portal_id: {e}")
         else:
@@ -80,6 +98,8 @@ async def inject_endpoint(req: InjectRequest) -> InjectResponse:
             yt_channel_ids=req.yt_channel_ids,
         )
         return InjectResponse(**result)
+    except HTTPException:
+        raise
     except ValueError as exc:
         logger.error("[/v1/inject] ValueError: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
