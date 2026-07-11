@@ -627,10 +627,14 @@ Rozdzialy musza:
     - "label": tytul (max 60 zn)
     - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow
 11. **faq** \u2014 {faq_range} pytan i odpowiedzi. Naturalne, zorientowane na search intent.
-12. **youtube_description** \u2014 max 500 zn, z hashtagami.
-13. **video_description** \u2014 max 200 zn, dla schema.
-14. **tags** \u2014 5-8 tagow lowercase.
-15. **external_links** \u2014 lista 2-3 linkow zewnetrznych DoFollow do zrodel wysokiego autorytetu.
+12. **youtube_description_hook** \u2014 max 200 znakow. Angazujacy wstep 2-3 zdania.
+    PIERWSZE zdanie MUSI zawierac glowna fraze z focus_keyphrases[0].
+    Widoczne pod wideo bez klikania "Wiecej". BEZ hashtagow, BEZ linkow.
+13. **youtube_hashtags** \u2014 lista dokladnie 3 hashtagow jako JSON array,
+    np. ["#polityka", "#historia", "#Polska"]. Tylko hashtagi, nic wiecej.
+14. **video_description** \u2014 max 200 zn, dla schema.
+15. **tags** \u2014 5-8 tagow lowercase.
+16. **external_links** \u2014 lista 2-3 linkow zewnetrznych DoFollow do zrodel wysokiego autorytetu.
     Kazdy link to dict: {{"url": "...", "anchor_text": "...", "reason": "..."}}
     ZASADY:
     a) Zrodla ktore Google wysoko wazy (E-E-A-T):
@@ -647,7 +651,7 @@ Rozdzialy musza:
     f) Jeden z linkow MOZE byc do oryginalnego wideo YouTube ({yt_url})
     KRYTYCZNE DLA JSON: W polach URL i anchor_text NIE uzywaj podwojnych cudzyslowow.
     Caly output to JSON \u2014 podwojne cudzysłowy wewnatrz wartosci LAMIA parsowanie.
-16. **image_descriptions** \u2014 lista 2 opisow do screenshotow z wideo (FALLBACK gdy SAAS Vision API niedostepny).
+17. **image_descriptions** \u2014 lista 2 opisow do screenshotow z wideo (FALLBACK gdy SAAS Vision API niedostepny).
     Kazdy dict: {{"alt_text": "...", "caption": "...", "context": "..."}}
     ZASADY:
     a) alt_text: max 125 zn, MUSI zawierac glowna fraze z focus_keyphrases[0].
@@ -670,7 +674,7 @@ yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description":"...","video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}"""
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}"""
 
     logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
     if priority_keywords:
@@ -881,17 +885,19 @@ URL: {yt_url}{desc_section}
 7. **article_body** — HTML: 2-3 <p>, ~600-900 zn. Uzyj glownej frazy 2-3 razy.
    KRYTYCZNE DLA JSON: W atrybutach HTML ZAWSZE apostrofy ('), NIE cudzyslow (").
 8. **faq** — 1-2 pytania i odpowiedzi na podstawie tytulu.
-9. **youtube_description** — max 400 zn, z hashtagami.
-10. **video_description** — max 200 zn.
-11. **tags** — 5-8 tagow lowercase.
-12. **external_links** — 1-2 linki do authority sources (Wikipedia, .gov.pl).
+9. **youtube_description_hook** — max 200 znakow. Angazujacy wstep 2-3 zdania.
+   PIERWSZE zdanie MUSI zawierac glowna fraze z focus_keyphrases[0]. BEZ hashtagow.
+10. **youtube_hashtags** — lista 3 hashtagow jako JSON array.
+11. **video_description** — max 200 zn.
+12. **tags** — 5-8 tagow lowercase.
+13. **external_links** — 1-2 linki do authority sources (Wikipedia, .gov.pl).
     Format: {{"url": "...", "anchor_text": "...", "reason": "..."}}
-13. **image_descriptions** — 1 opis screenshota.
+14. **image_descriptions** — 1 opis screenshota.
     Format: {{"alt_text": "...", "caption": "...", "context": "po akapicie 1"}}
 
 NIE generuj: chapters, quotes (brak transkryptu).
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":[],"post_title":"","seo_title":"","yt_title":"","meta_description":"","lead":"","article_body":"","chapters":[],"quotes":[],"faq":[{{"question":"","answer":""}}],"youtube_description":"","video_description":"","tags":[],"external_links":[],"image_descriptions":[{{"alt_text":"","caption":"","context":""}}]}}"""
+{{"focus_keyphrases":[],"post_title":"","seo_title":"","yt_title":"","meta_description":"","lead":"","article_body":"","chapters":[],"quotes":[],"faq":[{{"question":"","answer":""}}],"youtube_description_hook":"","youtube_hashtags":[],"video_description":"","tags":[],"external_links":[],"image_descriptions":[{{"alt_text":"","caption":"","context":""}}]}}"""
 
     try:
         text = _call_llm(prompt, api_key, provider)
