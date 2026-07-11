@@ -129,7 +129,8 @@ async def inject_endpoint(
             if hashtags_str:
                 full_yt_description += f"\n\n---\n{hashtags_str}"
             
-            video_id = job_result.get("video_id") or job_result.get("youtube_id", "")
+            from api.services.pipeline import _extract_video_id
+            video_id = _extract_video_id(req.video_url)
             if video_id:
                 try:
                     async with AsyncSessionLocal() as db:
