@@ -9,7 +9,7 @@
 
 ## TL;DR (max 5 zdań)
 
-VSE ma solidny fundament (schema SEO 8/10, architektura Docker, model planów w DB), ale trzy krytyczne dziury blokują wejście na produkcję SaaS: endpointy core pipeline (`generate`, `inject`, `process`) są publicznie dostępne bez uwierzytelnienia — każdy może zużywać Claude API kosztem właściciela. Drugim blokerem jest Local Runner jako SPOF — jeden Windows PC z jednym wątkiem nie obsłuży nawet 20 concurrent użytkowników. Trzecim jest brak rate limitingu na endpointach auth — aplikacja jest otwarta na brute-force i credential stuffing. Quick wins (auth na 3 endpointach + rate limit + 3 linie DB index) można wdrożyć w ciągu jednego sprintu i natychmiastowo eliminują 80% ryzyka. Skalowanie do 1000 users wymaga planu dla Local Runnera — decyzja architektoniczna, której NIE można odwrócić to wybór modelu kolejkowania jobów.
+VSE ma solidny fundament (schema SEO 8/10, architektura Docker, model planów w DB), ale trzy krytyczne dziury blokują wejście na produkcję SaaS: endpointy core pipeline (`generate`, `inject`, `process`) są publicznie dostępne bez uwierzytelnienia — każdy może zużywać Claude API kosztem właściciela. Drugim blokerem jest Local Runner jako SPOF — jeden Windows PC z jednym wątkiem nie obsłuży nawet 20 concurrent użytkowników. Trzecim jest brak rate limitingu na endpointach auth — aplikacja jest otwarta na brute-force i credential stuffing. Quick wins (auth na 3 endpointach + rate limit + 3 linie DB index) można wdrożyć w ciągu jednego sprintu i natychmiast eliminują 80% ryzyka. Skalowanie do 1000 users wymaga planu dla Local Runnera — decyzja architektoniczna, której NIE można odwrócić to wybór modelu kolejkowania jobów.
 
 ---
 
@@ -19,7 +19,7 @@ VSE ma solidny fundament (schema SEO 8/10, architektura Docker, model planów w 
 
 **Top 3 — najwyższy ROI, najniższe ryzyko:**
 
-1. **AUTH na generate/inject/process** — 3 linie kodu per endpoint (`Depends(check_quota)` lub `Depends(get_current_user)`). Eliminuje: darmowe AI dla anonimów, nieograniczone koszty Anthropic. Effort: 2h. Ryzyko: brak (tylko dodanie).
+1. **AUTH na generate/inject/process** — 3 linie kodu per endpoint (`Depends(check_quota)` lub `Depends(get_current_user)`). Eliminuje: darmowe AI dla anonimow, nieograniczone koszty Anthropic. Effort: 2h. Ryzyko: brak (tylko dodanie).
 
 2. **Rate limiting na `/auth/login` + `/auth/register`** — slowapi lub nginx `limit_req_zone`. Eliminuje: brute-force, credential stuffing, account farming. Effort: 1h. Ryzyko: brak.
 
@@ -82,9 +82,9 @@ Są 4 decyzje które jeśli podjęte źle — zamknęłyby drogę do SaaS:
 
 2. **Format tokenu / auth model** — HS256 JWT dla users + API keys dla M2M. Zmiana algorytmu JWT po GA = forced logout wszystkich userów. **Decyzja: zostajemy przy HS256 JWT ale fail-fast przy braku `JWT_SECRET_KEY`.** Migracja do RS256 tylko jeśli pojawią się zewnętrzne serwisy weryfikujące tokeny.
 
-3. **Response envelope** — Obecny brak spójnego envelope = tech debt który rośnie. Zmiana formatu po GA = breaking change v2 + praca po stronie crimson-void. **Decyzja: standardyzacja envelope w v1.1 (przed integracją z crimson-void) lub kontrakt adapter po stronie crimson-void.** Nie odwracalna po publicznym GA.
+3. **Response envelope** — Obecny brak spójnego envelope = tech debt który rośnie. Zmiana formatu po GA = breaking change v2 + praca po stronie crimson-void. **Decyzja: standaryzacja envelope w v1.1 (przed integracją z crimson-void) lub kontrakt adapter po stronie crimson-void.** Nie odwracalna po publicznym GA.
 
-4. **Billing: Stripe webhook jako jedyne źródło prawdy** — Jeśli admin PATCH zmieni plan poza Stripe, subskrypcje w Stripe i DB będą rozsynchronizowane. **Decyzja: po wdrożeniu Stripe, `PATCH /v1/admin/users/{id}/plan` musi być wyłączony lub tylko dla override z logem.** Trudno naprawić po zaległych błędach w billing data.
+4. **Billing: Stripe webhook jako jedyne źródło prawdy** — Jeśli admin PATCH zmieni plan poza Stripe, subskrypcje w Stripe i DB będą rozsynchronizowane. **Decyzja: po wdrożeniu Stripe, `PATCH /v1/admin/users/{id}/plan` musi być wyłączony lub tylko dla override z logiem.** Trudno naprawić po zaległych błędach w billing data.
 
 ---
 
@@ -197,6 +197,16 @@ Są 4 decyzje które jeśli podjęte źle — zamknęłyby drogę do SaaS:
 
 ---
 
+### ADR-11: Auth na /v1/inject (2026-07-11)
+
+**Status:** Accepted  
+**Kontekst:** POST /v1/inject nie miał `Depends(get_current_user)`. Dowolny anonimowy request mógł publikować na cudzym portalu WordPress. Odkryte podczas audytu izolacji kont przed wdrożeniem YT Publishing.  
+**Decyzja:** Dodano JWT auth + weryfikację ownership (`WpPortal.user_id == current_user.id`) do inject endpoint.  
+**Konsekwencje:** Wszystkie callery /v1/inject MUSZĄ przekazywać Bearer token. Dashboard (Next.js) przekazuje token przez NextAuth — bez zmian frontend. Zewnętrzne integracje (jeśli istnieją) wymagają tokena.  
+**Commit:** `7174fb1cdc847e4dfcbbc9941bb1e02d87e82427`
+
+---
+
 ## Priorytetowany Roadmap Techniczny
 
 | Faza | Co | Effort | Blokuje co? |
@@ -232,7 +242,7 @@ Są 4 decyzje które jeśli podjęte źle — zamknęłyby drogę do SaaS:
 
 ## Czerwone Linie (Czego NIE Robić)
 
-1. **NIE otwierać rejestracji na szeroką skalę zanim nie ma auth na generate/inject.** Każde nowe konto = potencjalny anonimowy koszt LLM. Priorytet P0 musi być wdrożony zanim jakakolwiek kampania user acquisition.
+1. **NIE otwierać rejestracji na szerokim froncie zanim nie ma auth na generate/inject.** Każde nowe konto = potencjalny anonimowy koszt LLM. Priorytet P0 musi być wdrożony zanim jakakolwiek kampania user acquisition.
 
 2. **NIE migrować do Redis/Celery dla job queue** na etapie <100 runnerów. PostgreSQL z SKIP LOCKED obsłuży do 50+ runnerów. Migracja = przepisywanie bez korzyści.
 
@@ -264,11 +274,12 @@ Są 4 decyzje które jeśli podjęte źle — zamknęłyby drogę do SaaS:
 |---|--------|-------------------|-------|----------|
 | R1 | Ktoś odkryje publiczne endpointy → rack up Claude bill | 🔴 Wysokie (publiczne API, znane URL) | 🔴 Krytyczny ($$$) | ADR-01 — auth na endpoints (P0) |
 | R2 | Runner PC restart → pipeline zatrzymany | 🟠 Wysokie (Windows Updates) | 🟠 Duży (SLA breach) | Cleanup stale jobs + health check (P0/P1) |
-| R3 | Brute-force na login → konta przejęte | 🟠 Średnie | 🔴 Krytyczny (reputacja) | ADR-02 — rate limit auth (P0) |
-| R4 | LLM 429 → wszystkie generate failują | 🟡 Średnie (przy >50 RPM) | 🟠 Duży | Retry z tenacity + timeout (P1) |
-| R5 | DB quota scan → timeout przy 1000 users | 🟡 Średnie | 🟠 Duży | Composite index usage_logs (P1) |
+| R3 | Brute-force na login → konta przejęte | 🟠 Średnle | 🔴 Krytyczny (reputacja) | ADR-02 — rate limit auth (P0) |
+| R4 | LLM 429 → wszystkie generate failują | 🟡 Średnle (przy >50 RPM) | 🟠 Duży | Retry z tenacity + timeout (P1) |
+| R5 | DB quota scan → timeout przy 1000 users | 🟡 Średnle | 🟠 Duży | Composite index usage_logs (P1) |
 
 ---
 
 *arch-senior-01 | video-seo-engine | 2026-06-16 — Architecture Decisions v1.0*  
-*Synteza: ANALYSIS_security.md + ANALYSIS_api_design.md + ANALYSIS_saas_patterns.md + ANALYSIS_scalability.md*
+*Synteza: ANALYSIS_security.md + ANALYSIS_api_design.md + ANALYSIS_saas_patterns.md + ANALYSIS_scalability.md*  
+*[vse-dev | 2026-07-11] — ADR-11 dodane: auth + user_id isolation na /v1/inject*
