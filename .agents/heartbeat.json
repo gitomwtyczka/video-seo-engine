@@ -1,12 +1,12 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "Sukces z testowymi użytkownikami - czekam na ostateczny test logowania",
-  "timestamp": "2026-07-11T14:11:00Z",
+  "status": "done",
+  "current_task": "Zakończono weryfikację błędu redirect_uri_mismatch i fix backendu",
+  "timestamp": "2026-07-11T14:16:31.185Z",
   "last_completed": [
-    "Użytkownik dodał e-maile do test users"
+    "Diagnoza problemu redirect_uri_mismatch: nginx przekazywał pełne URI bez ucinania prefixu /api/",
+    "Fix: Usunięto prefiks /api z YOUTUBE_OAUTH_REDIRECT_URI w api/routers/youtube.py — commit 09fe3053eb63d2266f40bb5789c8f476d6b075a3 (2026-07-11)",
+    "Deploy: Aktualizacja obrazu vse-api i restart kontenera"
   ],
-  "pending": [
-    "Potwierdzenie prawidłowego podłączenia kanału na produkcji"
-  ]
+  "pending": []
 }
