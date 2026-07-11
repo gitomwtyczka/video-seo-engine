@@ -52,6 +52,13 @@ interface UserProfile {
   } | null
 }
 
+interface YtChannel {
+  id: string
+  channel_id: string
+  channel_title: string
+  channel_thumbnail?: string
+}
+
 // ─── ManageSubscriptionLink ──────────────────────────────────────────────────
 
 /**
@@ -308,6 +315,10 @@ export default function UstawieniaPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
 
+  const [ytChannels, setYtChannels] = useState<YtChannel[]>([])
+  const [ytLoading, setYtLoading] = useState(false)
+  const [ytConnecting, setYtConnecting] = useState(false)
+
   const { portals, loading: portalsLoading, error: portalsError, fetchPortals, deletePortal } = usePortals()
 
   // Auth guard
@@ -341,6 +352,45 @@ export default function UstawieniaPage() {
     const ok = await deletePortal(portalId)
     if (!ok) setDeleteError('Nie udało się usunąć portalu.')
     setDeletingId(null)
+  }
+
+  useEffect(() => {
+    if (!session?.accessToken) return
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+    setYtLoading(true)
+    fetch(`${apiUrl}/v1/youtube/channels`, {
+      headers: { Authorization: `Bearer ${session.accessToken as string}` },
+    })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setYtChannels(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setYtLoading(false))
+  }, [session?.accessToken])
+
+  const handleConnectYoutube = async () => {
+    if (!session?.accessToken) return
+    setYtConnecting(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/youtube/oauth/login`, {
+        headers: { Authorization: `Bearer ${session.accessToken as string}` },
+      })
+      if (res.ok) {
+        const { authorization_url } = await res.json()
+        window.location.href = authorization_url
+      }
+    } catch {}
+    finally { setYtConnecting(false) }
+  }
+
+  const handleDisconnectYoutube = async (channelId: string) => {
+    if (!session?.accessToken) return
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+    await fetch(`${apiUrl}/v1/youtube/channels/${channelId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session.accessToken as string}` },
+    })
+    setYtChannels((prev) => prev.filter((c) => c.id !== channelId))
   }
 
   if (status === 'loading') {
@@ -592,6 +642,57 @@ export default function UstawieniaPage() {
                 )}
               </div>
             )}
+          </section>
+
+          {/* ── YouTube Channels ─────────────────────────────────────────── */}
+          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-red-600/20 flex items-center justify-center text-sm">
+                  📺
+                </div>
+                <div>
+                  <h2 className="font-semibold text-white">Kanały YouTube</h2>
+                  <p className="text-xs text-gray-500">Podłączone kanały do wysyłki SEO</p>
+                </div>
+              </div>
+              <button
+                onClick={handleConnectYoutube}
+                disabled={ytConnecting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                {ytConnecting ? '...' : '+ Podłącz kanał'}
+              </button>
+            </div>
+
+            {ytLoading && <p className="text-sm text-gray-500">Ładowanie...</p>}
+
+            {!ytLoading && ytChannels.length === 0 && (
+              <p className="text-sm text-gray-600">Brak podłączonych kanałów YouTube.</p>
+            )}
+
+            {!ytLoading && ytChannels.map((ch) => (
+              <div key={ch.id} className="flex items-center justify-between py-3 border-b border-gray-800 last:border-0">
+                <div className="flex items-center gap-3">
+                  {ch.channel_thumbnail && (
+                    <img src={ch.channel_thumbnail} alt="" className="w-8 h-8 rounded-full" />
+                  )}
+                  <div>
+                    <p className="text-sm font-medium text-white">{ch.channel_title}</p>
+                    <p className="text-xs text-gray-500">{ch.channel_id}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDisconnectYoutube(ch.id)}
+                  className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                  title="Odłącz kanał"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            ))}
           </section>
 
           {/* ── Sekcja 3: Plan ───────────────────────────────────────────── */}
