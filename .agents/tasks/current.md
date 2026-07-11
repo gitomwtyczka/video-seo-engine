@@ -1,6 +1,7 @@
 # BIEŻĄCE ZADANIA
 
 ## ✅ Zamknięte
+- Integracja Kanałów YouTube w panelu Ustawienia
 - Wdrożenie Fazy 3 (OAuth + Fernet)
 - Rozpoznanie logów i infrastruktury VPS
 - Wyodrębnienie przyczyny rzucania Application Error przez NextAuth
