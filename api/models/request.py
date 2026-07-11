@@ -73,7 +73,7 @@ class InjectRequest(BaseModel):
     JAK:
     - Gdy wp_post_id podane → aktualizuje istniejący post (PATCH/POST do /posts/{id}).
     - Gdy wp_post_id = None → WordPress tworzy nowy post (POST do /posts bez ID).
-      Nowy post zawiera pełną treść + SEO schema, domyślnie jako draft.
+      Nowy post zawiera pełna treść + SEO schema, domyślnie jako draft.
     """
 
     wp_post_id: Optional[int] = None  # None = utwórz nowy post; int = aktualizuj istniejący
@@ -99,3 +99,10 @@ class SitemapRequest(BaseModel):
 
     site_config: SiteConfig
     output_path: Optional[str] = None
+
+
+class YouTubePublishRequest(BaseModel):
+    channel_ids: List[str]
+    video_id: str
+    description: str  # pelny zlozony opis — frontend sklada z czesci
+    wp_article_url: str = ""  # opcjonalny — jesli WP opublikowany wczesniej
