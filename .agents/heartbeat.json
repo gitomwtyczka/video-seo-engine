@@ -1,1 +1,13 @@
-{"callsign": "vse-dev-01", "status": "done", "current_task": "Integracja UI Kanałów YouTube w panelu Ustawień", "timestamp": "2026-07-11T12:01:00Z", "last_completed": ["Dodanie sekcji Kanały YouTube do Ustawień (commit a5100add5ffd)", "Deploy aplikacji vse-web na środowisku VPS"], "pending": []}
+{
+  "callsign": "vse-dev-01",
+  "status": "done",
+  "current_task": "Integracja UI Kanałów YouTube w panelu Ustawień / Dodanie ErrorBoundary",
+  "timestamp": "2026-07-11T12:05:00Z",
+  "last_completed": [
+    "Dodanie sekcji Kanały YouTube do Ustawień (commit a5100add5ffd)",
+    "Deploy aplikacji vse-web na środowisku VPS",
+    "Utworzenie error-boundary.tsx (commit 4375ab7e4596fb017615a1a34367b5ff2abc93ee)",
+    "Opakowanie DashboardInner w ErrorBoundary (commit 2f3ac046410c56d833646a01a3daa01c02c7ed5e)"
+  ],
+  "pending": []
+}
