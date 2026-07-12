@@ -2,17 +2,17 @@
 
 /**
 
- * CO: Dashboard ÔÇö g┼é├│wny widok aplikacji po zalogowaniu
+ * CO: Dashboard — g┼é├│wny widok aplikacji po zalogowaniu
 
  * PO CO: Daje u┼╝ytkownikowi dwie ┼Ťcie┼╝ki:
 
- *   A (Free/Starter) ÔÇö generuje SEO i pokazuje gotowe snippety HTML do skopiowania
+ *   A (Free/Starter) — generuje SEO i pokazuje gotowe snippety HTML do skopiowania
 
- *   B (Pro/Agency)   ÔÇö dodatkowo umo┼╝liwia automatyczn─ů publikacj─Ö na WordPress
+ *   B (Pro/Agency)   — dodatkowo umo┼╝liwia automatyczn─ů publikacj─Ö na WordPress
 
- * JAK: Wywo┼éuje POST /v1/generate Ôćĺ schema_data Ôćĺ renderuje 3 zak┼éadki wynikowe
+ * JAK: Wywo┼éuje POST /v1/generate → schema_data → renderuje 3 zak┼éadki wynikowe
 
- *      (Schemat, Artyku┼é, Rozdzia┼éy). Dla planu pro/agency InjectModal Ôćĺ POST /v1/inject.
+ *      (Schemat, Artykuł, Rozdziały). Dla planu pro/agency InjectModal → POST /v1/inject.
 
  *
 
@@ -20,9 +20,9 @@
 
  * Wywo┼éania id─ů na /v1/generate, /v1/inject, /v1/users/me.
 
- * Nginx routuje location /v1/ Ôćĺ FastAPI :8085 (bez strippowania prefixu).
+ * Nginx routuje location /v1/ → FastAPI :8085 (bez strippowania prefixu).
 
- * NIE u┼╝ywamy /api/v1/* ÔÇö nginx /api/ nie strippuje /api i FastAPI zwraca 404.
+ * NIE u┼╝ywamy /api/v1/* — nginx /api/ nie strippuje /api i FastAPI zwraca 404.
 
  */
 
@@ -194,11 +194,11 @@ type TabKey = 'schema' | 'article' | 'chapters'
 
  * PO CO: Backend (generator.py) zwraca chapters jako {time, label, matched, anchor_text}.
 
- *        Frontend oczekiwa┼é {startOffset, name, endOffset} ÔÇö powodowa┼éo "(bez tytu┼éu)" i "?".
+ *        Frontend oczekiwa┼é {startOffset, name, endOffset} — powodowa┼éo "(bez tytu┼éu)" i "?".
 
  * JAK: Sprawdza @graph (JSON-LD Clip), nast─Öpnie normalizes top-level chapters
 
- *      mapuj─ůc labelÔćĺname i timeÔćĺstartOffset.
+ *      mapuj─ůc label→name i time→startOffset.
 
  */
 
@@ -232,7 +232,7 @@ function extractChapters(schema: SchemaData | null | undefined): ChapterItem[] {
 
   if (Array.isArray(schema.chapters)) {
 
-    // Normalize backend format {time, label} Ôćĺ frontend format {startOffset, name}
+    // Normalize backend format {time, label} → frontend format {startOffset, name}
 
     return schema.chapters.map((c: ChapterItem) => ({
 
@@ -310,13 +310,13 @@ function secToTimestamp(sec?: number): string {
 
 
 
-/** Build copyable chapters text: "MM:SS ÔÇö Tytu┼é" per line. */
+/** Build copyable chapters text: "MM:SS — Tytuł" per line. */
 
 function chaptersToText(chapters: ChapterItem[]): string {
 
   return chapters
 
-    .map((c) => `${secToTimestamp(c.startOffset ?? c.time)} ÔÇö ${c.name ?? c.label ?? '(bez tytu┼éu)'}`)
+    .map((c) => `${secToTimestamp(c.startOffset ?? c.time)} — ${c.name ?? c.label ?? '(bez tytu┼éu)'}`)
 
     .join('\n')
 
@@ -428,7 +428,7 @@ function saveWpCredentials(creds: { wpUrl: string; wpUser: string; wpPassword: s
 
 /**
 
- * CO: CopyButton ÔÇö przycisk kopiowania z feedbackiem
+ * CO: CopyButton — przycisk kopiowania z feedbackiem
 
  * PO CO: Umo┼╝liwia szybkie skopiowanie dowolnego tekstu do schowka
 
@@ -496,7 +496,7 @@ function CopyButton({
 
 /**
 
- * CO: ResultSection ÔÇö pojedyncza sekcja wynikowa z nag┼é├│wkiem i przyciskiem Kopiuj
+ * CO: ResultSection — pojedyncza sekcja wynikowa z nag┼é├│wkiem i przyciskiem Kopiuj
 
  * PO CO: Zapewnia sp├│jny wygl─ůd wszystkich p├│l wynikowych.
 
@@ -576,7 +576,7 @@ function ResultSection({
 
 /**
 
- * CO: TabBar ÔÇö prze┼é─ůcznik zak┼éadek Schemat/Artyku┼é/Rozdzia┼éy
+ * CO: TabBar — prze┼é─ůcznik zak┼éadek Schemat/Artykuł/Rozdziały
 
  * PO CO: Pozwala u┼╝ytkownikowi prze┼é─ůcza─ç widok wynik├│w bez prze┼éadowania strony.
 
@@ -610,9 +610,9 @@ function TabBar({
 
     { key: 'schema', label: 'Schemat' },
 
-    { key: 'article', label: 'Artyku┼é', badge: faqCount > 0 ? faqCount : undefined },
+    { key: 'article', label: 'Artykuł', badge: faqCount > 0 ? faqCount : undefined },
 
-    { key: 'chapters', label: 'Rozdzia┼éy', badge: chaptersCount > 0 ? chaptersCount : undefined },
+    { key: 'chapters', label: 'Rozdziały', badge: chaptersCount > 0 ? chaptersCount : undefined },
 
   ]
 
@@ -674,17 +674,17 @@ function TabBar({
 
 /**
 
- * CO: InjectModal ÔÇö modalny formularz publikacji na WordPress z dropdown portal├│w
+ * CO: InjectModal — modalny formularz publikacji na WordPress z dropdown portal├│w
 
  * PO CO: Umo┼╝liwia u┼╝ytkownikom Pro/Agency wstrzykni─Öcie SEO na WordPress jednym klikiem.
 
- *        Portale zapisane w bazie danych (/v1/portals) ÔÇö dropdown z auto-fill credentials.
+ *        Portale zapisane w bazie danych (/v1/portals) — dropdown z auto-fill credentials.
 
  *        Fallback: r─Öczne wpisanie credentials (zapisywane w localStorage).
 
- * JAK: usePortals() Ôćĺ dropdown z list─ů portali Ôćĺ wyb├│r portalu Ôćĺ getCredentials() Ôćĺ auto-fill.
+ * JAK: usePortals() → dropdown z list─ů portali → wyb├│r portalu → getCredentials() → auto-fill.
 
- *      Po klikni─Öciu "Opublikuj" Ôćĺ POST /v1/inject Ôćĺ wy┼Ťwietla wynik z linkiem do posta.
+ *      Po klikni─Öciu "Opublikuj" → POST /v1/inject → wy┼Ťwietla wynik z linkiem do posta.
 
  */
 
@@ -893,7 +893,7 @@ function InjectModal({
 
       if (!res.ok) {
 
-        let errStr = data?.detail || data?.error || `B┼é─ůd serwera (HTTP ${res.status})`;
+        let errStr = data?.detail || data?.error || `Błąd serwera (HTTP ${res.status})`;
 
         if (typeof errStr === 'object') {
 
@@ -933,7 +933,7 @@ function InjectModal({
 
     } catch (e: unknown) {
 
-      setPublishResult({ error: e instanceof Error ? e.message : 'B┼é─ůd po┼é─ůczenia' })
+      setPublishResult({ error: e instanceof Error ? e.message : 'Błąd po┼é─ůczenia' })
 
     } finally {
 
@@ -985,7 +985,7 @@ function InjectModal({
 
               <h3 className="font-semibold text-white">Publikuj na WordPress</h3>
 
-              <p className="text-xs text-gray-400">Wy┼Ťlij artyku┼é + SEO schema na portal</p>
+              <p className="text-xs text-gray-400">Wyślij artyku┼é + SEO schema na portal</p>
 
             </div>
 
@@ -1019,7 +1019,7 @@ function InjectModal({
 
           <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4">
 
-            <p className="text-xs text-gray-500 mb-1">Artyku┼é do publikacji:</p>
+            <p className="text-xs text-gray-500 mb-1">Artykuł do publikacji:</p>
 
             <p className="text-sm font-medium text-white truncate">
 
@@ -1041,7 +1041,7 @@ function InjectModal({
 
 
 
-          {/* Selected portal info ÔÇö visible in portal mode */}
+          {/* Selected portal info — visible in portal mode */}
 
           {!isManual && portalName && (
 
@@ -1059,7 +1059,7 @@ function InjectModal({
 
 
 
-          {/* Manual credentials ÔÇö visible only when manual mode or no portals */}
+          {/* Manual credentials — visible only when manual mode or no portals */}
 
           {isManual && (
 
@@ -1317,7 +1317,7 @@ function InjectModal({
 
             </select>
 
-            <p className="text-xs text-gray-600 mt-1">Domy┼Ťlnie: Film ÔÇö optymalny dla tre┼Ťci video SEO</p>
+            <p className="text-xs text-gray-600 mt-1">Domy┼Ťlnie: Film — optymalny dla tre┼Ťci video SEO</p>
 
           </div>
 
@@ -1369,7 +1369,7 @@ function InjectModal({
 
               {publishResult.error ? (
 
-                <><span className="font-medium">ÔÜá´ŞĆ B┼é─ůd:</span> {publishResult.error}</>
+                <><span className="font-medium">ÔÜá´ŞĆ Błąd:</span> {publishResult.error}</>
 
               ) : (
 
@@ -1397,7 +1397,7 @@ function InjectModal({
 
                     >
 
-                      Otw├│rz artyku┼é na portalu Ôćĺ
+                      Otw├│rz artyku┼é na portalu →
 
                     </a>
 
@@ -1733,7 +1733,7 @@ function AddPortalModal({
 
     } catch (e: unknown) {
 
-      setError(e instanceof Error ? e.message : 'B┼é─ůd podczas zapisu')
+      setError(e instanceof Error ? e.message : 'Błąd podczas zapisu')
 
     } finally {
 
@@ -1885,7 +1885,7 @@ function AddPortalModal({
 
 
 
-          {/* Profile selector ÔÇö dynamic from useProfiles() + inline creation */}
+          {/* Profile selector — dynamic from useProfiles() + inline creation */}
 
           <div>
 
@@ -1983,11 +1983,11 @@ function AddPortalModal({
 
                 >
 
-                  <option value="full_analysis">Full Analysis ÔÇö rozbudowany artyku┼é SEO</option>
+                  <option value="full_analysis">Full Analysis — rozbudowany artyku┼é SEO</option>
 
-                  <option value="watching_page">Film ÔÇö kr├│tki artyku┼é z embedem</option>
+                  <option value="watching_page">Film — kr├│tki artyku┼é z embedem</option>
 
-                  <option value="discover">Discover ÔÇö format Google Discover</option>
+                  <option value="discover">Discover — format Google Discover</option>
 
                 </select>
 
@@ -2129,13 +2129,13 @@ function AddPortalModal({
 
 /**
 
- * CO: ManageSubscriptionLink ÔÇö przycisk zarz─ůdzania subskrypcj─ů Stripe
+ * CO: ManageSubscriptionLink — przycisk zarz─ůdzania subskrypcj─ů Stripe
 
  * PO CO: U┼╝ytkownicy Pro/Agency mog─ů zmieni─ç plan, anulowa─ç lub zaktualizowa─ç kart─Ö
 
- *        bez budowania custom UI ÔÇö Stripe Customer Portal.
+ *        bez budowania custom UI — Stripe Customer Portal.
 
- * JAK: Wywo┼éuje GET /v1/payments/portal-session Ôćĺ redirect do Stripe Portal.
+ * JAK: Wywo┼éuje GET /v1/payments/portal-session → redirect do Stripe Portal.
 
  */
 
@@ -2169,7 +2169,7 @@ function ManageSubscriptionLink({ accessToken }: { accessToken?: string }) {
 
     } catch {
 
-      // silent ÔÇö user stays on dashboard
+      // silent — user stays on dashboard
 
     } finally {
 
@@ -2213,15 +2213,15 @@ export default function DashboardInner() {
 
   /**
 
-   * CO: DashboardPage ÔÇö g┼é├│wny komponent strony /dashboard
+   * CO: DashboardPage — g┼é├│wny komponent strony /dashboard
 
-   * PO CO: Hub dla u┼╝ytkownika ÔÇö generuje SEO z YouTube URL i wy┼Ťwietla wyniki w czytelnej formie.
+   * PO CO: Hub dla u┼╝ytkownika — generuje SEO z YouTube URL i wy┼Ťwietla wyniki w czytelnej formie.
 
-   * JAK: useSession z NextAuth Ôćĺ auth guard. Stan lokalny dla URL, wynik├│w, plan usera.
+   * JAK: useSession z NextAuth → auth guard. Stan lokalny dla URL, wynik├│w, plan usera.
 
    *      Fetch plan przez /v1/users/me (Bearer token z session.accessToken).
 
-   *      Wyniki wy┼Ťwietlane w 3 zak┼éadkach: Schemat, Artyku┼é, Rozdzia┼éy.
+   *      Wyniki wy┼Ťwietlane w 3 zak┼éadkach: Schemat, Artykuł, Rozdziały.
 
    */
 
@@ -2354,7 +2354,7 @@ export default function DashboardInner() {
 
 
 
-  // Fetch user plan ÔÇö needed to conditionally show PublishSection
+  // Fetch user plan — needed to conditionally show PublishSection
 
   useEffect(() => {
 
@@ -2376,7 +2376,7 @@ export default function DashboardInner() {
 
       } catch {
 
-        // silent ÔÇö plan check is best-effort
+        // silent — plan check is best-effort
 
       }
 
@@ -2410,7 +2410,7 @@ export default function DashboardInner() {
 
     } catch {
 
-      // clipboard unavailable ÔÇö silent
+      // clipboard unavailable — silent
 
     }
 
@@ -2480,7 +2480,7 @@ export default function DashboardInner() {
 
         if (Array.isArray(detail)) throw new Error(detail.map((d) => d.msg).join(', '))
 
-        throw new Error(typeof detail === 'string' ? detail : `B┼é─ůd serwera: HTTP ${res.status}`)
+        throw new Error(typeof detail === 'string' ? detail : `Błąd serwera: HTTP ${res.status}`)
 
       }
 
@@ -2648,7 +2648,7 @@ export default function DashboardInner() {
 
           </div>
 
-          {/* Plan actions ÔÇö Stripe integration */}
+          {/* Plan actions — Stripe integration */}
 
           <div className="flex flex-col gap-1 mb-3">
 
@@ -2680,7 +2680,7 @@ export default function DashboardInner() {
 
           >
 
-            Ôćĺ Wyloguj si─Ö
+            → Wyloguj si─Ö
 
           </button>
 
@@ -2696,7 +2696,7 @@ export default function DashboardInner() {
 
         <div className="max-w-3xl">
 
-          {/* Email verification banner ÔÇö soft enforcement (RODO) */}
+          {/* Email verification banner — soft enforcement (RODO) */}
 
           <EmailVerificationBanner
 
@@ -2710,7 +2710,7 @@ export default function DashboardInner() {
 
           <p className="text-gray-400 mb-8">
 
-            Wklej URL YouTube ÔÇö AI wygeneruje schema VideoObject + Clip + FAQPage.
+            Wklej URL YouTube — AI wygeneruje schema VideoObject + Clip + FAQPage.
 
           </p>
 
@@ -2744,11 +2744,11 @@ export default function DashboardInner() {
 
             <div className="mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
 
-              <span className="text-xs text-blue-400">­čôő Wyniki za┼éadowane z historii</span>
+              <span className="text-xs text-blue-400">­čôő Wyniki załadowane z historii</span>
 
               <Link href="/historia" className="text-xs text-gray-500 hover:text-white ml-auto transition-colors">
 
-                ÔćÉ Wr├│─ç do historii
+                ÔćÉ Wróć do historii
 
               </Link>
 
@@ -2806,7 +2806,7 @@ export default function DashboardInner() {
 
                 >
 
-                  <option value="" disabled>Brak portali ÔÇö dodaj pierwszy portal</option>
+                  <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
 
                   <option value="__add__">+ Dodaj nowy portal...</option>
 
@@ -2890,7 +2890,7 @@ export default function DashboardInner() {
 
               >
 
-                <option value="full_analysis">­čôŁ Pe┼éna analiza</option>
+                <option value="full_analysis">­čôŁ Pełna analiza</option>
 
                 <option value="watching_page">­čÄČ Strona z filmem</option>
 
@@ -3076,7 +3076,7 @@ export default function DashboardInner() {
 
                     >
 
-                      ­čÜÇ Wy┼Ťlij do portalu
+                      ­čÜÇ Wyślij do portalu
 
                     </button>
 
@@ -3092,7 +3092,7 @@ export default function DashboardInner() {
 
                     >
 
-                      ÔľÂ´ŞĆ Wy┼Ťlij na YouTube
+                      ÔľÂ´ŞĆ Wyślij na YouTube
 
                     </button>
 
@@ -3126,11 +3126,11 @@ export default function DashboardInner() {
 
                 <div>
 
-                  {/* Tytu┼é artyku┼éu */}
+                  {/* Tytuł artykułu */}
 
                   <ResultSection
 
-                    title="Tytu┼é artyku┼éu"
+                    title="Tytuł artykułu"
 
                     copyText={schema?.post_title ?? ''}
 
@@ -3220,7 +3220,7 @@ export default function DashboardInner() {
 
 
 
-              {/* ÔöÇÔöÇ Tab: Artyku┼é ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
+              {/* ÔöÇÔöÇ Tab: Artykuł ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
 
               {activeTab === 'article' && (
 
@@ -3248,13 +3248,13 @@ export default function DashboardInner() {
 
 
 
-                  {/* Tytu┼é */}
+                  {/* Tytuł */}
 
                   {schema?.post_title && (
 
                     <ResultSection
 
-                      title="Tytu┼é artyku┼éu"
+                      title="Tytuł artykułu"
 
                       copyText={schema.post_title}
 
@@ -3304,13 +3304,13 @@ export default function DashboardInner() {
 
 
 
-                  {/* Tre┼Ť─ç artyku┼éu */}
+                  {/* Treść artykułu */}
 
                   {schema?.article_body && (
 
                     <ResultSection
 
-                      title="Tre┼Ť─ç artyku┼éu"
+                      title="Treść artykułu"
 
                       copyText={schema.article_body}
 
@@ -3342,7 +3342,7 @@ export default function DashboardInner() {
 
                       title={`Cytaty (${quotes.length})`}
 
-                      copyText={quotes.map((q) => `"${q.text ?? ''}" ÔÇö ${q.author ?? ''}`).join('\n')}
+                      copyText={quotes.map((q) => `"${q.text ?? ''}" — ${q.author ?? ''}`).join('\n')}
 
                       copyId="art_quotes"
 
@@ -3362,7 +3362,7 @@ export default function DashboardInner() {
 
                             {q.author && (
 
-                              <footer className="text-xs text-gray-500 mt-1">ÔÇö {q.author}</footer>
+                              <footer className="text-xs text-gray-500 mt-1">— {q.author}</footer>
 
                             )}
 
@@ -3442,9 +3442,9 @@ export default function DashboardInner() {
 
                       <p className="text-lg mb-1">­čôŁ</p>
 
-                      <p className="text-sm">Brak tre┼Ťci artyku┼éu w wygenerowanej schemie.</p>
+                      <p className="text-sm">Brak tre┼Ťci artykułu w wygenerowanej schemie.</p>
 
-                      <p className="text-xs text-gray-600 mt-1">Sprawd┼║ zak┼éadk─Ö Schemat ÔÇö tam znajdziesz pe┼éne dane JSON-LD.</p>
+                      <p className="text-xs text-gray-600 mt-1">Sprawd┼║ zak┼éadk─Ö Schemat — tam znajdziesz pe┼éne dane JSON-LD.</p>
 
                     </div>
 
@@ -3456,7 +3456,7 @@ export default function DashboardInner() {
 
 
 
-              {/* ÔöÇÔöÇ Tab: Rozdzia┼éy ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
+              {/* ÔöÇÔöÇ Tab: Rozdziały ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ */}
 
               {activeTab === 'chapters' && (
 
@@ -3464,7 +3464,7 @@ export default function DashboardInner() {
 
                   <ResultSection
 
-                    title={`Rozdzia┼éy (${chapters.length})`}
+                    title={`Rozdziały (${chapters.length})`}
 
                     copyText={chaptersToText(chapters)}
 
@@ -3522,7 +3522,7 @@ export default function DashboardInner() {
 
                         <p className="text-sm">Brak rozdzia┼é├│w w wygenerowanej schemie.</p>
 
-                        <p className="text-xs text-gray-600 mt-1">Rozdzia┼éy wymagaj─ů transkryptu z timestampami (format VTT).</p>
+                        <p className="text-xs text-gray-600 mt-1">Rozdziały wymagaj─ů transkryptu z timestampami (format VTT).</p>
 
                       </div>
 
@@ -3580,7 +3580,7 @@ export default function DashboardInner() {
 
 
 
-      {/* Inject Modal ÔÇö pass selected portal so isManual=false for Pro/Agency users [vse-dev-37 fix] */}
+      {/* Inject Modal — pass selected portal so isManual=false for Pro/Agency users [vse-dev-37 fix] */}
 
       {showInjectModal && result && (() => {
 
@@ -3627,7 +3627,7 @@ export default function DashboardInner() {
         const ytDescription = [
           hook,
           wpUrl ? `\n\n­čöŚ Pe┼ény artyku┼é: ${wpUrl}` : "",
-          chaptersStr ? `\n\nÔĆ▒´ŞĆ Rozdzia┼éy:\n${chaptersStr}` : "",
+          chaptersStr ? `\n\nÔĆ▒´ŞĆ Rozdziały:\n${chaptersStr}` : "",
           hashtags ? `\n\n---\n${hashtags}` : "",
         ].join("");
 
@@ -3635,7 +3635,7 @@ export default function DashboardInner() {
           <YouTubePublishModal
             isOpen={ytModalOpen}
             onClose={() => setYtModalOpen(false)}
-            videoId={result.raw?.video_id || result.inputUrl?.split('v=')[1] || ""}
+            videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || ""}
             description={ytDescription}
             channels={ytChannels}
             accessToken={accessToken || ""}
@@ -3749,11 +3749,11 @@ function WpQuickPanel() {
 
   /**
 
-   * CO: Panel integracji WordPress ÔÇö skr├│cony widok na pustym stanie dashboardu
+   * CO: Panel integracji WordPress — skr├│cony widok na pustym stanie dashboardu
 
    * PO CO: Zach─Öca u┼╝ytkownika do skonfigurowania portalu WP zanim zacznie generowa─ç.
 
-   * JAK: Statyczny informacyjny panel, link do ustawie┼ä.
+   * JAK: Statyczny informacyjny panel, link do ustawień.
 
    */
 
@@ -3782,7 +3782,7 @@ function WpQuickPanel() {
 
         >
 
-          Konfiguruj Ôćĺ
+          Konfiguruj →
 
         </Link>
 
