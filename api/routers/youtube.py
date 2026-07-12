@@ -10,7 +10,7 @@ from api.models.user import User
 from api.models.youtube_channel import YouTubeChannel
 from api.models.oauth_state import OAuthState
 from api.auth import get_current_user
-from api.models.request import YouTubePublishRequest
+from api.models.request import YouTubePublishRequest, YouTubeChannelUpdate
 
 router = APIRouter(prefix="/v1/youtube", tags=["youtube"])
 
@@ -114,8 +114,8 @@ async def list_user_channels(current_user: User = Depends(get_current_user), db:
         .order_by(YouTubeChannel.created_at)
     )
     channels = result.scalars().all()
-    # Zwracaj channel_id i channel_title — zgodnie z oczekiwaniami frontendu
-    return [{"id": str(ch.id), "channel_id": ch.youtube_channel_id, "channel_title": ch.title} for ch in channels]
+    # Zwracaj channel_id, channel_title, footer_text — zgodnie z oczekiwaniami frontendu
+    return [{"id": str(ch.id), "channel_id": ch.youtube_channel_id, "channel_title": ch.title, "footer_text": ch.footer_text} for ch in channels]
 
 
 @router.delete("/channels/{channel_id}")
@@ -129,6 +129,29 @@ async def disconnect_channel(channel_id: str, current_user: User = Depends(get_c
     channel.is_active = False
     await db.commit()
     return {"status": "disconnected"}
+
+
+@router.put("/channels/{channel_id}")
+async def update_channel(
+    channel_id: str,
+    req: YouTubeChannelUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Aktualizuje ustawienia kanału YT, np. footer_text."""
+    result = await db.execute(
+        select(YouTubeChannel)
+        .where(YouTubeChannel.id == channel_id)
+        .where(YouTubeChannel.user_id == current_user.id)
+        .where(YouTubeChannel.is_active == True)
+    )
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found or access denied")
+    
+    channel.footer_text = req.footer_text
+    await db.commit()
+    return {"status": "updated"}
 
 
 @router.post("/publish-description")
