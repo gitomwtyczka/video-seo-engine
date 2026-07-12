@@ -32,7 +32,7 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, description, cha
         body: JSON.stringify({ channel_ids: selected, video_id: videoId, description }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Blad");
+      if (!res.ok) throw new Error(data.detail || "Błąd");
       setResult(data.results || {});
       setStatus("done");
     } catch (e: any) { setResult({ error: e.message }); setStatus("error"); }
@@ -41,7 +41,7 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, description, cha
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:50,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{background:"#1a1a2e",borderRadius:12,padding:24,width:420,maxWidth:"90vw"}}>
-        <h3 style={{marginBottom:8}}>Wyslij opis na YouTube</h3>
+        <h3 style={{marginBottom:8}}>Wyślij opis na YouTube</h3>
         <p style={{fontSize:12,opacity:0.5,marginBottom:16}}>Video: {videoId}</p>
         {channels && channels.length > 0 ? channels.map(ch => (
           <label key={ch.channel_id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,cursor:"pointer"}}>
@@ -54,12 +54,12 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, description, cha
           </div>
         )}
         {status==="done" && <div style={{color:"#4ade80",marginBottom:8}}>{Object.entries(result).map(([k,v])=><div key={k}>{k}: {v}</div>)}</div>}
-        {status==="error" && <div style={{color:"#f87171",marginBottom:8}}>Blad: {result.error}</div>}
+        {status==="error" && <div style={{color:"#f87171",marginBottom:8}}>Błąd: {result.error}</div>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
           <button onClick={onClose}>Anuluj</button>
           <button onClick={publish} disabled={status==="loading"||!selected.length}
             style={{background:"#7c3aed",color:"white",padding:"8px 16px",borderRadius:6}}>
-            {status==="loading" ? "Wysylam..." : "Wyslij na YouTube"}
+            {status==="loading" ? "Wysyłam..." : "Wyślij na YouTube"}
           </button>
         </div>
       </div>
