@@ -1,11 +1,10 @@
 {
   "callsign": "vse-dev-01",
   "status": "done",
-  "current_task": "Wdrożenie ominięcia legacy YouTube przy Immediate Publish",
-  "timestamp": "2026-07-12T18:12:00Z",
+  "current_task": "Diagnoza bledu publikacji na YouTube po stronie dashboardu",
+  "timestamp": "2026-07-12T18:44:00Z",
   "last_completed": [
-    "Wyłączenie legacy yt_update_enabled dla Scenariusza A — commit d6735e082c6 (2026-07-12)",
-    "Deploy vse-api (Oracle Cloud) — 2026-07-12"
+    "Raport diag2: identyfikacja bledu w dashboard-inner.tsx, ktory pomija youtube_description_body (2026-07-12)"
   ],
   "pending": []
 }
