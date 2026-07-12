@@ -43,12 +43,16 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, description, cha
       <div style={{background:"#1a1a2e",borderRadius:12,padding:24,width:420,maxWidth:"90vw"}}>
         <h3 style={{marginBottom:8}}>Wyslij opis na YouTube</h3>
         <p style={{fontSize:12,opacity:0.5,marginBottom:16}}>Video: {videoId}</p>
-        {channels.map(ch => (
+        {channels && channels.length > 0 ? channels.map(ch => (
           <label key={ch.channel_id} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8,cursor:"pointer"}}>
             <input type="checkbox" checked={selected.includes(ch.channel_id)} onChange={()=>toggle(ch.channel_id)} />
             {ch.channel_title}
           </label>
-        ))}
+        )) : (
+          <div style={{color:"#f59e0b",marginBottom:16,fontSize:14}}>
+            ⚠️ Brak podłączonych kanałów. <a href="/ustawienia" style={{textDecoration:"underline",color:"#f59e0b"}}>Przejdź do ustawień</a>
+          </div>
+        )}
         {status==="done" && <div style={{color:"#4ade80",marginBottom:8}}>{Object.entries(result).map(([k,v])=><div key={k}>{k}: {v}</div>)}</div>}
         {status==="error" && <div style={{color:"#f87171",marginBottom:8}}>Blad: {result.error}</div>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
