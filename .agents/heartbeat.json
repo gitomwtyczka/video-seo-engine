@@ -1,11 +1,12 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-research",
   "status": "done",
-  "current_task": "Integracja PressAI dla opis\u00f3w YouTube (v2.2-FINAL)",
-  "timestamp": "2026-07-12T19:25:58.457403",
+  "current_task": "Badanie przepływu schema_data i diagnoza gubienia youtube_description_body",
+  "timestamp": "2026-07-12T18:01:00Z",
   "last_completed": [
-    "Wdro\u017cenie PressAI integration w pipeline.py - commit ee3c3ce6763ab50c5eeb03a5649ddb6637ccecee (2026-07-12)",
-    "Aktualizacja inject.py o pe\u0142ny build opisu - commit 402aa2a4c46d2fae3864199ce46417b765d9c378 (2026-07-12)"
+    "Diagnoza przepływu schema_data — commit 8b793362 (2026-07-12)"
   ],
-  "pending": []
+  "pending": [
+    "Poprawka integracji youtube_publish.py / core.injector (FIX B) — pending"
+  ]
 }
