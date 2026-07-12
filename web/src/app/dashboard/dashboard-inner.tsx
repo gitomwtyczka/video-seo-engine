@@ -2,27 +2,27 @@
 
 /**
 
- * CO: Dashboard — główny widok aplikacji po zalogowaniu
+ * CO: Dashboard Ă”Ă‡Ă¶ gâ”ĽĂ©â”śâ”‚wny widok aplikacji po zalogowaniu
 
- * PO CO: Daje użytkownikowi dwie ścieżki:
+ * PO CO: Daje uâ”Ľâ•ťytkownikowi dwie â”ĽĹ¤cieâ”Ľâ•ťki:
 
- *   A (Free/Starter) — generuje SEO i pokazuje gotowe snippety HTML do skopiowania
+ *   A (Free/Starter) Ă”Ă‡Ă¶ generuje SEO i pokazuje gotowe snippety HTML do skopiowania
 
- *   B (Pro/Agency)   — dodatkowo umożliwia automatyczną publikację na WordPress
+ *   B (Pro/Agency)   Ă”Ă‡Ă¶ dodatkowo umoâ”Ľâ•ťliwia automatycznâ”€ĹŻ publikacjâ”€Ă– na WordPress
 
- * JAK: Wywołuje POST /v1/generate → schema_data → renderuje 3 zakładki wynikowe
+ * JAK: Wywoâ”ĽĂ©uje POST /v1/generate Ă”Ä‡Äş schema_data Ă”Ä‡Äş renderuje 3 zakâ”ĽĂ©adki wynikowe
 
- *      (Schemat, Artykuł, Rozdziały). Dla planu pro/agency InjectModal → POST /v1/inject.
+ *      (Schemat, Artykuâ”ĽĂ©, Rozdziaâ”ĽĂ©y). Dla planu pro/agency InjectModal Ă”Ä‡Äş POST /v1/inject.
 
  *
 
- * ROUTING NOTE: Frontend używa pustego prefixu ('') jako fallback dla NEXT_PUBLIC_API_URL.
+ * ROUTING NOTE: Frontend uâ”Ľâ•ťywa pustego prefixu ('') jako fallback dla NEXT_PUBLIC_API_URL.
 
- * Wywołania idą na /v1/generate, /v1/inject, /v1/users/me.
+ * Wywoâ”ĽĂ©ania idâ”€ĹŻ na /v1/generate, /v1/inject, /v1/users/me.
 
- * Nginx routuje location /v1/ → FastAPI :8085 (bez strippowania prefixu).
+ * Nginx routuje location /v1/ Ă”Ä‡Äş FastAPI :8085 (bez strippowania prefixu).
 
- * NIE używamy /api/v1/* — nginx /api/ nie strippuje /api i FastAPI zwraca 404.
+ * NIE uâ”Ľâ•ťywamy /api/v1/* Ă”Ă‡Ă¶ nginx /api/ nie strippuje /api i FastAPI zwraca 404.
 
  */
 
@@ -48,7 +48,7 @@ import { YouTubePublishModal } from './YouTubePublishModal'
 
 
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Types Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
 
 
@@ -180,7 +180,7 @@ type TabKey = 'schema' | 'article' | 'chapters'
 
 
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Helpers Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
 
 
@@ -190,15 +190,15 @@ type TabKey = 'schema' | 'article' | 'chapters'
 
  *
 
- * CO: Normalizuje format rozdziałów do ChapterItem[].
+ * CO: Normalizuje format rozdziaâ”ĽĂ©â”śâ”‚w do ChapterItem[].
 
  * PO CO: Backend (generator.py) zwraca chapters jako {time, label, matched, anchor_text}.
 
- *        Frontend oczekiwał {startOffset, name, endOffset} — powodowało "(bez tytułu)" i "?".
+ *        Frontend oczekiwaâ”ĽĂ© {startOffset, name, endOffset} Ă”Ă‡Ă¶ powodowaâ”ĽĂ©o "(bez tytuâ”ĽĂ©u)" i "?".
 
- * JAK: Sprawdza @graph (JSON-LD Clip), następnie normalizes top-level chapters
+ * JAK: Sprawdza @graph (JSON-LD Clip), nastâ”€Ă–pnie normalizes top-level chapters
 
- *      mapując label→name i time→startOffset.
+ *      mapujâ”€ĹŻc labelĂ”Ä‡Äşname i timeĂ”Ä‡ÄşstartOffset.
 
  */
 
@@ -232,7 +232,7 @@ function extractChapters(schema: SchemaData | null | undefined): ChapterItem[] {
 
   if (Array.isArray(schema.chapters)) {
 
-    // Normalize backend format {time, label} → frontend format {startOffset, name}
+    // Normalize backend format {time, label} Ă”Ä‡Äş frontend format {startOffset, name}
 
     return schema.chapters.map((c: ChapterItem) => ({
 
@@ -310,13 +310,13 @@ function secToTimestamp(sec?: number): string {
 
 
 
-/** Build copyable chapters text: "MM:SS — Tytuł" per line. */
+/** Build copyable chapters text: "MM:SS Ă”Ă‡Ă¶ Tytuâ”ĽĂ©" per line. */
 
 function chaptersToText(chapters: ChapterItem[]): string {
 
   return chapters
 
-    .map((c) => `${secToTimestamp(c.startOffset ?? c.time)} — ${c.name ?? c.label ?? '(bez tytułu)'}`)
+    .map((c) => `${secToTimestamp(c.startOffset ?? c.time)} Ă”Ă‡Ă¶ ${c.name ?? c.label ?? '(bez tytuâ”ĽĂ©u)'}`)
 
     .join('\n')
 
@@ -340,7 +340,7 @@ function faqToHtml(faq: FaqItem[]): string {
 
     .join('\n')
 
-  return `<h3>Często zadawane pytania</h3>\n${items}`
+  return `<h3>Czâ”€Ă–sto zadawane pytania</h3>\n${items}`
 
 }
 
@@ -422,19 +422,19 @@ function saveWpCredentials(creds: { wpUrl: string; wpUser: string; wpPassword: s
 
 
 
-// ─── Subcomponents ────────────────────────────────────────────────────────────
+// Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Subcomponents Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
 
 
 /**
 
- * CO: CopyButton — przycisk kopiowania z feedbackiem
+ * CO: CopyButton Ă”Ă‡Ă¶ przycisk kopiowania z feedbackiem
 
- * PO CO: Umożliwia szybkie skopiowanie dowolnego tekstu do schowka
+ * PO CO: Umoâ”Ľâ•ťliwia szybkie skopiowanie dowolnego tekstu do schowka
 
- *        z wizualnym potwierdzeniem ("✓ Skopiowano" przez 2s).
+ *        z wizualnym potwierdzeniem ("Ă”ĹĄĂ´ Skopiowano" przez 2s).
 
- * JAK: Używa navigator.clipboard.writeText, przekazuje copied-key do rodzica.
+ * JAK: Uâ”Ľâ•ťywa navigator.clipboard.writeText, przekazuje copied-key do rodzica.
 
  */
 
@@ -484,7 +484,7 @@ function CopyButton({
 
     >
 
-      {active ? '✓ Skopiowano' : (label ?? 'Kopiuj')}
+      {active ? 'Ă”ĹĄĂ´ Skopiowano' : (label ?? 'Kopiuj')}
 
     </button>
 
@@ -496,11 +496,11 @@ function CopyButton({
 
 /**
 
- * CO: ResultSection — pojedyncza sekcja wynikowa z nagłówkiem i przyciskiem Kopiuj
+ * CO: ResultSection Ă”Ă‡Ă¶ pojedyncza sekcja wynikowa z nagâ”ĽĂ©â”śâ”‚wkiem i przyciskiem Kopiuj
 
- * PO CO: Zapewnia spójny wygląd wszystkich pól wynikowych.
+ * PO CO: Zapewnia spâ”śâ”‚jny wyglâ”€ĹŻd wszystkich pâ”śâ”‚l wynikowych.
 
- * JAK: Opakowuje dowolny content children w ramkę z nagłówkiem i przyciskiem kopiowania.
+ * JAK: Opakowuje dowolny content children w ramkâ”€Ă– z nagâ”ĽĂ©â”śâ”‚wkiem i przyciskiem kopiowania.
 
  */
 
@@ -576,9 +576,9 @@ function ResultSection({
 
 /**
 
- * CO: TabBar — przełącznik zakładek Schemat/Artykuł/Rozdziały
+ * CO: TabBar Ă”Ă‡Ă¶ przeâ”ĽĂ©â”€ĹŻcznik zakâ”ĽĂ©adek Schemat/Artykuâ”ĽĂ©/Rozdziaâ”ĽĂ©y
 
- * PO CO: Pozwala użytkownikowi przełączać widok wyników bez przeładowania strony.
+ * PO CO: Pozwala uâ”Ľâ•ťytkownikowi przeâ”ĽĂ©â”€ĹŻczaâ”€Ă§ widok wynikâ”śâ”‚w bez przeâ”ĽĂ©adowania strony.
 
  * JAK: Proste przyciski z active state, kontrolowane przez parent.
 
@@ -610,9 +610,9 @@ function TabBar({
 
     { key: 'schema', label: 'Schemat' },
 
-    { key: 'article', label: 'Artykuł', badge: faqCount > 0 ? faqCount : undefined },
+    { key: 'article', label: 'Artykuâ”ĽĂ©', badge: faqCount > 0 ? faqCount : undefined },
 
-    { key: 'chapters', label: 'Rozdziały', badge: chaptersCount > 0 ? chaptersCount : undefined },
+    { key: 'chapters', label: 'Rozdziaâ”ĽĂ©y', badge: chaptersCount > 0 ? chaptersCount : undefined },
 
   ]
 
@@ -674,17 +674,17 @@ function TabBar({
 
 /**
 
- * CO: InjectModal — modalny formularz publikacji na WordPress z dropdown portalów
+ * CO: InjectModal Ă”Ă‡Ă¶ modalny formularz publikacji na WordPress z dropdown portalâ”śâ”‚w
 
- * PO CO: Umożliwia użytkownikom Pro/Agency wstrzyknięcie SEO na WordPress jednym klikiem.
+ * PO CO: Umoâ”Ľâ•ťliwia uâ”Ľâ•ťytkownikom Pro/Agency wstrzykniâ”€Ă–cie SEO na WordPress jednym klikiem.
 
- *        Portale zapisane w bazie danych (/v1/portals) — dropdown z auto-fill credentials.
+ *        Portale zapisane w bazie danych (/v1/portals) Ă”Ă‡Ă¶ dropdown z auto-fill credentials.
 
- *        Fallback: ręczne wpisanie credentials (zapisywane w localStorage).
+ *        Fallback: râ”€Ă–czne wpisanie credentials (zapisywane w localStorage).
 
- * JAK: usePortals() → dropdown z listą portali → wybór portalu → getCredentials() → auto-fill.
+ * JAK: usePortals() Ă”Ä‡Äş dropdown z listâ”€ĹŻ portali Ă”Ä‡Äş wybâ”śâ”‚r portalu Ă”Ä‡Äş getCredentials() Ă”Ä‡Äş auto-fill.
 
- *      Po kliknięciu "Opublikuj" → POST /v1/inject → wyświetla wynik z linkiem do posta.
+ *      Po klikniâ”€Ă–ciu "Opublikuj" Ă”Ä‡Äş POST /v1/inject Ă”Ä‡Äş wyâ”ĽĹ¤wietla wynik z linkiem do posta.
 
  */
 
@@ -718,6 +718,8 @@ function InjectModal({
 
   onClose: () => void
 
+  ytChannels?: any[]
+
 }) {
 
   const initialCreds = loadWpCredentials()
@@ -737,6 +739,8 @@ function InjectModal({
   const [publishing, setPublishing] = useState(false)
 
   const [publishResult, setPublishResult] = useState<InjectResult | null>(null)
+
+  const [selectedYtChannelIds, setSelectedYtChannelIds] = useState<string[]>([])
 
   const modalRef = useRef<HTMLDivElement>(null)
 
@@ -783,9 +787,11 @@ function InjectModal({
 
   const handlePublish = async () => {
 
-    if (isManual && (!wpUser || !wpPassword || !wpUrl)) {
+    const isPublishingToWp = !isManual || (wpUser && wpPassword && wpUrl)
 
-      setPublishResult({ error: 'Uzupełnij URL portalu, użytkownika i Application Password.' })
+    if (!isPublishingToWp && selectedYtChannelIds.length === 0) {
+
+      setPublishResult({ error: 'UzupeĹ‚nij URL portalu, uĹĽytkownika i Application Password lub wybierz kanaĹ‚ YouTube.' })
 
       return
 
@@ -793,7 +799,7 @@ function InjectModal({
 
 
 
-    if (isManual) {
+    if (isPublishingToWp && isManual) {
 
       saveWpCredentials({ wpUrl, wpUser, wpPassword })
 
@@ -818,29 +824,44 @@ function InjectModal({
         post_status: postStatus,
 
         post_format: postFormat,
+
       }
 
-      if (isManual) {
+      
 
-        body.site_config = {
+      if (selectedYtChannelIds.length > 0) {
 
-          wp_base_url: wpUrl,
+        body.yt_channel_ids = selectedYtChannelIds
 
-          wp_user: wpUser,
+      }
 
-          wp_app_password: wpPassword,
+
+
+      if (isPublishingToWp) {
+
+        if (isManual) {
+
+          body.site_config = {
+
+            wp_base_url: wpUrl,
+
+            wp_user: wpUser,
+
+            wp_app_password: wpPassword,
+
+          }
+
+        } else {
+
+          body.portal_id = selectedPortalId.trim()
 
         }
 
-      } else {
+        if (wpPostId.trim()) {
 
-        body.portal_id = selectedPortalId.trim()
+          body.wp_post_id = parseInt(wpPostId, 10)
 
-      }
-
-      if (wpPostId.trim()) {
-
-        body.wp_post_id = parseInt(wpPostId, 10)
+        }
 
       }
 
@@ -851,8 +872,11 @@ function InjectModal({
         method: 'POST',
 
         headers: {
+
         'Content-Type': 'application/json',
+
         ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
+
       },
 
         body: JSON.stringify(body),
@@ -867,7 +891,7 @@ function InjectModal({
 
       if (!res.ok) {
 
-        let errStr = data?.detail || data?.error || `Błąd serwera (HTTP ${res.status})`;
+        let errStr = data?.detail || data?.error || `Bâ”ĽĂ©â”€ĹŻd serwera (HTTP ${res.status})`;
 
         if (typeof errStr === 'object') {
 
@@ -881,9 +905,33 @@ function InjectModal({
 
       setPublishResult(data)
 
+      if (data?.yt_results) {
+
+        const errors: string[] = [];
+
+        Object.entries(data.yt_results).forEach(([chId, status]) => {
+
+          if (status !== "ok") errors.push(`BĹ‚Ä…d YT: ${status}`);
+
+        });
+
+        if (errors.length > 0) {
+
+          setPublishResult(prev => ({
+
+            ...prev,
+
+            error: (prev?.error ? prev.error + "\n" : "") + errors.join("\n")
+
+          }))
+
+        }
+
+      }
+
     } catch (e: unknown) {
 
-      setPublishResult({ error: e instanceof Error ? e.message : 'Błąd połączenia' })
+      setPublishResult({ error: e instanceof Error ? e.message : 'Bâ”ĽĂ©â”€ĹŻd poâ”ĽĂ©â”€ĹŻczenia' })
 
     } finally {
 
@@ -927,7 +975,7 @@ function InjectModal({
 
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-sm">
 
-              🚀
+              Â­ÄŤĂśĂ‡
 
             </div>
 
@@ -935,7 +983,7 @@ function InjectModal({
 
               <h3 className="font-semibold text-white">Publikuj na WordPress</h3>
 
-              <p className="text-xs text-gray-400">Wyślij artykuł + SEO schema na portal</p>
+              <p className="text-xs text-gray-400">Wyâ”ĽĹ¤lij artykuâ”ĽĂ© + SEO schema na portal</p>
 
             </div>
 
@@ -969,11 +1017,11 @@ function InjectModal({
 
           <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4">
 
-            <p className="text-xs text-gray-500 mb-1">Artykuł do publikacji:</p>
+            <p className="text-xs text-gray-500 mb-1">Artykuâ”ĽĂ© do publikacji:</p>
 
             <p className="text-sm font-medium text-white truncate">
 
-              {schemaData.post_title ?? '(brak tytułu)'}
+              {schemaData.post_title ?? '(brak tytuâ”ĽĂ©u)'}
 
             </p>
 
@@ -991,13 +1039,13 @@ function InjectModal({
 
 
 
-          {/* Selected portal info — visible in portal mode */}
+          {/* Selected portal info Ă”Ă‡Ă¶ visible in portal mode */}
 
           {!isManual && portalName && (
 
             <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
 
-              <span className="text-xs text-violet-400">🔗</span>
+              <span className="text-xs text-violet-400">Â­ÄŤĂ¶Ĺš</span>
 
               <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
 
@@ -1009,7 +1057,7 @@ function InjectModal({
 
 
 
-          {/* Manual credentials — visible only when manual mode or no portals */}
+          {/* Manual credentials Ă”Ă‡Ă¶ visible only when manual mode or no portals */}
 
           {isManual && (
 
@@ -1045,7 +1093,7 @@ function InjectModal({
 
                 <div>
 
-                  <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+                  <label className="block text-xs text-gray-400 mb-1.5">Uâ”Ľâ•ťytkownik WP</label>
 
                   <input
 
@@ -1089,10 +1137,49 @@ function InjectModal({
 
           )}
 
+          {/* YouTube Channels */}
 
+          {ytChannels && ytChannels.length > 0 && (
 
+            <div className="mb-4">
 
+              <label className="block text-xs text-gray-400 mb-1.5">Dodatkowo: Opublikuj opis na YouTube</label>
 
+              <div className="space-y-2 max-h-32 overflow-y-auto bg-gray-800/50 p-2 rounded-lg border border-gray-700">
+
+                {ytChannels.map(ch => (
+
+                  <label key={ch.channel_id} className="flex items-center gap-2 cursor-pointer">
+
+                    <input
+
+                      type="checkbox"
+
+                      checked={selectedYtChannelIds.includes(ch.channel_id)}
+
+                      onChange={(e) => {
+
+                        if (e.target.checked) setSelectedYtChannelIds(p => [...p, ch.channel_id])
+
+                        else setSelectedYtChannelIds(p => p.filter(id => id !== ch.channel_id))
+
+                      }}
+
+                      className="accent-violet-500 rounded"
+
+                    />
+
+                    <span className="text-sm text-gray-300">{ch.channel_title}</span>
+
+                  </label>
+
+                ))}
+
+              </div>
+
+            </div>
+
+          )}
 
 
 
@@ -1116,7 +1203,7 @@ function InjectModal({
 
                 onChange={(e) => setWpPostId(e.target.value)}
 
-                placeholder="Puste = nowy artykuł"
+                placeholder="Puste = nowy artykuâ”ĽĂ©"
 
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
 
@@ -1200,17 +1287,17 @@ function InjectModal({
 
             >
 
-              <option value="video">🎬 Film (video)</option>
+              <option value="video">Â­ÄŤĂ„ÄŚ Film (video)</option>
 
-              <option value="standard">📄 Standard</option>
+              <option value="standard">Â­ÄŤĂ´Ă¤ Standard</option>
 
-              <option value="gallery">🖼️ Galeria (gallery)</option>
+              <option value="gallery">Â­ÄŤÄľâ•ťÂ´ĹžÄ† Galeria (gallery)</option>
 
-              <option value="quote">💬 Cytat (quote)</option>
+              <option value="quote">Â­ÄŤÄşÄŚ Cytat (quote)</option>
 
             </select>
 
-            <p className="text-xs text-gray-600 mt-1">Domyślnie: Film — optymalny dla treści video SEO</p>
+            <p className="text-xs text-gray-600 mt-1">Domyâ”ĽĹ¤lnie: Film Ă”Ă‡Ă¶ optymalny dla treâ”ĽĹ¤ci video SEO</p>
 
           </div>
 
@@ -1222,7 +1309,7 @@ function InjectModal({
 
             onClick={handlePublish}
 
-            disabled={publishing}
+            disabled={publishing || (!isManual && !selectedPortalId && selectedYtChannelIds.length === 0) || (isManual && !wpUrl && selectedYtChannelIds.length === 0)}
 
             className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
 
@@ -1234,7 +1321,7 @@ function InjectModal({
 
             ) : (
 
-              <>🚀 Opublikuj na portalu</>
+              <>Â­ÄŤĂśĂ‡ Opublikuj na portalu</>
 
             )}
 
@@ -1262,15 +1349,15 @@ function InjectModal({
 
               {publishResult.error ? (
 
-                <><span className="font-medium">⚠️ Błąd:</span> {publishResult.error}</>
+                <><span className="font-medium">Ă”ĂśĂˇÂ´ĹžÄ† Bâ”ĽĂ©â”€ĹŻd:</span> {publishResult.error}</>
 
               ) : (
 
                 <div className="space-y-1">
 
-                  <p><span className="font-medium">✓ Sukces!</span>
+                  <p><span className="font-medium">Ă”ĹĄĂ´ Sukces!</span>
 
-                    {publishResult.created ? ' Utworzono nowy artykuł' : ' Zaktualizowano artykuł'}
+                    {publishResult.created ? ' Utworzono nowy artykuâ”ĽĂ©' : ' Zaktualizowano artykuâ”ĽĂ©'}
 
                     {publishResult.wp_post_id && ` (ID: ${publishResult.wp_post_id})`}
 
@@ -1290,7 +1377,7 @@ function InjectModal({
 
                     >
 
-                      Otwórz artykuł na portalu →
+                      Otwâ”śâ”‚rz artykuâ”ĽĂ© na portalu Ă”Ä‡Äş
 
                     </a>
 
@@ -1308,7 +1395,7 @@ function InjectModal({
 
           <p className="text-xs text-gray-600 text-center">
 
-            {isManual ? 'Dane logowania zapamiętane w przeglądarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}
+            {isManual ? 'Dane logowania zapamiâ”€Ă–tane w przeglâ”€ĹŻdarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}
 
           </p>
 
@@ -1342,7 +1429,7 @@ function InjectModal({
 
 
 
-// ─── AddPortalModal ────────────────────────────────────────────────────────────
+// Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ AddPortalModal Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
 // D35 (2026-06-30, vse-dev-01): Dynamic profile dropdown + inline profile creation
 
@@ -1456,17 +1543,17 @@ function AddPortalModal({
 
     text.toLowerCase()
 
-      .replace(/[ąàáâãäå]/g, 'a').replace(/[ćčç]/g, 'c')
+      .replace(/[â”€ĹŻâ”śĂˇâ”śĂ­â”śĂłâ”śĂşâ”śÄ„â”śÄ…]/g, 'a').replace(/[â”€Ă§â”€Ĺąâ”śĹľ]/g, 'c')
 
-      .replace(/[ęèéêë]/g, 'e').replace(/[ìíîï]/g, 'i')
+      .replace(/[â”€Ă–â”śÄâ”śÄ™â”śÂ¬â”śĹş]/g, 'e').replace(/[â”śÄŚâ”śĹźâ”śÂ«â”śÂ»]/g, 'i')
 
-      .replace(/[łľ]/g, 'l').replace(/[ńñň]/g, 'n')
+      .replace(/[â”ĽĂ©â”€ĹĽ]/g, 'l').replace(/[â”ĽĂ¤â”śâ–’â”ĽĹ‚]/g, 'n')
 
-      .replace(/[óòôõöő]/g, 'o').replace(/[śšş]/g, 's')
+      .replace(/[â”śâ”‚â”śâ–“â”śâ”¤â”śĂâ”śĂ‚â”ĽÄą]/g, 'o').replace(/[â”ĽĹ¤â”ĽĂ­â”ĽÄŤ]/g, 's')
 
-      .replace(/[ùúûüű]/g, 'u').replace(/[ýÿ]/g, 'y')
+      .replace(/[â”śâ•Łâ”śâ•‘â”śâ•—â”śâ•ťâ”Ľâ–’]/g, 'u').replace(/[â”śĹ»â”śâ”]/g, 'y')
 
-      .replace(/[źżž]/g, 'z').replace(/[đð]/g, 'd')
+      .replace(/[â”Ľâ•‘â”Ľâ•ťâ”ĽĹĽ]/g, 'z').replace(/[â”€Äąâ”śâ–‘]/g, 'd')
 
       .replace(/[^\w-]/g, '-').replace(/-+/g, '-')
 
@@ -1498,7 +1585,7 @@ function AddPortalModal({
 
     if (!name || !url || !wpUser || !wpPassword) {
 
-      setError('Uzupełnij wszystkie pola.')
+      setError('Uzupeâ”ĽĂ©nij wszystkie pola.')
 
       return
 
@@ -1512,7 +1599,7 @@ function AddPortalModal({
 
       if (!newProfileBrand.trim()) {
 
-        setError('Podaj nazwę brandu dla nowego profilu.')
+        setError('Podaj nazwâ”€Ă– brandu dla nowego profilu.')
 
         return
 
@@ -1542,7 +1629,7 @@ function AddPortalModal({
 
         if (!portalSlug || portalSlug.length < 3) {
 
-          setError('Nazwa portalu jest za krótka (min. 3 znaki).')
+          setError('Nazwa portalu jest za krâ”śâ”‚tka (min. 3 znaki).')
 
           setSaving(false)
 
@@ -1576,7 +1663,7 @@ function AddPortalModal({
 
         if (!newProfile) {
 
-          setError('Nie udało się utworzyć profilu. Sprawdź dane.')
+          setError('Nie udaâ”ĽĂ©o siâ”€Ă– utworzyâ”€Ă§ profilu. Sprawdâ”Ľâ•‘ dane.')
 
           setSaving(false)
 
@@ -1620,13 +1707,13 @@ function AddPortalModal({
 
       } else {
 
-        setError('Nie udało się utworzyć portalu.')
+        setError('Nie udaâ”ĽĂ©o siâ”€Ă– utworzyâ”€Ă§ portalu.')
 
       }
 
     } catch (e: unknown) {
 
-      setError(e instanceof Error ? e.message : 'Błąd podczas zapisu')
+      setError(e instanceof Error ? e.message : 'Bâ”ĽĂ©â”€ĹŻd podczas zapisu')
 
     } finally {
 
@@ -1736,7 +1823,7 @@ function AddPortalModal({
 
             <div>
 
-              <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+              <label className="block text-xs text-gray-400 mb-1.5">Uâ”Ľâ•ťytkownik WP</label>
 
               <input
 
@@ -1778,15 +1865,15 @@ function AddPortalModal({
 
 
 
-          {/* Profile selector — dynamic from useProfiles() + inline creation */}
+          {/* Profile selector Ă”Ă‡Ă¶ dynamic from useProfiles() + inline creation */}
 
           <div>
 
-            <label className="block text-xs text-gray-400 mb-1.5">Profil treści</label>
+            <label className="block text-xs text-gray-400 mb-1.5">Profil treâ”ĽĹ¤ci</label>
 
             {profilesLoading ? (
 
-              <div className="text-gray-500 text-xs py-2">Ładowanie profili...</div>
+              <div className="text-gray-500 text-xs py-2">â”ĽĂĽadowanie profili...</div>
 
             ) : (
 
@@ -1814,7 +1901,7 @@ function AddPortalModal({
 
                 <option value="none">(brak profilu)</option>
 
-                <option value="__new__">+ Utwórz nowy profil</option>
+                <option value="__new__">+ Utwâ”śâ”‚rz nowy profil</option>
 
               </select>
 
@@ -1830,7 +1917,7 @@ function AddPortalModal({
 
             <div className="space-y-3 pl-3 border-l-2 border-violet-500/30">
 
-              <p className="text-xs text-violet-400 font-medium">Nowy profil treści</p>
+              <p className="text-xs text-violet-400 font-medium">Nowy profil treâ”ĽĹ¤ci</p>
 
 
 
@@ -1862,7 +1949,7 @@ function AddPortalModal({
 
               <div>
 
-                <label className="block text-xs text-gray-400 mb-1">Domyślny typ publikacji</label>
+                <label className="block text-xs text-gray-400 mb-1">Domyâ”ĽĹ¤lny typ publikacji</label>
 
                 <select
 
@@ -1876,11 +1963,11 @@ function AddPortalModal({
 
                 >
 
-                  <option value="full_analysis">Full Analysis — rozbudowany artykuł SEO</option>
+                  <option value="full_analysis">Full Analysis Ă”Ă‡Ă¶ rozbudowany artykuâ”ĽĂ© SEO</option>
 
-                  <option value="watching_page">Film — krótki artykuł z embedem</option>
+                  <option value="watching_page">Film Ă”Ă‡Ă¶ krâ”śâ”‚tki artykuâ”ĽĂ© z embedem</option>
 
-                  <option value="discover">Discover — format Google Discover</option>
+                  <option value="discover">Discover Ă”Ă‡Ă¶ format Google Discover</option>
 
                 </select>
 
@@ -1892,7 +1979,7 @@ function AddPortalModal({
 
               <div>
 
-                <label className="block text-xs text-gray-400 mb-1">Język SEO</label>
+                <label className="block text-xs text-gray-400 mb-1">Jâ”€Ă–zyk SEO</label>
 
                 <select
 
@@ -1954,7 +2041,7 @@ function AddPortalModal({
 
                     onChange={(e) => setNewProfileExtAnchor(e.target.value)}
 
-                    placeholder="Źródło wideo"
+                    placeholder="â”Ľâ•Łrâ”śâ”‚dâ”ĽĂ©o wideo"
 
                     className={inputClass}
 
@@ -2000,7 +2087,7 @@ function AddPortalModal({
 
             >
 
-              {saving ? 'Zapisywanie...' : showNewProfileForm ? '💾 Utwórz profil i portal' : 'Zapisz portal'}
+              {saving ? 'Zapisywanie...' : showNewProfileForm ? 'Â­ÄŤÄşĹĽ Utwâ”śâ”‚rz profil i portal' : 'Zapisz portal'}
 
             </button>
 
@@ -2022,13 +2109,13 @@ function AddPortalModal({
 
 /**
 
- * CO: ManageSubscriptionLink — przycisk zarządzania subskrypcją Stripe
+ * CO: ManageSubscriptionLink Ă”Ă‡Ă¶ przycisk zarzâ”€ĹŻdzania subskrypcjâ”€ĹŻ Stripe
 
- * PO CO: Użytkownicy Pro/Agency mogą zmienić plan, anulować lub zaktualizować kartę
+ * PO CO: Uâ”Ľâ•ťytkownicy Pro/Agency mogâ”€ĹŻ zmieniâ”€Ă§ plan, anulowaâ”€Ă§ lub zaktualizowaâ”€Ă§ kartâ”€Ă–
 
- *        bez budowania custom UI — Stripe Customer Portal.
+ *        bez budowania custom UI Ă”Ă‡Ă¶ Stripe Customer Portal.
 
- * JAK: Wywołuje GET /v1/payments/portal-session → redirect do Stripe Portal.
+ * JAK: Wywoâ”ĽĂ©uje GET /v1/payments/portal-session Ă”Ä‡Äş redirect do Stripe Portal.
 
  */
 
@@ -2062,7 +2149,7 @@ function ManageSubscriptionLink({ accessToken }: { accessToken?: string }) {
 
     } catch {
 
-      // silent — user stays on dashboard
+      // silent Ă”Ă‡Ă¶ user stays on dashboard
 
     } finally {
 
@@ -2086,7 +2173,7 @@ function ManageSubscriptionLink({ accessToken }: { accessToken?: string }) {
 
     >
 
-      {loading ? '...' : '⚙ Zarządzaj subskrypcją'}
+      {loading ? '...' : 'Ă”ĂśĂ– Zarzâ”€ĹŻdzaj subskrypcjâ”€ĹŻ'}
 
     </button>
 
@@ -2098,7 +2185,7 @@ function ManageSubscriptionLink({ accessToken }: { accessToken?: string }) {
 
 
 
-// ─── Main Dashboard ────────────────────────────────────────────────────────────
+// Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Main Dashboard Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
 
 
@@ -2106,15 +2193,15 @@ export default function DashboardInner() {
 
   /**
 
-   * CO: DashboardPage — główny komponent strony /dashboard
+   * CO: DashboardPage Ă”Ă‡Ă¶ gâ”ĽĂ©â”śâ”‚wny komponent strony /dashboard
 
-   * PO CO: Hub dla użytkownika — generuje SEO z YouTube URL i wyświetla wyniki w czytelnej formie.
+   * PO CO: Hub dla uâ”Ľâ•ťytkownika Ă”Ă‡Ă¶ generuje SEO z YouTube URL i wyâ”ĽĹ¤wietla wyniki w czytelnej formie.
 
-   * JAK: useSession z NextAuth → auth guard. Stan lokalny dla URL, wyników, plan usera.
+   * JAK: useSession z NextAuth Ă”Ä‡Äş auth guard. Stan lokalny dla URL, wynikâ”śâ”‚w, plan usera.
 
    *      Fetch plan przez /v1/users/me (Bearer token z session.accessToken).
 
-   *      Wyniki wyświetlane w 3 zakładkach: Schemat, Artykuł, Rozdziały.
+   *      Wyniki wyâ”ĽĹ¤wietlane w 3 zakâ”ĽĂ©adkach: Schemat, Artykuâ”ĽĂ©, Rozdziaâ”ĽĂ©y.
 
    */
 
@@ -2139,17 +2226,29 @@ export default function DashboardInner() {
   const [activeTab, setActiveTab] = useState<TabKey>('article')
 
   const [showInjectModal, setShowInjectModal] = useState(false)
+
   const [ytModalOpen, setYtModalOpen] = useState(false)
 
   const [ytChannels, setYtChannels] = useState<any[]>([])
+
+
+
   useEffect(() => {
+
     if (!session?.accessToken) return
+
     fetch('/api/youtube/channels', {
+
       headers: { Authorization: `Bearer ${session.accessToken}` }
+
     })
+
       .then((r) => r.ok ? r.json() : [])
+
       .then((data) => setYtChannels(Array.isArray(data) ? data : []))
+
       .catch(() => setYtChannels([]))
+
   }, [session?.accessToken])
 
 
@@ -2189,7 +2288,7 @@ export default function DashboardInner() {
 
 
 
-  // ─── Load from history (?job_id in URL) ─────────────────────────────────
+  // Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Load from history (?job_id in URL) Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -2235,7 +2334,7 @@ export default function DashboardInner() {
 
 
 
-  // Fetch user plan — needed to conditionally show PublishSection
+  // Fetch user plan Ă”Ă‡Ă¶ needed to conditionally show PublishSection
 
   useEffect(() => {
 
@@ -2257,7 +2356,7 @@ export default function DashboardInner() {
 
       } catch {
 
-        // silent — plan check is best-effort
+        // silent Ă”Ă‡Ă¶ plan check is best-effort
 
       }
 
@@ -2270,7 +2369,9 @@ export default function DashboardInner() {
 
 
   const isPro =
+
     (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
+
     (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))
 
 
@@ -2289,7 +2390,7 @@ export default function DashboardInner() {
 
     } catch {
 
-      // clipboard unavailable — silent
+      // clipboard unavailable Ă”Ă‡Ă¶ silent
 
     }
 
@@ -2347,7 +2448,7 @@ export default function DashboardInner() {
 
       try { data = await res.json() } catch {
 
-        throw new Error(`Serwer zwrócił nieprawidłową odpowiedź (HTTP ${res.status})`)
+        throw new Error(`Serwer zwrâ”śâ”‚ciâ”ĽĂ© nieprawidâ”ĽĂ©owâ”€ĹŻ odpowiedâ”Ľâ•‘ (HTTP ${res.status})`)
 
       }
 
@@ -2359,11 +2460,11 @@ export default function DashboardInner() {
 
         if (Array.isArray(detail)) throw new Error(detail.map((d) => d.msg).join(', '))
 
-        throw new Error(typeof detail === 'string' ? detail : `Błąd serwera: HTTP ${res.status}`)
+        throw new Error(typeof detail === 'string' ? detail : `Bâ”ĽĂ©â”€ĹŻd serwera: HTTP ${res.status}`)
 
       }
 
-      if (!data) throw new Error('Pusta odpowiedź serwera')
+      if (!data) throw new Error('Pusta odpowiedâ”Ľâ•‘ serwera')
 
       if (data.error) throw new Error(data.error)
 
@@ -2371,7 +2472,7 @@ export default function DashboardInner() {
 
       const schema = data.schema_data ?? null
 
-      if (!schema) throw new Error('Serwer nie zwrócił schema_data')
+      if (!schema) throw new Error('Serwer nie zwrâ”śâ”‚ciâ”ĽĂ© schema_data')
 
 
 
@@ -2381,7 +2482,7 @@ export default function DashboardInner() {
 
     } catch (err: unknown) {
 
-      setError(err instanceof Error ? err.message : 'Nieznany błąd')
+      setError(err instanceof Error ? err.message : 'Nieznany bâ”ĽĂ©â”€ĹŻd')
 
     } finally {
 
@@ -2432,6 +2533,7 @@ export default function DashboardInner() {
   return (
 
     <ErrorBoundary>
+
       <div className="min-h-screen bg-gray-950 text-white">
 
       {/* Sidebar */}
@@ -2488,7 +2590,7 @@ export default function DashboardInner() {
 
             <div className="flex justify-between text-xs text-gray-500 mb-1">
 
-              <span>Użyto</span>
+              <span>Uâ”Ľâ•ťyto</span>
 
               <span>{usageUsed}/{usageQuota}</span>
 
@@ -2526,7 +2628,7 @@ export default function DashboardInner() {
 
           </div>
 
-          {/* Plan actions — Stripe integration */}
+          {/* Plan actions Ă”Ă‡Ă¶ Stripe integration */}
 
           <div className="flex flex-col gap-1 mb-3">
 
@@ -2538,7 +2640,7 @@ export default function DashboardInner() {
 
             >
 
-              ↑ Zmień plan
+              Ă”Ä‡Äą Zmieâ”ĽĂ¤ plan
 
             </a>
 
@@ -2558,7 +2660,7 @@ export default function DashboardInner() {
 
           >
 
-            → Wyloguj się
+            Ă”Ä‡Äş Wyloguj siâ”€Ă–
 
           </button>
 
@@ -2574,7 +2676,7 @@ export default function DashboardInner() {
 
         <div className="max-w-3xl">
 
-          {/* Email verification banner — soft enforcement (RODO) */}
+          {/* Email verification banner Ă”Ă‡Ă¶ soft enforcement (RODO) */}
 
           <EmailVerificationBanner
 
@@ -2588,13 +2690,13 @@ export default function DashboardInner() {
 
           <p className="text-gray-400 mb-8">
 
-            Wklej URL YouTube — AI wygeneruje schema VideoObject + Clip + FAQPage.
+            Wklej URL YouTube Ă”Ă‡Ă¶ AI wygeneruje schema VideoObject + Clip + FAQPage.
 
           </p>
 
 
 
-          {/* ─── Job loading from history ──────────────────────────────────── */}
+          {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Job loading from history Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
           {jobLoading && (
 
@@ -2602,7 +2704,7 @@ export default function DashboardInner() {
 
               <span className="animate-spin inline-block w-4 h-4 border-2 border-violet-300/30 border-t-violet-400 rounded-full" />
 
-              <span className="text-sm text-violet-300">Ładowanie wyników z historii...</span>
+              <span className="text-sm text-violet-300">â”ĽĂĽadowanie wynikâ”śâ”‚w z historii...</span>
 
             </div>
 
@@ -2612,7 +2714,7 @@ export default function DashboardInner() {
 
             <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
 
-              ⚠️ {jobError}
+              Ă”ĂśĂˇÂ´ĹžÄ† {jobError}
 
             </div>
 
@@ -2622,11 +2724,11 @@ export default function DashboardInner() {
 
             <div className="mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
 
-              <span className="text-xs text-blue-400">📋 Wyniki załadowane z historii</span>
+              <span className="text-xs text-blue-400">Â­ÄŤĂ´Ĺ‘ Wyniki zaâ”ĽĂ©adowane z historii</span>
 
               <Link href="/historia" className="text-xs text-gray-500 hover:text-white ml-auto transition-colors">
 
-                ← Wróć do historii
+                Ă”Ä‡Ă‰ Wrâ”śâ”‚â”€Ă§ do historii
 
               </Link>
 
@@ -2636,7 +2738,7 @@ export default function DashboardInner() {
 
 
 
-          {/* ─── Portal & Publication Type Selector ──────────────────── */}
+          {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Portal & Publication Type Selector Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
           <div className="grid grid-cols-2 gap-3 mb-5">
 
@@ -2652,7 +2754,7 @@ export default function DashboardInner() {
 
                   <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
 
-                  Ładowanie...
+                  â”ĽĂĽadowanie...
 
                 </div>
 
@@ -2684,11 +2786,11 @@ export default function DashboardInner() {
 
                 >
 
-                  <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
+                  <option value="" disabled>Brak portali Ă”Ă‡Ă¶ dodaj pierwszy portal</option>
 
                   <option value="__add__">+ Dodaj nowy portal...</option>
 
-                  <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                  <option value="__manual__">Ă”ĹĄÄ†Â´ĹžÄ† Wpisz râ”€Ă–cznie...</option>
 
                 </select>
 
@@ -2738,7 +2840,7 @@ export default function DashboardInner() {
 
                   <option value="__add__">+ Dodaj nowy portal...</option>
 
-                  <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                  <option value="__manual__">Ă”ĹĄÄ†Â´ĹžÄ† Wpisz râ”€Ă–cznie...</option>
 
                 </select>
 
@@ -2768,11 +2870,11 @@ export default function DashboardInner() {
 
               >
 
-                <option value="full_analysis">📝 Pełna analiza</option>
+                <option value="full_analysis">Â­ÄŤĂ´Ĺ Peâ”ĽĂ©na analiza</option>
 
-                <option value="watching_page">🎬 Strona z filmem</option>
+                <option value="watching_page">Â­ÄŤĂ„ÄŚ Strona z filmem</option>
 
-                <option value="discover">🔍 Discover</option>
+                <option value="discover">Â­ÄŤĂ¶Ĺą Discover</option>
 
               </select>
 
@@ -2782,7 +2884,7 @@ export default function DashboardInner() {
 
 
 
-          {/* ─── URL Form ─────────────────────────────────────────────────── */}
+          {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ URL Form Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
           <form onSubmit={handleGenerate} className="mb-8">
 
@@ -2818,11 +2920,11 @@ export default function DashboardInner() {
 
                 {loading ? (
 
-                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Generuję...</>
+                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Generujâ”€Ă–...</>
 
                 ) : (
 
-                  <>✦ Generuj SEO</>
+                  <>Ă”ĹĄĹ˝ Generuj SEO</>
 
                 )}
 
@@ -2850,11 +2952,11 @@ export default function DashboardInner() {
 
               <div className="mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2">
 
-                <span className="flex-shrink-0 mt-0.5">⚠️</span>
+                <span className="flex-shrink-0 mt-0.5">Ă”ĂśĂˇÂ´ĹžÄ†</span>
 
                 <div>
 
-                  <p className="font-medium mb-0.5">Wystąpił błąd</p>
+                  <p className="font-medium mb-0.5">Wystâ”€ĹŻpiâ”ĽĂ© bâ”ĽĂ©â”€ĹŻd</p>
 
                   <p className="text-red-300/80">{error}</p>
 
@@ -2868,7 +2970,7 @@ export default function DashboardInner() {
 
 
 
-          {/* ─── Empty state stats ────────────────────────────────────────── */}
+          {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Empty state stats Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
           {!result && !loading && (
 
@@ -2878,9 +2980,9 @@ export default function DashboardInner() {
 
               {[
 
-                { label: 'Filmy w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
+                { label: 'Filmy w tym miesiâ”€ĹŻcu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
 
-                { label: 'Benchmark score', value: '8/10', sub: 'vs 2–3/10 konkurencja' },
+                { label: 'Benchmark score', value: '8/10', sub: 'vs 2Ă”Ă‡Ă´3/10 konkurencja' },
 
                 { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },
 
@@ -2902,7 +3004,7 @@ export default function DashboardInner() {
 
 
 
-            {/* ─── WP Integration Panel (always visible) ────────────────────── */}
+            {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ WP Integration Panel (always visible) Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
             <WpQuickPanel />
 
@@ -2912,7 +3014,7 @@ export default function DashboardInner() {
 
 
 
-          {/* ─── Results ──────────────────────────────────────────────────── */}
+          {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Results Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
           {result && (
 
@@ -2930,7 +3032,7 @@ export default function DashboardInner() {
 
                     Video: <span className="font-mono">{result.videoId}</span>
 
-                    {result.time && <> · {result.time.toFixed(1)}s</>}
+                    {result.time && <> â”¬Äš {result.time.toFixed(1)}s</>}
 
                   </p>
 
@@ -2940,7 +3042,7 @@ export default function DashboardInner() {
 
                   <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
 
-                    ✓ Wygenerowano
+                    Ă”ĹĄĂ´ Wygenerowano
 
                   </span>
 
@@ -2954,19 +3056,26 @@ export default function DashboardInner() {
 
                     >
 
-                      🚀 Wyślij do portalu
+                      Â­ÄŤĂśĂ‡ Wyâ”ĽĹ¤lij do portalu
 
                     </button>
 
                   )}
 
                   {ytChannels.length > 0 && (
+
                     <button
+
                       onClick={() => setYtModalOpen(true)}
+
                       className="px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2"
+
                     >
-                      ▶️ Wyślij na YouTube
+
+                      Ă”ÄľĂ‚Â´ĹžÄ† Wyâ”ĽĹ¤lij na YouTube
+
                     </button>
+
                   )}
 
                 </div>
@@ -2975,7 +3084,7 @@ export default function DashboardInner() {
 
 
 
-              {/* ── Tab Bar ───────────────────────────────────────── */}
+              {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Tab Bar Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
               <TabBar
 
@@ -2991,17 +3100,17 @@ export default function DashboardInner() {
 
 
 
-              {/* ── Tab: Schemat ──────────────────────────────────── */}
+              {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Tab: Schemat Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
               {activeTab === 'schema' && (
 
                 <div>
 
-                  {/* Tytuł artykułu */}
+                  {/* Tytuâ”ĽĂ© artykuâ”ĽĂ©u */}
 
                   <ResultSection
 
-                    title="Tytuł artykułu"
+                    title="Tytuâ”ĽĂ© artykuâ”ĽĂ©u"
 
                     copyText={schema?.post_title ?? ''}
 
@@ -3013,7 +3122,7 @@ export default function DashboardInner() {
 
                   >
 
-                    <p className="text-white font-medium">{schema?.post_title ?? '(brak tytułu)'}</p>
+                    <p className="text-white font-medium">{schema?.post_title ?? '(brak tytuâ”ĽĂ©u)'}</p>
 
                     {schema?.focus_keyphrase && (
 
@@ -3091,7 +3200,7 @@ export default function DashboardInner() {
 
 
 
-              {/* ── Tab: Artykuł ──────────────────────────────────── */}
+              {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Tab: Artykuâ”ĽĂ© Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
               {activeTab === 'article' && (
 
@@ -3111,7 +3220,7 @@ export default function DashboardInner() {
 
                       onCopy={handleCopy}
 
-                      label="Kopiuj cały artykuł"
+                      label="Kopiuj caâ”ĽĂ©y artykuâ”ĽĂ©"
 
                     />
 
@@ -3119,13 +3228,13 @@ export default function DashboardInner() {
 
 
 
-                  {/* Tytuł */}
+                  {/* Tytuâ”ĽĂ© */}
 
                   {schema?.post_title && (
 
                     <ResultSection
 
-                      title="Tytuł artykułu"
+                      title="Tytuâ”ĽĂ© artykuâ”ĽĂ©u"
 
                       copyText={schema.post_title}
 
@@ -3151,7 +3260,7 @@ export default function DashboardInner() {
 
                     <ResultSection
 
-                      title="Lead / Wstęp"
+                      title="Lead / Wstâ”€Ă–p"
 
                       copyText={schema.lead}
 
@@ -3175,13 +3284,13 @@ export default function DashboardInner() {
 
 
 
-                  {/* Treść artykułu */}
+                  {/* Treâ”ĽĹ¤â”€Ă§ artykuâ”ĽĂ©u */}
 
                   {schema?.article_body && (
 
                     <ResultSection
 
-                      title="Treść artykułu"
+                      title="Treâ”ĽĹ¤â”€Ă§ artykuâ”ĽĂ©u"
 
                       copyText={schema.article_body}
 
@@ -3213,7 +3322,7 @@ export default function DashboardInner() {
 
                       title={`Cytaty (${quotes.length})`}
 
-                      copyText={quotes.map((q) => `"${q.text ?? ''}" — ${q.author ?? ''}`).join('\n')}
+                      copyText={quotes.map((q) => `"${q.text ?? ''}" Ă”Ă‡Ă¶ ${q.author ?? ''}`).join('\n')}
 
                       copyId="art_quotes"
 
@@ -3233,7 +3342,7 @@ export default function DashboardInner() {
 
                             {q.author && (
 
-                              <footer className="text-xs text-gray-500 mt-1">— {q.author}</footer>
+                              <footer className="text-xs text-gray-500 mt-1">Ă”Ă‡Ă¶ {q.author}</footer>
 
                             )}
 
@@ -3277,7 +3386,7 @@ export default function DashboardInner() {
 
                             <summary className="cursor-pointer text-sm font-medium text-white flex items-center gap-2 select-none">
 
-                              <span className="text-violet-400 group-open:rotate-90 transition-transform inline-block">›</span>
+                              <span className="text-violet-400 group-open:rotate-90 transition-transform inline-block">Ă”Ă‡â•‘</span>
 
                               {item.question ?? '(brak pytania)'}
 
@@ -3311,11 +3420,11 @@ export default function DashboardInner() {
 
                     <div className="text-center py-8 text-gray-500">
 
-                      <p className="text-lg mb-1">📝</p>
+                      <p className="text-lg mb-1">Â­ÄŤĂ´Ĺ</p>
 
-                      <p className="text-sm">Brak treści artykułu w wygenerowanej schemie.</p>
+                      <p className="text-sm">Brak treâ”ĽĹ¤ci artykuâ”ĽĂ©u w wygenerowanej schemie.</p>
 
-                      <p className="text-xs text-gray-600 mt-1">Sprawdź zakładkę Schemat — tam znajdziesz pełne dane JSON-LD.</p>
+                      <p className="text-xs text-gray-600 mt-1">Sprawdâ”Ľâ•‘ zakâ”ĽĂ©adkâ”€Ă– Schemat Ă”Ă‡Ă¶ tam znajdziesz peâ”ĽĂ©ne dane JSON-LD.</p>
 
                     </div>
 
@@ -3327,7 +3436,7 @@ export default function DashboardInner() {
 
 
 
-              {/* ── Tab: Rozdziały ────────────────────────────────── */}
+              {/* Ă”Ă¶Ă‡Ă”Ă¶Ă‡ Tab: Rozdziaâ”ĽĂ©y Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ */}
 
               {activeTab === 'chapters' && (
 
@@ -3335,7 +3444,7 @@ export default function DashboardInner() {
 
                   <ResultSection
 
-                    title={`Rozdziały (${chapters.length})`}
+                    title={`Rozdziaâ”ĽĂ©y (${chapters.length})`}
 
                     copyText={chaptersToText(chapters)}
 
@@ -3367,7 +3476,7 @@ export default function DashboardInner() {
 
                             </span>
 
-                            <span className="text-gray-200 text-sm flex-1">{ch.name ?? ch.label ?? '(bez tytułu)'}</span>
+                            <span className="text-gray-200 text-sm flex-1">{ch.name ?? ch.label ?? '(bez tytuâ”ĽĂ©u)'}</span>
 
                             {ch.endOffset != null && ch.startOffset != null && (
 
@@ -3389,11 +3498,11 @@ export default function DashboardInner() {
 
                       <div className="text-center py-8 text-gray-500">
 
-                        <p className="text-lg mb-1">📑</p>
+                        <p className="text-lg mb-1">Â­ÄŤĂ´Äą</p>
 
-                        <p className="text-sm">Brak rozdziałów w wygenerowanej schemie.</p>
+                        <p className="text-sm">Brak rozdziaâ”ĽĂ©â”śâ”‚w w wygenerowanej schemie.</p>
 
-                        <p className="text-xs text-gray-600 mt-1">Rozdziały wymagają transkryptu z timestampami (format VTT).</p>
+                        <p className="text-xs text-gray-600 mt-1">Rozdziaâ”ĽĂ©y wymagajâ”€ĹŻ transkryptu z timestampami (format VTT).</p>
 
                       </div>
 
@@ -3451,7 +3560,7 @@ export default function DashboardInner() {
 
 
 
-      {/* Inject Modal — pass selected portal so isManual=false for Pro/Agency users [vse-dev-37 fix] */}
+      {/* Inject Modal Ă”Ă‡Ă¶ pass selected portal so isManual=false for Pro/Agency users [vse-dev-37 fix] */}
 
       {showInjectModal && result && (() => {
 
@@ -3464,6 +3573,7 @@ export default function DashboardInner() {
             schemaData={result.raw}
 
             videoUrl={result.inputUrl}
+
             accessToken={accessToken}
 
             onClose={() => setShowInjectModal(false)}
@@ -3473,6 +3583,8 @@ export default function DashboardInner() {
             portalName={selectedPortal?.name}
 
             portalUrl={selectedPortal?.url}
+
+            ytChannels={ytChannels}
 
           />
 
@@ -3494,8 +3606,8 @@ export default function DashboardInner() {
 
         const ytDescription = [
           hook,
-          wpUrl ? `\n\n🔗 Pełny artykuł: ${wpUrl}` : "",
-          chaptersStr ? `\n\n⏱️ Rozdziały:\n${chaptersStr}` : "",
+          wpUrl ? `\n\nÂ­ÄŤĂ¶Ĺš Peâ”ĽĂ©ny artykuâ”ĽĂ©: ${wpUrl}` : "",
+          chaptersStr ? `\n\nĂ”Ä†â–’Â´ĹžÄ† Rozdziaâ”ĽĂ©y:\n${chaptersStr}` : "",
           hashtags ? `\n\n---\n${hashtags}` : "",
         ].join("");
 
@@ -3539,7 +3651,7 @@ export default function DashboardInner() {
 
 
 
-// ─── NavItem helper ────────────────────────────────────────────────────────────
+// Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ NavItem helper Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
 
 
@@ -3609,7 +3721,7 @@ function NavItem({
 
 
 
-// ─── WpQuickPanel ────────────────────────────────────────────────────────────
+// Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡ WpQuickPanel Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡Ă”Ă¶Ă‡
 
 
 
@@ -3617,11 +3729,11 @@ function WpQuickPanel() {
 
   /**
 
-   * CO: Panel integracji WordPress — skrócony widok na pustym stanie dashboardu
+   * CO: Panel integracji WordPress Ă”Ă‡Ă¶ skrâ”śâ”‚cony widok na pustym stanie dashboardu
 
-   * PO CO: Zachęca użytkownika do skonfigurowania portalu WP zanim zacznie generować.
+   * PO CO: Zachâ”€Ă–ca uâ”Ľâ•ťytkownika do skonfigurowania portalu WP zanim zacznie generowaâ”€Ă§.
 
-   * JAK: Statyczny informacyjny panel, link do ustawień.
+   * JAK: Statyczny informacyjny panel, link do ustawieâ”ĽĂ¤.
 
    */
 
@@ -3632,7 +3744,7 @@ function WpQuickPanel() {
 
       <div className="flex items-center gap-3 mb-4">
 
-        <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-base">🔗</div>
+        <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-base">Â­ÄŤĂ¶Ĺš</div>
 
         <div>
 
@@ -3650,7 +3762,7 @@ function WpQuickPanel() {
 
         >
 
-          Konfiguruj →
+          Konfiguruj Ă”Ä‡Äş
 
         </Link>
 
@@ -3660,11 +3772,11 @@ function WpQuickPanel() {
 
         {[
 
-          { icon: '📋', label: 'Kopiuj HTML', desc: 'Schemat gotowy do wklejenia' },
+          { icon: 'Â­ÄŤĂ´Ĺ‘', label: 'Kopiuj HTML', desc: 'Schemat gotowy do wklejenia' },
 
-          { icon: '🚀', label: 'Auto-publish', desc: 'Plan Pro/Agency' },
+          { icon: 'Â­ÄŤĂśĂ‡', label: 'Auto-publish', desc: 'Plan Pro/Agency' },
 
-          { icon: '📊', label: 'SEO Schema', desc: 'VideoObject + Clip + FAQ' },
+          { icon: 'Â­ÄŤĂ´Ĺ', label: 'SEO Schema', desc: 'VideoObject + Clip + FAQ' },
 
         ].map((item) => (
 
