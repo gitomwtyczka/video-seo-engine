@@ -178,26 +178,33 @@ async def inject_endpoint(
         # YouTube Immediate Publish — Scenariusz A
         # ROADMAP F2B: integracja youtube_publish.py — commit [ten commit]
         if req.yt_channel_ids:
-            from api.core.youtube_publish import update_youtube_description
+            from api.core.youtube_publish import update_youtube_description, _get_channel
             from api.db import AsyncSessionLocal
             from api.services.pipeline import _extract_video_id
-            
+
             job_result = req.schema_data or {}
             video_id = _extract_video_id(req.video_url)
             wp_article_url = result.get("post_url")
-            
+
+            # Pobierz footer_text z pierwszego kanału (single-channel case)
+            footer_text = ""
+            async with AsyncSessionLocal() as db_ft:
+                ft_channel = await _get_channel(db_ft, current_user.id, req.yt_channel_ids[0])
+                if ft_channel:
+                    footer_text = ft_channel.footer_text or ""
+
             full_yt_description = build_yt_description(
                 body=job_result.get("youtube_description_body") or job_result.get("youtube_description_hook", ""),
                 wp_url=wp_article_url or "",
                 mid_cta=job_result.get("youtube_mid_cta", ""),
                 chapters=job_result.get("resolved_chapters") or job_result.get("chapters", []),
                 credits=job_result.get("youtube_credits", {}),
-                footer_text="",
+                footer_text=footer_text,
                 hashtags=job_result.get("youtube_hashtags", []),
                 youtube_id=video_id,
                 site_url=site_config_dict.get("wp_base_url", "")
             )
-            
+
             if video_id:
                 try:
                     async with AsyncSessionLocal() as db:
@@ -213,7 +220,7 @@ async def inject_endpoint(
                     yt_results = {"error": str(yt_err)}
             else:
                 yt_results = {"error": "video_id not found in job result"}
-            
+
             result["yt_channels"] = [{"channel_id": k, "status": v} for k, v in yt_results.items()]
             result["youtube_updated"] = True
 
