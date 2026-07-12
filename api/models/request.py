@@ -106,3 +106,7 @@ class YouTubePublishRequest(BaseModel):
     video_id: str
     schema_data: dict  # pełne schema_data z generate — zawiera wszystkie pola YT
     wp_article_url: str = ""  # URL artykułu WP (może być pusty jeśli nie opublikowany)
+
+
+class YouTubeChannelUpdate(BaseModel):
+    footer_text: str
