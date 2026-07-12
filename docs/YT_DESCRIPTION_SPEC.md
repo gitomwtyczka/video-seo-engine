@@ -114,6 +114,23 @@ VSE pipeline:
 
 ---
 
+### M4 — Rozdziały (Timestamps)
+
+**Format techniczny:**
+- Nagłówek: `ROZDZIAŁY:` (bez emoji, bez dwukropka z emoji)
+- Jeden wiersz per rozdział: `00:00 Tytuł rozdziału`
+- Minimum 3 rozdziały, chronologicznie, min. 10s per segment
+
+**Zasady tytułów rozdziałów:**
+- Długość: 4-7 słów, 25-50 znaków (max 60 znaków)
+- Najważniejsza fraza na początku tytułu
+- Opisuj temat, nie strukturę ("Badanie słów kluczowych" nie "Krok 2")
+- Jeden temat per rozdział
+- Jednolita składnia w całej liście
+- Zwykła wielkość liter, bez kropki na końcu, bez hashtagów, bez emoji
+
+---
+
 ## Dispatche (Supervisor 05, 2026-07-12)
 
 - crimson: `sonic-void/.agents/tasks/dispatches/2026-07-12_crimson_yt_endpoint.md`
