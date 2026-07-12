@@ -25,6 +25,7 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, description, cha
   const publish = async () => {
     if (!selected.length) return;
     setStatus("loading");
+    console.log('[YT-DEBUG] videoId:', videoId, 'desc.length:', description.length);
     try {
       const res = await fetch(`${apiUrl}/v1/youtube/publish-description`, {
         method: "POST",
