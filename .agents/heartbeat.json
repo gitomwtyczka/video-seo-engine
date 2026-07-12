@@ -1,13 +1,18 @@
 {
   "callsign": "[vse-dev-01]", 
-  "status": "working", 
-  "current_task": "2026-07-12_krok3b_yt_fix.md - Krok 0 (diagnostyka) i naprawa problemów z polskimi znakami", 
-  "timestamp": "2026-07-12T10:35:05Z", 
+  "status": "done", 
+  "current_task": "2026-07-12_krok3b_yt_fix.md - Naprawa Emoji, Diagnostyka YT, Deploy", 
+  "timestamp": "2026-07-12T11:04:15Z", 
   "last_completed": [
     "Naprawa błędu kodowania polskich znaków na frontendzie za pomocą bezpiecznej aktualizacji plików via GitHub API (dashboard-inner.tsx, YouTubePublishModal.tsx) - commit e6e588ca6c66b5dfff5dfb5f8881e490b6b2c91f",
     "Poprawa ekstrakcji ID filmu (videoId) za pomocą bezpiecznego RegExp, eliminująca błąd `Blad: video_id is required` - commit a21437d8a716fe35df80dcb6c210db50c9234d22",
     "Poprawa renderowania guzika `Wyślij na YouTube` jako zawsze widocznego na ekranie zamiast warunkowego - commit e6e588ca6c66b5dfff5dfb5f8881e490b6b2c91f",
-    "Deploy najnowszej wersji web applikacji do kontenera docker `vse-web` na serwerze produkcyjnym (Oracle VPS)"
+    "Deploy najnowszej wersji web applikacji do kontenera docker `vse-web` na serwerze produkcyjnym (Oracle VPS)",
+    "Diagnostyka Krok 3B - Zidentyfikowano brak yt_hook i vid w transcript_jobs (Krok 0C)",
+    "Naprawiono błędne emoji w dashboard-inner.tsx modyfikując wartości bitowe - commit a5542904bce741f694724b382a2b0441b1329f25",
+    "Dodano console.log dla '[YT-DEBUG] videoId:' w YouTubePublishModal.tsx - commit 49a94b392674737cb5c7987db16cc166843d4348",
+    "Zapisano dual-write raport z wykonanego zadania Krok 3B yt_fix",
+    "Wykonano Deploy vse-web"
   ],
   "pending": []
 }
