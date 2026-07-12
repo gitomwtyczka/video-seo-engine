@@ -7,13 +7,14 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   videoId: string;
-  description: string;
+  schemaData: any;
+  wpUrl: string;
   channels: Channel[];
   accessToken: string;
   apiUrl: string;
 }
 
-export function YouTubePublishModal({ isOpen, onClose, videoId, description, channels, accessToken, apiUrl }: Props) {
+export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUrl, channels, accessToken, apiUrl }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState<"idle"|"loading"|"done"|"error">("idle");
   const [result, setResult] = useState<Record<string,string>>({});
@@ -25,12 +26,12 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, description, cha
   const publish = async () => {
     if (!selected.length) return;
     setStatus("loading");
-    console.log('[YT-DEBUG] videoId:', videoId, 'desc.length:', description.length);
+    console.log('[YT-DEBUG] videoId:', videoId, 'schemaData keys:', Object.keys(schemaData).length);
     try {
       const res = await fetch(`${apiUrl}/v1/youtube/publish-description`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(accessToken && { Authorization: `Bearer ${accessToken}` }) },
-        body: JSON.stringify({ channel_ids: selected, video_id: videoId, description }),
+        body: JSON.stringify({ channel_ids: selected, video_id: videoId, schema_data: schemaData, wp_article_url: wpUrl }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Błąd");
