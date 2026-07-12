@@ -43,15 +43,16 @@ async def _save_refreshed_token(db: AsyncSession, channel: YouTubeChannel, creds
         channel.refresh_token = creds.refresh_token
         await db.commit()
 
-async def update_youtube_description(
+async def update_youtube_metadata(
     db: AsyncSession,
     user_id: int,
     channel_ids: list[str],
     video_id: str,
     new_description: str,
+    new_title: str | None = None,
 ) -> dict:
     """
-    Aktualizuje opis wideo na YouTube dla każdego z podanych kanałów.
+    Aktualizuje metadane wideo na YouTube dla każdego z podanych kanałów.
     Zwraca dict: {channel_id: "ok" | "error: <msg>"}
     """
     results = {}
@@ -84,8 +85,12 @@ async def update_youtube_description(
                 
             snippet = video_response["items"][0]["snippet"]
             
-            # Zaktualizuj tylko opis
+            # Zaktualizuj opis
             snippet["description"] = new_description
+            
+            # Zaktualizuj tytuł jeśli podano
+            if new_title:
+                snippet["title"] = new_title
             
             # API Update request
             youtube.videos().update(
@@ -99,7 +104,7 @@ async def update_youtube_description(
             results[channel_id] = "ok"
 
         except Exception as e:
-            logger.error("Error updating YT description for channel %s: %s", channel_id, e)
+            logger.error("Error updating YT metadata for channel %s: %s", channel_id, e)
             results[channel_id] = f"error: {str(e)}"
 
     return results
