@@ -1141,11 +1141,11 @@ function InjectModal({
 
           {/* YouTube Channels */}
 
-          {ytChannels && ytChannels.length > 0 && (
+          <div className="mb-4">
 
-            <div className="mb-4">
+            <label className="block text-xs text-gray-400 mb-1.5">Dodatkowo: Opublikuj opis na YouTube</label>
 
-              <label className="block text-xs text-gray-400 mb-1.5">Dodatkowo: Opublikuj opis na YouTube</label>
+            {ytChannels && ytChannels.length > 0 ? (
 
               <div className="space-y-2 max-h-32 overflow-y-auto bg-gray-800/50 p-2 rounded-lg border border-gray-700">
 
@@ -1179,9 +1179,27 @@ function InjectModal({
 
               </div>
 
-            </div>
+            ) : (
 
-          )}
+              <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+
+                <p className="text-xs text-amber-500/90 flex items-center gap-1.5">
+
+                  ⚠️ Brak podłączonych kanałów YouTube.
+
+                  <a href="/ustawienia" target="_blank" rel="noreferrer" className="underline hover:text-amber-400 transition-colors ml-1">
+
+                    Przejdź do ustawień
+
+                  </a>
+
+                </p>
+
+              </div>
+
+            )}
+
+          </div>
 
 
 
@@ -2239,7 +2257,7 @@ export default function DashboardInner() {
 
     if (!session?.accessToken) return
 
-    fetch('/api/youtube/channels', {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/youtube/channels`, {
 
       headers: { Authorization: `Bearer ${session.accessToken}` }
 
