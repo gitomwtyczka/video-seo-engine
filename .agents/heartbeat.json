@@ -1,12 +1,11 @@
 {
-  "callsign": "vse-research",
+  "callsign": "vse-dev-01",
   "status": "done",
-  "current_task": "Badanie przepływu schema_data i diagnoza gubienia youtube_description_body",
-  "timestamp": "2026-07-12T18:01:00Z",
+  "current_task": "Wdrożenie ominięcia legacy YouTube przy Immediate Publish",
+  "timestamp": "2026-07-12T18:12:00Z",
   "last_completed": [
-    "Diagnoza przepływu schema_data — commit 8b793362 (2026-07-12)"
+    "Wyłączenie legacy yt_update_enabled dla Scenariusza A — commit d6735e082c6 (2026-07-12)",
+    "Deploy vse-api (Oracle Cloud) — 2026-07-12"
   ],
-  "pending": [
-    "Poprawka integracji youtube_publish.py / core.injector (FIX B) — pending"
-  ]
+  "pending": []
 }
