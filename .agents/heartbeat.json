@@ -1,12 +1,13 @@
-{
-  "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "",
-  "timestamp": "2026-07-12T19:46:00Z",
-  "last_completed": [
-    "vse-fix2: server-side build_yt_description in publish-description endpoint — commit be7b70bc889c4fbcc40376604b5ff5c926a453fa (2026-07-12)"
-  ],
-  "pending": [
-    "TODO: aktualizacja tytułu na YT przez endpoint publish-description (wymaga poszerzenia YouTubePublishRequest i YT API)"
-  ]
+﻿{
+    "timestamp":  "2026-07-12T22:00:52.4901160+02:00",
+    "last_completed":  [
+                           "vse-fix2: server-side build_yt_description in publish-description endpoint — commit be7b70bc889c4fbcc40376604b5ff5c926a453fa (2026-07-12)",
+                           "handoff file created — commit 23fcbc63b65cc58f2115b55f7e5ac82563d74e07"
+                       ],
+    "callsign":  "vse-dev-01",
+    "current_task":  "",
+    "pending":  [
+                    "TODO: aktualizacja tytułu na YT przez endpoint publish-description (wymaga poszerzenia YouTubePublishRequest i YT API)"
+                ],
+    "status":  "handoff"
 }
