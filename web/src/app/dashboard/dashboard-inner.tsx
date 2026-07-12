@@ -3663,12 +3663,15 @@ export default function DashboardInner() {
         const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || "";
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
-        const ytDescription = [
+        const pressaiBody = result.raw?.seo?.youtube_description_body;
+        const legacyDescription = [
           hook,
           wpUrl ? `\n\n🚀 Pełny artykuł: ${wpUrl}` : "",
           chaptersStr ? `\n\n⏱️ Rozdziały:\n${chaptersStr}` : "",
           hashtags ? `\n\n---\n${hashtags}` : "",
         ].join("");
+        
+        const ytDescription = pressaiBody ? pressaiBody : legacyDescription;
 
         return (
           <YouTubePublishModal
