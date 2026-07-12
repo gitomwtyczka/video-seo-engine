@@ -2,12 +2,12 @@
   "callsign": "[vse-dev-01]", 
   "status": "done", 
   "current_task": "Krok 3B v2 — Frontend YouTube Publishing i Fixes", 
-  "timestamp": "2026-07-12T09:12:00Z", 
+  "timestamp": "2026-07-12T09:44:00Z", 
   "last_completed": [
-    "Naprawa błędu ReferenceError: ytChannels — commit X (2026-07-12)", 
-    "Naprawa kodowania (polskie znaki) w dashboard-inner.tsx",
-    "Dodanie obsługi braku kanałów YT — pokazuj informacje i link do ustawień zamiast ukrywać przyciski",
-    "Deploy vse-web na VPS"
-  ], 
+    "Naprawa błędu kodowania polskich znaków na frontendzie za pomocą bezpiecznej aktualizacji plików via GitHub API (dashboard-inner.tsx, YouTubePublishModal.tsx) - commit e6e588ca6c66b5dfff5dfb5f8881e490b6b2c91f",
+    "Poprawa ekstrakcji ID filmu (videoId) za pomocą bezpiecznego RegExp, eliminująca błąd `Blad: video_id is required` - commit a21437d8a716fe35df80dcb6c210db50c9234d22",
+    "Poprawa renderowania guzika `Wyślij na YouTube` jako zawsze widocznego na ekranie zamiast warunkowego - commit e6e588ca6c66b5dfff5dfb5f8881e490b6b2c91f",
+    "Deploy najnowszej wersji web applikacji do kontenera docker `vse-web` na serwerze produkcyjnym (Oracle VPS)"
+  ],
   "pending": []
 }
