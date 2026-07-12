@@ -1,51 +1,62 @@
-# YouTube Description Spec — VSE
-**Wersja:** 1.0 | **Data:** 2026-07-12 | **Status:** DO ZATWIERDZENIA
+# YouTube Description Pipeline — VSE
+**Wersja:** 2.2-FINAL | **Data:** 2026-07-12 | **Status:** ZATWIERDZONE — IMPLEMENTACJA W TOKU
 
-## TL;DR
-Wdrażamy nową, wielosekcyjną strukturę opisu wideo dla YouTube zoptymalizowaną pod kątem SEO (2024/2025) oraz konwersji użytkowników. Zamiast samego krótkiego "hooka", system będzie generował pełnoprawny, modułowy opis zawierający hook, rozwinięcie z frazami kluczowymi, link do pełnego artykułu jako CTA, rozdziały (timestamps), stałą stopkę per-kanał oraz zoptymalizowane hashtagi.
+> ✅ Spec zatwierdzony przez właściciela projektu 2026-07-12
+> 🔄 Decyzja architektoniczna: generowanie treści YT przeniesione do PressAI (crimson-void)
 
-## Aktualna struktura (stan obecny)
-* **youtube_description_hook**: max 200 znaków (2-3 zdania). Posiada pierwszą frazę kluczową. Brak pełnego rozwinięcia (body opisu).
-* **youtube_hashtags**: dokładnie 3 hashtagi, generowane przez LLM, dołączane na samym końcu.
-* **Rozdziały**: Doklejane w kodzie (`inject.py`), jeśli istnieją w wyniku, ze znacznikiem "⏱️ Rozdziały:".
-* **Brak stopki (UI/Backend)**: Brak spersonalizowanej stopki per kanał w publikowanych opisach, pomimo istnienia gotowego pola `footer_text` w modelu `YouTubeChannel`.
-* **Złożenie całości (w kodzie)**: Hook + opcjonalny link do posta WP + rozdziały + hashtagi.
+---
 
-## Proponowana struktura (nowa)
-[SEKCJA 1: HOOK — widoczne bez klikania "Więcej"]
-* **Długość:** max 200 znaków (2-3 zdania).
-* **Uzasadnienie:** Pierwsze 1-2 linie są decydujące dla Click-Through Rate (CTR). Jest to jedyny fragment tekstu, który widz widzi na pierwszy rzut oka (Mobile / Desktop). Musi zawierać główną frazę kluczową dla algorytmu wyszukiwania.
+## Decyzja architektoniczna (ADR-001)
 
-[SEKCJA 2: ROZWINIĘCIE I CTA DO ARTYKUŁU — po "Więcej"]
-* **Długość:** ok. 150-300 znaków (1 krótki akapit).
-* **Elementy:** Krótkie streszczenie (rozwinięcie hooka przez LLM) oraz wyraźne Call To Action zachęcające do przeczytania pełnego artykułu wraz z wygenerowanym linkiem do WP.
-* **Uzasadnienie:** Zwiększenie nasycenia semantycznymi frazami (LSI). Badania wykazują, że tzw. mid-description CTA wykazuje wysoką konwersję na użytkownikach już zaangażowanych w dany wątek.
+**Data:** 2026-07-12 | **Supervisor 05**
 
-[SEKCJA 3: ROZDZIAŁY/TIMESTAMPS]
-* **Format:** `MM:SS Tytuł rozdziału`. Min. długość segmentu 10s. Start zawsze od `00:00`.
-* **Ilość:** Minimum 3 (wyliczane dynamicznie, zależnie od długości materiału).
-* **Uzasadnienie:** Potężny czynnik SEO pozwalający na indeksowanie fragmentów filmu jako "Key Moments" bezpośrednio w Google Search. Znacząco poprawia retencję oraz user-experience.
+**Kontext:** VSE miał samodzielnie generować opis YT przez `core/generator.py`. Odkryto, że:
+- PressAI (press.impresjapr.pl / crimson-void) to centralny silnik LLM ekosystemu
+- `article_formats.yaml` zawiera system formatów treści + już istnieje `video_satellite`
+- PressAI przyjmuje `.vtt` natywnie jako źródło danych
+- Duplikacja logiki LLM w VSE = dług techniczny
 
-[SEKCJA 4: STOPKA I CTA KOŃCOWE]
-* **Elementy:** Blok tekstowy zdefiniowany w bazie na poziomie kanału (`YouTubeChannel.footer_text`) np. z linkami do social mediów, główną domeną, linkami wsparcia zbiórek.
-* **Uzasadnienie:** Wzmocnienie brandingu mediów i utrzymanie użytkowników w ekosystemie witryny. Realizuje m.in. cele charytatywne/donate dla NGO.
+**Decyzja:** Generowanie treści (body, mid-CTA, credits, hashtagi) → PressAI.
+Sładanie struktury (timestamps, link, stopka, guard 5000 zn) → VSE `inject.py`.
 
-[SEKCJA 5: HASHTAGI]
-* **Ilość:** Dokładnie 3.
-* **Uzasadnienie:** Umieszczane na samym dole opisu, służą główniej do podstawowej asocjacji wideo. YouTube obniża wartość filmów spamujących tagami.
+**Architektura:**
+```
+VSE pipeline:
+  1. Generuje SEO schema (generator.py) — bez pól YT
+  2. POST press.impresjapr.pl/api/external/generate-yt-description
+     { vtt_content, video_title, chapters, focus_keyphrases, ... }
+  3. PressAI → { youtube_description_body, youtube_mid_cta,
+                   youtube_credits, youtube_hashtags }
+  4. inject.py składa moduły M1-M8 w finalny opis
+  5. Fallback: stary youtube_description_hook z generatora
+```
 
-## Przykład gotowego opisu (prawy.pl)
-Czy Donald Tusk i obecny rząd celowo osłabiają państwo polskie? Analizujemy najnowsze decyzje rządu i ich wpływ na suwerenność. Zobacz kluczowe informacje!
+---
 
-W dzisiejszym materiale szczegółowo omawiamy kontrowersyjne posunięcia obecnego obozu władzy. Wraz z naszymi ekspertami dyskutujemy o procesach centralizacji władzy, zmianach w kluczowych urzędach oraz konsekwencjach w polityce zagranicznej, które mogą uderzyć w polską niezależność.
-🔗 Przeczytaj pełną analizę na naszym portalu: https://prawy.pl/jakis-artykul-polityczny
+## Struktura modułowa opisu (9 modułów)
 
-⏱️ Rozdziały:
-00:00 - Donald Tusk uderza w podstawy państwa polskiego
-04:15 - Nowe ustawy a niezależność sądownictwa
-08:30 - Relacje z Unią Europejską i uległość rządu
-12:45 - Co dalej z suwerennością Polski? Podsumowanie
+| # | Moduł | Kto | Rozmiar |
+|---|--------|-----|--------|
+| M1 | Hook + body semantyczny | **PressAI** | 350–900 zn (elastyczny) |
+| M2 | Link do artykułu WP | inject.py | ~60 zn |
+| M3 | Mid-CTA kontekstowe | **PressAI** | max 120 zn |
+| M4B | Cytaty z deep linkami | inject.py | op., 2-3 cytaty |
+| M5 | Timestamps / rozdziały | inject.py | auto, jeśli ≥3 |
+| M6 | Autorstwo / ƽródła | **PressAI** | 1-2 linie |
+| M7 | Stopka per-kanał | inject.py | max 600 zn |
+| M8 | Hashtagi | **PressAI** | dokładnie 3 |
+| GUARD | Limit 5000 zn | inject.py | cięcie z `...` |
 
+**Body:** 350-450 zn news | 500-900 zn wywiad/analiza
+**Stopka:** pełna (wersja prawy.pl wklejona przez użytkownika)
+**Mid-CTA:** kontekstowe, np. *"Subskrybuj, aby nie przegapić kolejnych analiz polskiej polityki. 🔔"*
+**Autorstwo:** szukane w transkrypcie, jeśli brak — podaje imię i nazwisko
+
+---
+
+## Stopka PressAI (prawy.pl) — treść produkcyjna
+
+```
 📺 PRAWY.PL — Niezależne media
 🌐 https://prawy.pl
 📘 Facebook: https://www.facebook.com/PortalPrawy/
@@ -56,34 +67,56 @@ W dzisiejszym materiale szczegółowo omawiamy kontrowersyjne posunięcia obecne
 👶 Fundacja S.O.S. Obrony Poczętego Życia
    Nr konta: 32 1140 1010 0000 4777 8600 1001
    KRS: 0000215438
-
----
-#polityka #polska #rząd
-
-## Zmiany w prompcie LLM (generator.py)
-Zamiast obecnej instrukcji nr 12 (`youtube_description_hook`), proponujemy wdrożyć nową `youtube_description_body`, która wygeneruje zarówno hook, jak i merytoryczne rozwinięcie:
-
-```text
-12. **youtube_description_body** — max 500 znaków. Pełny, angażujący opis wideo dla YouTube.
-    ZASADY:
-    - Pierwsze 1-2 zdania to HOOK (widoczny bez rozwijania). PIERWSZE zdanie MUSI zawierać główną frazę z focus_keyphrases[0].
-    - Kolejne zdania to ROZWINIĘCIE tematu, zawierające warianty fraz kluczowych. Zbudowane tak, aby zainteresować widza szerszym kontekstem.
-    - BEZ hashtagów i BEZ linków (zostaną dodane automatycznie w kodzie VSE).
-13. **youtube_hashtags** — lista dokładnie 3 hashtagów jako JSON array (np. ["#polityka", "#historia", "#Polska"]). Unikaj znaków specjalnych. Tylko istotne tematycznie.
 ```
 
-W module `inject.py` złożenie elementów będzie dynamiczne:
-`[youtube_description_body] + \n\n🔗 Przeczytaj... [url] + \n\n⏱️ Rozdziały:\n[chapters] + \n\n[channel.footer_text] + \n\n---\n[hashtags]`
+---
 
-## UI — stopka per-user (dashboard front-end)
-* **Lokalizacja w UI:** Dashboard → "Moje Kanały YouTube" (sekcja powiązanych kont/kanałów).
-* **Konfiguracja na poziom:** Per-kanał (ponieważ instancja modelu to `YouTubeChannel`, a Prawy.pl może np. mieć osobny kanał MediaNarodowe pod tym samym loginem).
-* **Komponent:** Wieloliniowe pole tekstowe (Textarea) z etykietą np. "Domyślna stopka opisu wideo (dodawana pod rozdziałami)". Opcjonalnie obok okienko mockujące podgląd opisu na YT na żywo.
-* **Limit znaków:** Ograniczenie Textarea do ok. 2000 znaków (aby z hookiem i rozdziałami zmieścić się w twardym limicie YouTube Data API, który wynosi 5000 znaków).
-* **UX dodawania:** Standardowy modal lub panel ustawień kanału, z asynchronicznym zapisem (PUT /api/channels/:id). Przy publikacji `inject.py` połączy tekst z wygenerowanym kontentem.
+## Roadmapa implementacji
 
-## Otwarte pytania do Supervisora
-1. **Delegacja kompozycji:** Czy akceptujemy złożenie całego opisu (body, link, rozdziały, footer) po stronie back-endu (`inject.py`), a nie generatora, co zagwarantuje 100% kontroli i ochronę przed błędami parsowania URLi / Footerów zapytań LLM?
-2. **Kolejność Mid-CTA:** Czy link (CTA) do pełnego artykułu WP powinien zawsze znajdować się przed rozdziałami (tak jak w powyższym prompcie) czy bezpośrednio pod nimi?
-3. **Draft Mode:** Czy przewidujemy fallback na tekst np. "🔗 Odwiedź nasz portal: [domena]", jeśli link na WordPress się jeszcze nie wygenerował? (wymaga domeny w konfiguracji).
-4. **Scope prac:** Czy rozszerzenie front-endu o okno konfiguracji stopki robimy w ramach tego samego sprintu, czy najpierw sam silnik na back-endzie wprowadzający pole w użycie?
+### ✅ Zamknięte (Supervisor 05, 2026-07-12)
+- [x] Analiza SEO najlepszych praktyk (ChatGPT + Gemini audit)
+- [x] Spec v2.2 finalny — 9 modułów, elastyczna długość body
+- [x] Decyzja architektoniczna ADR-001 (PressAI jako silnik LLM)
+- [x] Dispatch crimson-dev: endpoint `/api/external/generate-yt-description`
+- [x] Dispatch vse-dev: integracja pipeline + `build_yt_description()`
+- [x] Backupy obu repo zaplanowane w dispatchu (Krok 0)
+
+### 🟡 W toku (workery, model: Gemini Pro 3.1 High)
+- [ ] `crimson-void`: nowy format `youtube_description` w `article_formats.yaml`
+- [ ] `crimson-void`: endpoint POST `/api/external/generate-yt-description`
+- [ ] `video-seo-engine`: `fetch_yt_description_from_pressai()` w `pipeline.py`
+- [ ] `video-seo-engine`: `build_yt_description()` w `inject.py`
+- [ ] Deploy VSE API (`vse-api` container)
+
+### 🔵 Roadmapa P2 (następna sesja po wdrożeniu P1)
+- [ ] UI stopki: Textarea w dashboard → `YouTubeChannel.footer_text`
+- [ ] Fix emoji (UTF-8 corruption) w dashboard UI
+- [ ] M4B: cytaty z deep linkami (fuzzy match VTT → timestamp)
+
+### 🔴 Roadmapa P3 (przyszłościowe)
+- [ ] Auto-sync: webhook WordPress → refresh opisu YT gdy artykuł zaktualizowany
+  - ƽródło: analiza VSE SEO audit (plik: `D:\Biblioteki\VSE\Rozwój plany\opis na youtube...txt`)
+  - Mechanizm: diff-checker URL treści + prze-generowanie opisu przy zmianie
+- [ ] YouTube A/B Title Testing: generowanie wariantów tytułów + thumbnail copy
+  - Uwaga: YT Studio obsługuje A/B eksperymentalnie — generujemy warianty, user wkleja ręcznie
+
+---
+
+## Pliki kluczowe
+
+| Plik | Repo | Rola |
+|------|------|------|
+| `backend/article_formats.yaml` | crimson-void | Format `youtube_description` |
+| `backend/routers/external.py` | crimson-void | Endpoint generowania |
+| `api/services/pipeline.py` | video-seo-engine | Wywołanie PressAI |
+| `api/routers/inject.py` | video-seo-engine | `build_yt_description()` |
+| `core/generator.py` | video-seo-engine | Fallback (stary hook) |
+
+---
+
+## Dispatche (Supervisor 05, 2026-07-12)
+
+- crimson: `sonic-void/.agents/tasks/dispatches/2026-07-12_crimson_yt_endpoint.md`
+- vse: `sonic-void/.agents/tasks/dispatches/2026-07-12_vse_yt_integration.md`
+
+*Ostatnia aktualizacja: 2026-07-12 [Supervisor 05]*
