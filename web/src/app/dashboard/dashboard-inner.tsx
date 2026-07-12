@@ -3663,22 +3663,13 @@ export default function DashboardInner() {
         const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || "";
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
-        const pressaiBody = result.raw?.seo?.youtube_description_body;
-        const legacyDescription = [
-          hook,
-          wpUrl ? `\n\n🚀 Pełny artykuł: ${wpUrl}` : "",
-          chaptersStr ? `\n\n⏱️ Rozdziały:\n${chaptersStr}` : "",
-          hashtags ? `\n\n---\n${hashtags}` : "",
-        ].join("");
-        
-        const ytDescription = pressaiBody ? pressaiBody : legacyDescription;
-
         return (
           <YouTubePublishModal
             isOpen={ytModalOpen}
             onClose={() => setYtModalOpen(false)}
             videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || ""}
-            description={ytDescription}
+            schemaData={result.raw?.seo ?? {}}
+            wpUrl={wpUrl}
             channels={ytChannels}
             accessToken={accessToken || ""}
             apiUrl={apiUrl}
