@@ -1,13 +1,13 @@
 {
-  "callsign": "vse-dev-02",
+  "callsign": "vse-analyst",
   "status": "done",
-  "current_task": "Zaimplementowano aktualizację tytułu wideo na YouTube oraz endpoint dla aktualizacji stopki per-kanał",
-  "timestamp": "2026-07-12T20:10:00Z",
+  "current_task": "Analiza braku UI podglądu YT oraz footer_text na froncie",
+  "timestamp": "2026-07-12T21:59:00Z",
   "last_completed": [
-    "Aktualizacja API do obsługi YouTube title i footer_text",
-    "Dodano endpoint PUT /v1/youtube/channels/{channel_id}"
+    "Raport dual-write: 2026-07-12_vse-analyst_ui-preview-footer.md"
   ],
   "pending": [
-    "UI na frontendzie do edycji footer_text"
+    "Dodać UI (textarea) dla YouTubePublishModal / InjectModal",
+    "Dodać pole footer_text w ustawieniach kanału"
   ]
 }
