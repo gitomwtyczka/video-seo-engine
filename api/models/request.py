@@ -104,5 +104,5 @@ class SitemapRequest(BaseModel):
 class YouTubePublishRequest(BaseModel):
     channel_ids: List[str]
     video_id: str
-    description: str  # pelny zlozony opis — frontend sklada z czesci
-    wp_article_url: str = ""  # opcjonalny — jesli WP opublikowany wczesniej
+    schema_data: dict  # pełne schema_data z generate — zawiera wszystkie pola YT
+    wp_article_url: str = ""  # URL artykułu WP (może być pusty jeśli nie opublikowany)
