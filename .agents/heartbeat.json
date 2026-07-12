@@ -1,13 +1,13 @@
 {
   "callsign": "[vse-dev-01]", 
   "status": "done", 
-  "current_task": "Krok 3B v2 — Frontend YouTube Publishing", 
-  "timestamp": "2026-07-12T08:43:00Z", 
+  "current_task": "Krok 3B v2 — Frontend YouTube Publishing i Fixes", 
+  "timestamp": "2026-07-12T09:12:00Z", 
   "last_completed": [
-    "Przywrócenie checkboxów YT do InjectModal — commit 09a4ce3 (2026-07-12)", 
-    "Nowy komponent YouTubePublishModal — commit fb53647 (2026-07-12)", 
-    "Deploy vse-web na VPS",
-    "Dual-write raportu wysłany do sonic-void"
+    "Naprawa błędu ReferenceError: ytChannels — commit X (2026-07-12)", 
+    "Naprawa kodowania (polskie znaki) w dashboard-inner.tsx",
+    "Dodanie obsługi braku kanałów YT — pokazuj informacje i link do ustawień zamiast ukrywać przyciski",
+    "Deploy vse-web na VPS"
   ], 
   "pending": []
 }
