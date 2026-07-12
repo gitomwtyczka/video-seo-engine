@@ -703,6 +703,8 @@ function InjectModal({
 
   onClose,
 
+  ytChannels,
+
 }: {
 
   schemaData: SchemaData
