@@ -142,18 +142,44 @@ async def publish_youtube_description(
     Endpoint niezalezny od /v1/inject — WP i YT sa osobnymi akcjami.
     ROADMAP F2B: YouTube Publishing Scenariusz A — Immediate Publish
     """
-    from api.core.youtube_publish import update_youtube_description
+    from api.core.youtube_publish import update_youtube_description, _get_channel
+    from api.routers.inject import build_yt_description
 
     if not req.channel_ids:
         raise HTTPException(status_code=400, detail="channel_ids cannot be empty")
     if not req.video_id:
         raise HTTPException(status_code=400, detail="video_id is required")
 
-    results = await update_youtube_description(
-        db=db,
-        user_id=current_user.id,
-        channel_ids=req.channel_ids,
-        video_id=req.video_id,
-        new_description=req.description,
-    )
+    results = {}
+    seo = req.schema_data
+
+    for channel_id in req.channel_ids:
+        # Pobierz footer_text z DB
+        footer_text = ""
+        ft_channel = await _get_channel(db, current_user.id, channel_id)
+        if ft_channel:
+            footer_text = ft_channel.footer_text or ""
+
+        full_description = build_yt_description(
+            body=seo.get("youtube_description_body") or seo.get("youtube_description_hook", ""),
+            wp_url=req.wp_article_url or "",
+            mid_cta=seo.get("youtube_mid_cta", ""),
+            chapters=seo.get("resolved_chapters") or seo.get("chapters", []),
+            credits=seo.get("youtube_credits", {}),
+            footer_text=footer_text,
+            hashtags=seo.get("youtube_hashtags", []),
+            youtube_id=req.video_id,
+            site_url="",
+        )
+
+        # Uzywamy zaktualizowanego opisu dla tego kanalu
+        res = await update_youtube_description(
+            db=db,
+            user_id=current_user.id,
+            channel_ids=[channel_id],
+            video_id=req.video_id,
+            new_description=full_description,
+        )
+        results.update(res)
+
     return {"results": results, "video_id": req.video_id}
