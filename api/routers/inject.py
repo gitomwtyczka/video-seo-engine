@@ -25,6 +25,83 @@ router = APIRouter(prefix="/v1", tags=["inject"])
 logger = logging.getLogger(__name__)
 
 
+def build_yt_description(
+    body: str,
+    wp_url: str,
+    mid_cta: str,
+    chapters: list,
+    credits: dict,
+    footer_text: str,
+    hashtags: list,
+    youtube_id: str,
+    site_url: str = "",
+) -> str:
+    """
+    Składa pełny opis YouTube z modułów wg Spec v2.2-FINAL.
+    Moduły: body → link → mid-CTA → timestamps → credits → footer → hashtagi
+    """
+    parts = [body.strip()]
+
+    # M2: Link do artykułu
+    if wp_url:
+        parts.append(f"\n\n🔗 Pełna analiza i źródła: {wp_url}")
+    elif site_url:
+        parts.append(f"\n\nWięcej na: {site_url}")
+
+    # M3: Mid-CTA
+    if mid_cta:
+        parts.append(f"\n\n{mid_cta}")
+
+    # M4: Timestamps
+    if chapters and len(chapters) >= 3:
+        ch_lines = []
+        for ch in chapters:
+            ts = ch.get("timestamp") or ch.get("time_str", "") or ch.get("label", "")
+            label = ch.get("label", "")
+            if ts and label and ts != label:
+                ch_lines.append(f"{ts} - {label}")
+            elif ts and label:
+                ch_lines.append(f"{ts} {label}")
+        if ch_lines:
+            parts.append("\n\n⏱️ Rozdziały:\n" + "\n".join(ch_lines))
+
+    # M5: Credits
+    if credits:
+        host = credits.get("host", "")
+        guest = credits.get("guest", "")
+        mat_type = credits.get("material_type", "")
+        from datetime import date
+        today = date.today().strftime("%d.%m.%Y")
+        credit_lines = []
+        if host:
+            credit_lines.append(f"Prowadzący: {host}")
+        if guest:
+            credit_lines.append(f"Gość: {guest}")
+        if mat_type:
+            credit_lines.append(f"Typ materiału: {mat_type} | Stan informacji: {today}")
+        if credit_lines:
+            parts.append("\n\n" + " | ".join(credit_lines[:2]))
+            if len(credit_lines) > 2:
+                parts.append("\n" + credit_lines[2])
+
+    # M7: Stopka per-kanał
+    if footer_text:
+        parts.append(f"\n\n{footer_text.strip()}")
+
+    # M8: Hashtagi
+    if hashtags:
+        tags = " ".join(t if t.startswith("#") else f"#{t}" for t in hashtags)
+        parts.append(f"\n\n---\n{tags}")
+
+    result = "".join(parts)
+
+    # Guard: limit YT 5000 zn
+    if len(result) > 4990:
+        result = result[:4987] + "..."
+
+    return result
+
+
 @router.post("/inject", response_model=InjectResponse)
 async def inject_endpoint(
     req: InjectRequest,
@@ -103,34 +180,24 @@ async def inject_endpoint(
         if req.yt_channel_ids:
             from api.core.youtube_publish import update_youtube_description
             from api.db import AsyncSessionLocal
+            from api.services.pipeline import _extract_video_id
             
             job_result = req.schema_data or {}
-            hook = job_result.get("youtube_description_hook") or job_result.get("youtube_description", "")
-            hashtags_list = job_result.get("youtube_hashtags", [])
-            hashtags_str = " ".join(hashtags_list) if isinstance(hashtags_list, list) else ""
-            
-            chapters = job_result.get("resolved_chapters") or job_result.get("chapters", [])
-            chapters_text = ""
-            if isinstance(chapters, list) and chapters:
-                lines = []
-                for ch in chapters:
-                    time_str = ch.get("time_str", "00:00")
-                    label = ch.get("label", "")
-                    if label:
-                        lines.append(f"{time_str} - {label}")
-                chapters_text = "\n".join(lines)
-            
-            wp_article_url = result.get("post_url")
-            full_yt_description = hook
-            if wp_article_url:
-                full_yt_description += f"\n\n🔗 Pełny artykuł: {wp_article_url}"
-            if chapters_text:
-                full_yt_description += f"\n\n⏱️ Rozdziały:\n{chapters_text}"
-            if hashtags_str:
-                full_yt_description += f"\n\n---\n{hashtags_str}"
-            
-            from api.services.pipeline import _extract_video_id
             video_id = _extract_video_id(req.video_url)
+            wp_article_url = result.get("post_url")
+            
+            full_yt_description = build_yt_description(
+                body=job_result.get("youtube_description_body") or job_result.get("youtube_description_hook", ""),
+                wp_url=wp_article_url or "",
+                mid_cta=job_result.get("youtube_mid_cta", ""),
+                chapters=job_result.get("resolved_chapters") or job_result.get("chapters", []),
+                credits=job_result.get("youtube_credits", {}),
+                footer_text="",
+                hashtags=job_result.get("youtube_hashtags", []),
+                youtube_id=video_id,
+                site_url=site_config_dict.get("wp_base_url", "")
+            )
+            
             if video_id:
                 try:
                     async with AsyncSessionLocal() as db:
