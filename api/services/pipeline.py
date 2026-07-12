@@ -956,6 +956,12 @@ async def run_inject(
             except ValueError:
                 pass
 
+    # FIX: Scenariusz A obsługuje YT — wyłącz legacy
+    if yt_channel_ids and profile_config:
+        if profile_config.get("yt_update_enabled"):
+            logger.info("[inject] yt_channel_ids present -> disabling legacy yt_update_enabled")
+            profile_config["yt_update_enabled"] = False
+
     logger.info(
         "[inject] wp_post_id=%s video_id=%s post_status=%s post_format=%s portal_overridden=%s",
         wp_post_id, video_id,
