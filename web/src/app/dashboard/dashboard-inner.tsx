@@ -1047,7 +1047,7 @@ function InjectModal({
 
             <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
 
-              <span className="text-xs text-violet-400">­čöŚ</span>
+              <span className="text-xs text-violet-400">🚀</span>
 
               <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
 
@@ -3665,7 +3665,7 @@ export default function DashboardInner() {
 
         const ytDescription = [
           hook,
-          wpUrl ? `\n\n­čöŚ Pełny artykuł: ${wpUrl}` : "",
+          wpUrl ? `\n\n🚀 Pełny artykuł: ${wpUrl}` : "",
           chaptersStr ? `\n\nÔĆ▒´ŞĆ Rozdziały:\n${chaptersStr}` : "",
           hashtags ? `\n\n---\n${hashtags}` : "",
         ].join("");
@@ -3803,7 +3803,7 @@ function WpQuickPanel() {
 
       <div className="flex items-center gap-3 mb-4">
 
-        <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-base">­čöŚ</div>
+        <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-base">🚀</div>
 
         <div>
 
