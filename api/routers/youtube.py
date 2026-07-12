@@ -138,11 +138,11 @@ async def publish_youtube_description(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Aktualizuje opis wideo na YouTube dla wybranych kanalow.
+    Aktualizuje metadane wideo na YouTube (opis, tytuł) dla wybranych kanałów.
     Endpoint niezalezny od /v1/inject — WP i YT sa osobnymi akcjami.
     ROADMAP F2B: YouTube Publishing Scenariusz A — Immediate Publish
     """
-    from api.core.youtube_publish import update_youtube_description, _get_channel
+    from api.core.youtube_publish import update_youtube_metadata, _get_channel
     from api.routers.inject import build_yt_description
 
     if not req.channel_ids:
@@ -172,13 +172,14 @@ async def publish_youtube_description(
             site_url="",
         )
 
-        # Uzywamy zaktualizowanego opisu dla tego kanalu
-        res = await update_youtube_description(
+        # Uzywamy zaktualizowanego opisu i tytulu dla tego kanalu
+        res = await update_youtube_metadata(
             db=db,
             user_id=current_user.id,
             channel_ids=[channel_id],
             video_id=req.video_id,
             new_description=full_description,
+            new_title=seo.get("yt_title"),
         )
         results.update(res)
 
