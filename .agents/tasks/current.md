@@ -1,6 +1,7 @@
 # VSE — Current State (aktualizacja: 2026-07-11 23:59)
 
 ## Zakonczone (sesja 2026-07-11)
+- Krok 3B (poprawki bugów): naprawa kodowania znaków na frontendzie, inject extractVideoId, dodanie zakładki YouTube w UI
 - Krok 3A/3B: Integracja youtube_publish.py, modal frontend, agregacja opsu YT
 - Security fix: POST /v1/inject wymaga JWT + user_id isolation — commit 7174fb1
 - Hotfix frontend: Authorization header w fetch /v1/inject — commit bd1bbc5
