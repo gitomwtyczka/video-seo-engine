@@ -1,13 +1,13 @@
-﻿{
-    "timestamp":  "2026-07-12T22:00:52.4901160+02:00",
-    "last_completed":  [
-                           "vse-fix2: server-side build_yt_description in publish-description endpoint — commit be7b70bc889c4fbcc40376604b5ff5c926a453fa (2026-07-12)",
-                           "handoff file created — commit 23fcbc63b65cc58f2115b55f7e5ac82563d74e07"
-                       ],
-    "callsign":  "vse-dev-01",
-    "current_task":  "",
-    "pending":  [
-                    "TODO: aktualizacja tytułu na YT przez endpoint publish-description (wymaga poszerzenia YouTubePublishRequest i YT API)"
-                ],
-    "status":  "handoff"
+{
+  "callsign": "vse-dev-02",
+  "status": "done",
+  "current_task": "Zaimplementowano aktualizację tytułu wideo na YouTube oraz endpoint dla aktualizacji stopki per-kanał",
+  "timestamp": "2026-07-12T20:10:00Z",
+  "last_completed": [
+    "Aktualizacja API do obsługi YouTube title i footer_text",
+    "Dodano endpoint PUT /v1/youtube/channels/{channel_id}"
+  ],
+  "pending": [
+    "UI na frontendzie do edycji footer_text"
+  ]
 }
