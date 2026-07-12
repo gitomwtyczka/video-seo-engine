@@ -431,6 +431,57 @@ async def _describe_image_via_saas(
         return None
 
 
+async def fetch_yt_description_from_pressai(
+    vtt_content: str,
+    video_title: str,
+    video_id: str,
+    chapters: list,
+    focus_keyphrases: list,
+    wp_url: str,
+    portal_name: str = "",
+    portal_topic: str = "",
+) -> dict | None:
+    """
+    Wywołuje PressAI API po opis YouTube.
+    Zwraca dict z polami: youtube_description_body, youtube_mid_cta,
+    youtube_credits, youtube_hashtags.
+    Zwraca None jeśli PressAI niedostępny (fallback do generatora).
+    """
+    import httpx
+    saas_url = os.environ.get("SAAS_API_URL", "").strip().rstrip("/")
+    saas_token = os.environ.get("SAAS_API_TOKEN", "").strip()
+    if not saas_url or not saas_token:
+        logger.warning("[pipeline] SAAS_API_URL/TOKEN not set — skipping PressAI YT generation")
+        return None
+
+    endpoint = f"{saas_url}/api/external/generate-yt-description"
+    payload = {
+        "vtt_content": vtt_content[:8000] if vtt_content else "",
+        "video_title": video_title,
+        "video_id": video_id,
+        "chapters": chapters,
+        "focus_keyphrases": focus_keyphrases,
+        "wp_url": wp_url,
+        "portal_name": portal_name,
+        "portal_topic": portal_topic,
+    }
+    headers = {"Authorization": f"Bearer {saas_token}", "Content-Type": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(endpoint, json=payload, headers=headers)
+        if resp.status_code == 200:
+            data = resp.json()
+            logger.info("[pipeline] PressAI YT description received for %s", video_id)
+            return data
+        else:
+            logger.warning("[pipeline] PressAI YT endpoint HTTP %d: %s", resp.status_code, resp.text[:200])
+            return None
+    except Exception as exc:
+        logger.warning("[pipeline] PressAI YT endpoint error: %s — using fallback", exc)
+        return None
+
+
 async def run_generate(
     video_url: str,
     llm_provider: str,
@@ -674,6 +725,33 @@ async def run_generate(
                 )
 
         seo["image_data"] = image_data
+
+        # --- PressAI YT Description ---
+        vtt_content = ""
+        if vtt_path and os.path.exists(vtt_path):
+            with open(vtt_path, "r", encoding="utf-8") as f:
+                vtt_content = f.read()
+
+        pressai_yt = await fetch_yt_description_from_pressai(
+            vtt_content=vtt_content,
+            video_title=seo.get("post_title", ""),
+            video_id=video_id,
+            chapters=seo.get("chapters", []),
+            focus_keyphrases=seo.get("focus_keyphrases", []),
+            wp_url="",
+            portal_name=site_brand or "",
+            portal_topic="",
+        )
+
+        if pressai_yt:
+            seo["youtube_description_body"] = pressai_yt.get("youtube_description_body", "")
+            seo["youtube_mid_cta"] = pressai_yt.get("youtube_mid_cta", "")
+            seo["youtube_credits"] = pressai_yt.get("youtube_credits", {})
+            if pressai_yt.get("youtube_hashtags"):
+                seo["youtube_hashtags"] = pressai_yt["youtube_hashtags"]
+            logger.info("[pipeline] PressAI YT fields merged into schema_data")
+        else:
+            logger.info("[pipeline] Using fallback: youtube_description_hook from generator")
 
     partial_result = not has_transcript
     logger.info(
