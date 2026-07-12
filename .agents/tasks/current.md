@@ -1,30 +1,25 @@
-﻿# VSE — Current State (aktualizacja: 2026-07-12 21:58)
+# VSE — Current State (aktualizacja: 2026-07-12)
 
-## Zakończone (sesja 2026-07-12 - vse-fix2)
-- Przebudowano /v1/youtube/publish-description, aby budował opis za pomocą uild_yt_description (co pozwala na per-channel ooter_text).
-- Rozszerzono YouTubePublishRequest o schema_data (wymagane z PressAI).
-- Wyczyszczono frontend (usunięto budowanie opisu z dashboard-inner.tsx).
+## Zakończone (sesja 2026-07-12 - vse-dev-02)
+- Zaimplementowano aktualizację tytułu na YouTube w endpoincie publish-description oraz inject (używa `yt_title` z `schema_data`).
+- Zweryfikowano działanie stopki opisu YT per-user w backendzie. Dodano model i endpoint `PUT /v1/youtube/channels/{channel_id}` do zapisu `footer_text`.
+- Endpoint `GET /v1/youtube/channels` zwraca teraz `footer_text` dla poprawnej integracji z UI.
 - Wdrożenie na VPS zakończone pomyślnie.
 
 ## Zakończone (wcześniej)
-- Krok 3B (poprawki bugów): naprawa kodowania znaków na frontendzie, inject extractVideoId, dodanie zakładki YouTube w UI
-- Krok 3A/3B: Integracja youtube_publish.py, modal frontend, agregacja opsu YT
-- Security fix: POST /v1/inject wymaga JWT + user_id isolation — commit 7174fb1
-- Hotfix frontend: Authorization header w fetch /v1/inject — commit bd1bbc5
-- YouTube OAuth connect/disconnect, toast UX, callback redirect
-- youtube_publish.py — serwis videos.update + refresh token — Krok 2 done
-- YT description spec — hook (200 zn) + hashtags osobno, składane w backend
-- ADR-11 dodany do docs/ARCHITECTURE_decisions.md
+- Przebudowano /v1/youtube/publish-description, aby budował opis za pomocą \build_yt_description.
+- Rozszerzono YouTubePublishRequest o schema_data.
+- Krok 3B (poprawki bugów): naprawa kodowania znaków na frontendzie, inject extractVideoId, dodanie zakładki YouTube w UI.
+- Krok 3A/3B: Integracja youtube_publish.py, modal frontend, agregacja opsu YT.
 
 ## W toku
 - Brak aktywnych tasków. Oczekuję na dyspozycje.
 
 ## Następne (w kolejności)
-- Zaimplementowanie aktualizacji tytułu na YouTube w endpoincie publish-description (obecnie modyfikowany jest tylko opis). Wymaga poszerzenia schematu API.
-- Krok 4: Stopka opisu YT per-user w app_settings + UI
-- Krok 4b: Osobne przyciski WP / YT w InjectModal
-- E2E test YouTube: sprawdzić czy opis wideo faktycznie się zmienia
-- Krok 5: Bulk Worker (osobna sesja)
+- Krok 4: UI na frontendzie do obsługi `footer_text` (w app_settings lub konfiguracji profilu).
+- Krok 4b: Osobne przyciski WP / YT w InjectModal (frontend).
+- E2E test YouTube: sprawdzić czy opis i tytuł wideo faktycznie się zmienia (wymaga UI i przetestowania).
+- Krok 5: Bulk Worker (osobna sesja).
 
 ## TRIGGER dla Supervisora — po Kroku 4 + E2E test
 PO zakończeniu Kroku 4 i potwierdzeniu E2E YouTube:
