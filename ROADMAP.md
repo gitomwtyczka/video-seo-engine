@@ -1,8 +1,31 @@
 # VSE — Video SEO Engine | Roadmap Produktowy
 
-> Ostatnia aktualizacja: 2026-07-10 | Antigravity  
+> Ostatnia aktualizacja: 2026-07-12 | Antigravity  
 > Status: 🟡 Faza 3 KOMERCJALIZACJA MVP W TOKU  
 > **Adnotacja 2026-07-10:** Usunięto VPS Cookie fetcher na rzecz LocalRunnera — strategia cookies.txt dla VPS została oznaczona jako ZROBIONE / NIEAKTUALNE. Wdrożono Windows Service po stronie środowiska użytkownika.
+
+---
+
+## ⚠️ Znane ograniczenia systemu
+
+### Filmy prywatne i zaplanowane (“private” / “scheduled”) — brak transkryptu
+
+**Objaw:** “Rozdziały (0)”, “Brak rozdziałów w wygenerowanej schemacie”, opis YT bez timestampów.
+
+**Przyczyna:** yt-dlp nie może pobrać napisw (VTT) dla filmów prywatnych lub zaplanowanych.
+YouTube API udostępnia napisy prywatnych filmów tylko przez OAuth z uprawnieniami właści ciela kanału.
+
+**Skutek braku VTT:**
+- Brak rozdziałów z timestampami (M4)
+- PressAI generuje opis bez sekcji czasowych
+- Pipeline działa w trybie `partial_result=True`
+
+**Obecny workaround (bez kodu):**
+1. Ustaw film na `Unlisted` przed generowaniem SEO
+2. Wygeneruj + wyślij opis na YouTube
+3. Zmień film z powrotem na `Private` lub `Scheduled`
+
+**Docelowe rozwiązanie:** OAuth do prywatnych filmów (Faza 7) lub ręczny upload pliku VTT w dashboardzie.
 
 ---
 
@@ -136,7 +159,8 @@ vse.impresjapr.pl
 
 ## 🔴 Faza 3 — VSE Komercjalizacja MVP (BLOCKER)
 
-- [ ] 🔴 **KRYTYCZNY BLOKER: Moduł YouTube Update — aktualizacja opisów, hashtagów i rozdziałów bezpośrednio na YT ze spersonalizowaną stopką dla każdego skonfigurowanego kanału.**
+- [x] ✅ **Moduł YouTube Update — aktualizacja opisów, hashtagów i rozdziałów bezpośrednio na YT ze spersonalizowaną stopką per kanał (wdrożone 2026-07-12)**
+- [x] ✅ **PressAI YT Description pipeline — pełny opis M1-M8 generowany przez crimson-void (wdrożone 2026-07-12)**
 - [ ] 🔴 Stripe checkout flow (Products + Prices + Webhooks)
 - [ ] 🔴 Terms of Service + Privacy Policy (EU/RODO)
 - [ ] 🟡 System kuponów promocyjnych dla Stripe (rabaty na upgrade / nowe abonamenty)
@@ -149,7 +173,9 @@ vse.impresjapr.pl
 ## 🔵 Faza 4 — Dashboard UI Artykułu + Inject Flow (D2 + D3) / VSE Growth (NEXT)
 
 - [ ] UI Artykułu: Podgląd leadu, treści, FAQ, Chapters w Next.js przed publikacją
-- [ ] Inject Flow UI: Modal z wyborem portalu, test połączenia.
+- [ ] **Podgląd opisu YouTube przed wysyłką** — endpoint `/v1/preview-yt-description` + textarea w dashboardzie (dispatch gotowy)
+- [ ] **Aktualizacja tytułu YouTube** — rozszerzenie `YouTubePublishRequest` o pole `title` + `videos.update` snippet (TODO z 2026-07-12)
+- [ ] Inject Flow UI: Modal z wyborem portalu, test połączenia
 - [ ] Batch processing (wiele wideo naraz)
 - [ ] SEO Scoring dashboard
 - [ ] Channel Monitor E2E
@@ -172,9 +198,11 @@ vse.impresjapr.pl
 
 ## 🔵 Faza 7 — YouTube Channel Manager / Use Case B (PLANNED)
 
-- [ ] Połączenie konta YouTube (Google OAuth scope dla read/write).
-- [ ] Przeglądarka kanału (/channels) z filtrowaniem.
-- [ ] Optymalizacja i batch publikacja na YouTube.
+- [ ] Połączenie konta YouTube (Google OAuth scope dla read/write)
+- [ ] Przeglądarka kanału (/channels) z filtrowaniem
+- [ ] Optymalizacja i batch publikacja na YouTube
+- [ ] **OAuth dostęp do prywatnych i zaplanowanych filmów** — VTT pobieranie bez konieczności zmiany statusu na Unlisted *(workaround: zmień na Unlisted przed generowaniem)*
+- [ ] Ręczny upload pliku VTT w dashboardzie (alternatywa dla OAuth do prywatnych)
 
 ## 🔵 Faza 8 — WordPress Plugin + Enterprise (FUTURE)
 
