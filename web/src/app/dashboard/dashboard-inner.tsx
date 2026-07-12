@@ -3668,7 +3668,7 @@ export default function DashboardInner() {
             isOpen={ytModalOpen}
             onClose={() => setYtModalOpen(false)}
             videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || ""}
-            schemaData={result.raw?.seo ?? {}}
+            schemaData={result.raw ?? {}}
             wpUrl={wpUrl}
             channels={ytChannels}
             accessToken={accessToken || ""}
