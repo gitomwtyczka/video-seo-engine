@@ -44,9 +44,9 @@ def build_yt_description(
 
     # M2: Link do artykułu
     if wp_url:
-        parts.append(f"\n\n🔗 Pełna analiza i źródła: {wp_url}")
-    elif site_url:
-        parts.append(f"\n\nWięcej na: {site_url}")
+        parts.append(f"\n\n🔗 Pełny artykuł: {wp_url}")
+    else:
+        parts.append("\n\n🔗 Artykuł: [WSTAW LINK]")
 
     # M3: Mid-CTA
     if mid_cta:
@@ -56,14 +56,21 @@ def build_yt_description(
     if chapters and len(chapters) >= 3:
         ch_lines = []
         for ch in chapters:
-            ts = ch.get("timestamp") or ch.get("time_str", "") or ch.get("label", "")
-            label = ch.get("label", "")
-            if ts and label and ts != label:
-                ch_lines.append(f"{ts} - {label}")
-            elif ts and label:
-                ch_lines.append(f"{ts} {label}")
+            ts = ch.get("time_str") or ch.get("timestamp") or ch.get("time") or ""
+            if isinstance(ts, (int, float)):
+                m, s = divmod(int(ts), 60)
+                ts = f"{m:02d}:{s:02d}"
+            ts = str(ts).strip()
+            
+            title_val = str(ch.get("label") or ch.get("title") or ch.get("name") or "").strip()
+            
+            if ts and title_val:
+                if title_val.startswith(ts):
+                    ch_lines.append(title_val)
+                else:
+                    ch_lines.append(f"{ts} {title_val}")
         if ch_lines:
-            parts.append("\n\n⏱️ Rozdziały:\n" + "\n".join(ch_lines))
+            parts.append("\n\nROZDZIAŁY:\n" + "\n".join(ch_lines))
 
     # M5: Credits
     if credits:
@@ -178,7 +185,7 @@ async def inject_endpoint(
         # YouTube Immediate Publish — Scenariusz A
         # ROADMAP F2B: integracja youtube_publish.py — commit [ten commit]
         if req.yt_channel_ids:
-            from api.core.youtube_publish import update_youtube_metadata, _get_channel
+            from api.core.youtube_publish import update_youtube_description, _get_channel
             from api.db import AsyncSessionLocal
             from api.services.pipeline import _extract_video_id
 
@@ -208,13 +215,12 @@ async def inject_endpoint(
             if video_id:
                 try:
                     async with AsyncSessionLocal() as db:
-                        yt_results = await update_youtube_metadata(
+                        yt_results = await update_youtube_description(
                             db=db,
                             user_id=current_user.id,
                             channel_ids=req.yt_channel_ids,
                             video_id=video_id,
                             new_description=full_yt_description,
-                            new_title=job_result.get("yt_title"),
                         )
                 except Exception as yt_err:
                     logger.error("[/v1/inject] YouTube update failed: %s", yt_err)
