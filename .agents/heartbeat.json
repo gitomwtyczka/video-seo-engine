@@ -1,8 +1,8 @@
 {
   "callsign": "[vse-dev-01]", 
-  "status": "done", 
-  "current_task": "Krok 3B v2 — Frontend YouTube Publishing i Fixes", 
-  "timestamp": "2026-07-12T09:44:00Z", 
+  "status": "working", 
+  "current_task": "2026-07-12_krok3b_yt_fix.md - Krok 0 (diagnostyka) i naprawa problemów z polskimi znakami", 
+  "timestamp": "2026-07-12T10:35:05Z", 
   "last_completed": [
     "Naprawa błędu kodowania polskich znaków na frontendzie za pomocą bezpiecznej aktualizacji plików via GitHub API (dashboard-inner.tsx, YouTubePublishModal.tsx) - commit e6e588ca6c66b5dfff5dfb5f8881e490b6b2c91f",
     "Poprawa ekstrakcji ID filmu (videoId) za pomocą bezpiecznego RegExp, eliminująca błąd `Blad: video_id is required` - commit a21437d8a716fe35df80dcb6c210db50c9234d22",
