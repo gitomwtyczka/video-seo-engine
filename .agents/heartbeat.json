@@ -1,1 +1,10 @@
-{"callsign": "vse-dev", "status": "working", "current_task": "HOTFIX — scope bug in dashboard-inner.tsx", "timestamp": "2026-07-13T12:43:00Z"}
+{
+  "callsign": "vse-dev",
+  "status": "done",
+  "current_task": "HOTFIX — scope bug in dashboard-inner.tsx",
+  "timestamp": "2026-07-13T13:02:00Z",
+  "last_completed": [
+    "Naprawa błędu scope dla ytDescription — commit 529452c42408c3d6b139bc72eb36d9fcd2020c95 (2026-07-13)"
+  ],
+  "pending": []
+}
