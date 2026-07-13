@@ -205,7 +205,7 @@ async def publish_youtube_description(
             channel_ids=[channel_id],
             video_id=req.video_id,
             new_description=full_description,
-            new_title=seo.get("yt_title"),
+            new_title=seo.get("yt_title") or seo.get("post_title"),
         )
         results.update(res)
 
