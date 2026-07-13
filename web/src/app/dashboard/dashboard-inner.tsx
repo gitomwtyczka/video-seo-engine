@@ -4724,6 +4724,8 @@ export default function DashboardInner() {
 
   const [showAddPortalModal, setShowAddPortalModal] = useState(false)
 
+  const [ytDescription, setYtDescription] = useState<string>('')
+
 
 
 
