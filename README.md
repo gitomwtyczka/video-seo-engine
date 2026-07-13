@@ -226,6 +226,7 @@ video-seo-engine/
 ### 🟡 Faza 2B — YouTube Unblock + E2E + Security (IN PROGRESS)
 - [x] ✅ Security: auth na POST /v1/inject + user_id isolation audit (2026-07-11)
 - [x] ✅ YouTube OAuth: connect/disconnect kanałów, toast UX, yt_channel_ids do inject (2026-07-11)
+- [x] ✅ YouTube publishing UX: podgląd edycji + per-channel footer (2026-07-13)
 - [ ] cookies.txt strategy — fetcher.py + docker volume
 - [ ] End-to-end test z realnym video PrawyTV
 - [ ] POST /v1/monitor/start — testy E2E
@@ -257,4 +258,4 @@ video-seo-engine/
 ---
 
 *Część ekosystemu [ImpresjaAI](https://impresjapr.pl) — platforma PressAI.*  
-*Roadmap zaktualizowany: 2026-07-11 [vse-dev] — Security fix inject auth + YT OAuth*
+*Roadmap zaktualizowany: 2026-07-13 [vse-dev-01] — YouTube UX preview + footer*
