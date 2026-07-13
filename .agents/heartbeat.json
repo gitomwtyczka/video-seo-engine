@@ -1,10 +1,15 @@
 {
-  "callsign": "vse-dev",
-  "status": "done",
-  "current_task": "Hotfix: update_youtube_description w inject.py",
-  "timestamp": "2026-07-13T20:30:00Z",
+  "callsign": "Supervisor-01",
+  "status": "working",
+  "current_task": "Recon sesji — odczyt stanu projektu, ocena co dalej",
+  "timestamp": "2026-07-14T00:59:00Z",
   "last_completed": [
-    "Hotfix: naprawa importu funkcji publikacji w module inject (2026-07-13) - deploy zakończony"
+    "vse-dev: Hotfix update_youtube_description → update_youtube_metadata w inject.py (2026-07-13)",
+    "vse-dev: Nowa zakładka Opis YouTube w głównym oknie generacji (2026-07-13)",
+    "vse-dev: YouTubePublishModal bug [object Object] naprawiony (2026-07-13)",
+    "vse-dev: Deploy finalny API + Web (2026-07-13)"
   ],
-  "pending": []
+  "pending": [
+    "Ocena stanu — trwa (Supervisor-01)"
+  ]
 }
