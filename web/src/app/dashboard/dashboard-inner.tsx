@@ -743,6 +743,8 @@ function InjectModal({
   const [publishResult, setPublishResult] = useState<InjectResult | null>(null)
 
   const [selectedYtChannelIds, setSelectedYtChannelIds] = useState<string[]>([])
+  const [ytDescPreview, setYtDescPreview] = useState<string>('')
+  const [showYtPreview, setShowYtPreview] = useState<boolean>(false)
 
   const modalRef = useRef<HTMLDivElement>(null)
 
@@ -784,6 +786,22 @@ function InjectModal({
 
 
   const isManual = selectedPortalId === '__manual__' || !selectedPortalId
+
+  // Update YT preview
+  useEffect(() => {
+    if (selectedYtChannelIds.length === 0) { setYtDescPreview(''); return }
+    const parts = []
+    if (schemaData?.youtube_description_body) parts.push(schemaData.youtube_description_body)
+    if (schemaData?.youtube_mid_cta) parts.push(schemaData.youtube_mid_cta)
+    if (schemaData?.youtube_credits) parts.push(schemaData.youtube_credits)
+    if (schemaData?.youtube_hashtags) parts.push(schemaData.youtube_hashtags)
+    
+    // Stopka z pierwszego kanału
+    const firstCh = ytChannels?.find(ch => selectedYtChannelIds.includes(ch.channel_id))
+    if (firstCh?.footer_text) parts.push(firstCh.footer_text)
+    
+    setYtDescPreview(parts.join('\n\n') || '(brak wygenerowanego opisu)')
+  }, [selectedYtChannelIds, schemaData, ytChannels])
 
 
 
@@ -832,9 +850,10 @@ function InjectModal({
       
 
       if (selectedYtChannelIds.length > 0) {
-
         body.yt_channel_ids = selectedYtChannelIds
-
+        if (showYtPreview && ytDescPreview) {
+          body.yt_override_description = ytDescPreview
+        }
       }
 
 
@@ -1197,6 +1216,38 @@ function InjectModal({
 
               </div>
 
+            )}
+            
+            {/* Podgląd opisu YT */}
+            {selectedYtChannelIds.length > 0 && ytChannels && ytChannels.length > 0 && (
+              <div className="mt-3">
+                {!showYtPreview ? (
+                  <button
+                    onClick={() => setShowYtPreview(true)}
+                    className="text-xs text-violet-400 hover:text-violet-300 underline"
+                  >
+                    Pokaż edytowalny podgląd opisu YT
+                  </button>
+                ) : (
+                  <div className="mt-2 animate-in slide-in-from-top-2">
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Podgląd opisu YouTube <span className="text-gray-600">(edytowalny)</span>
+                    </label>
+                    <textarea
+                      value={ytDescPreview}
+                      onChange={(e) => setYtDescPreview(e.target.value)}
+                      rows={6}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-violet-500 resize-y font-mono"
+                    />
+                    <button
+                      onClick={() => setShowYtPreview(false)}
+                      className="mt-1 text-xs text-gray-500 hover:text-gray-400"
+                    >
+                      Ukryj podgląd
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
           </div>
