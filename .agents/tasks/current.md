@@ -1,5 +1,6 @@
 # Current Tasks
 ## ✅ Zamknięte
+- FIX: Brak zakładki YouTube, brak opisu body w podglądzie, naprawa override (raport 2026-07-13)
 - Diagnostyka: brak zakładki + brak body w podglądzie (raport 2026-07-13)
 - HOTFIX: Naprawa błędu scope dla ytDescription (dispatch 2026-07-13)
 - Poprawka buga [object Object] w YouTubePublishModal.tsx (dispatch 2/4)
