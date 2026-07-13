@@ -32,6 +32,52 @@ mcp_github_get_file_contents:
 
 ---
 
+## ⚠️ PUŁAPKA CZYTANIA DUŻYCH PLIKÓW — OBOWIĄZKOWA PROCEDURA
+
+> Dodane: 2026-07-13 [Supervisor 01] — na podstawie analizy architektonicznej vse-analyst
+
+**Problem:** `dashboard-inner.tsx` ma 7865 linii (101 KB). GitHub MCP `get_file_contents` przy dużym pliku zapisuje wynik do bufora `output.txt`, a domyślny odczyt przez `view_file` bez parametrów zwraca tylko **pierwsze 800 linii**. Agent NIE dostaje błędu — widzi fragment i myśli że ma całość. To jest źródło wszystkich błędnych edycji.
+
+### Obowiązkowy flow dla pliku > 800 linii (zwłaszcza `dashboard-inner.tsx`)
+
+**KROK 1 — Mapowanie (grep przez SSH):**
+```powershell
+ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100 `
+  "grep -n 'szukana_funkcja\|szukany_komponent' /home/ubuntu/video-seo-engine/web/src/app/dashboard/dashboard-inner.tsx"
+```
+To da numery linii bez ładowania całego pliku.
+
+**KROK 2 — Czytanie bloku (sed przez SSH):**
+```powershell
+ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key -o StrictHostKeyChecking=no ubuntu@147.224.162.100 `
+  "sed -n '1200,1260p' /home/ubuntu/video-seo-engine/web/src/app/dashboard/dashboard-inner.tsx"
+```
+Czytaj tylko potrzebny fragment (±30 linii wokół celu).
+
+**KROK 3 — Weryfikacja przed edycją:**
+Przed każdą edycją potwierdź przez grep że szukany fragment istnieje i jest w oczekiwanym miejscu. Jeśli nie znajdziesz — STOP, raport do Supervisora.
+
+### Mapa komponentów `dashboard-inner.tsx` (stan 2026-07-13)
+
+| Komponent | Linia startowa |
+|---|---|
+| `CopyButton` | ~881 |
+| `ResultSection` | ~1013 |
+| `TabBar` (zawiera tablicę `tabs`) | ~1173 |
+| `InjectModal` | ~1381 |
+| `AddPortalModal` | ~3017 |
+| `ManageSubscriptionLink` | ~4385 |
+| `DashboardInner` (główny komponent) | ~4579 |
+| `NavItem` | ~7574 |
+| `WpQuickPanel` | ~7714 |
+
+> ⚠️ Linie są przybliżone — zawsze weryfikuj przez grep przed edycją.
+
+### Plan refactoru (średnioterminowy)
+Wyciągnąć wszystkie komponenty z listy powyżej do `web/src/app/dashboard/components/`. Priorytet: `InjectModal` (~1600 linii) i `TabBar` (~200 linii). Każde wydzielenie jako osobny dispatch.
+
+---
+
 ## 🚀 DOSTĘP DO VPS — REGUŁY PER ROLA
 
 **Zasada generalna:** SSH via `run_command` to standardowy sposób dostępu do VPS (zgodnie z `RULE[user_global]`).
@@ -42,6 +88,7 @@ Rola analityczna = diagnoza, raportowanie, planowanie. **Nie implementuj, nie de
 - ❌ docker compose up/build
 - ✅ Curl do publicznych endpointów (weryfikacja)
 - ✅ GitHub MCP (odczyt kodu)
+- ✅ SSH grep/sed (czytanie plików na VPS)
 - ✅ Raport → Supervisor
 
 ### Agenci implementacyjni (`vse-dev-*`) — deployują jako część deliverable
@@ -219,6 +266,7 @@ Cel: najlepsze video SEO na rynku — potwierdzone benchmarkiem (8/10 vs konkure
 *Zaktualizowano: 2026-06-15 [sup-worker-01] — sekcja VPS access*
 *Zaktualizowano: 2026-06-29 [Supervisor 01] — reguła VPS per rola (analityk vs worker), SSH jako standard*
 *Zaktualizowano: 2026-06-30 [vse-dev-ops] — dodano mandatory pre-deploy backup*
+*Zaktualizowano: 2026-07-13 [Supervisor 01] — pułapka czytania dużych plików (grep+sed standard), mapa komponentów dashboard-inner.tsx, plan refactoru*
 
 ## SSH z PowerShell — jeden wzorzec, zawsze ten sam
 
