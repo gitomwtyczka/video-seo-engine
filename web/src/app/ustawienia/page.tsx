@@ -57,6 +57,7 @@ interface YtChannel {
   channel_id: string
   channel_title: string
   channel_thumbnail?: string
+  footer_text?: string
 }
 
 // ─── ManageSubscriptionLink ──────────────────────────────────────────────────
@@ -265,6 +266,48 @@ function AddPortalModal({
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
+    </div>
+  )
+}
+
+// ─── FooterTextEditor ────────────────────────────────────────────────────────
+
+function FooterTextEditor({ channel, apiUrl, accessToken }: { channel: any, apiUrl: string, accessToken?: string }) {
+  const [text, setText] = useState<string>(channel.footer_text || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await fetch(`${apiUrl}/v1/youtube/channels/${channel.channel_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(accessToken && { Authorization: `Bearer ${accessToken}` }) },
+        body: JSON.stringify({ footer_text: text })
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <textarea
+        value={text}
+        onChange={e => setText(e.target.value)}
+        rows={3}
+        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-violet-500 resize-y"
+        placeholder="np. 📌 Obserwuj kanał | Instagram: @kanał | Linktree: ..."
+      />
+      <button
+        onClick={save}
+        disabled={saving}
+        className="mt-1 px-3 py-1 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-500 disabled:opacity-50"
+      >
+        {saving ? 'Zapisuję...' : saved ? '✔ Zapisano' : 'Zapisz stopkę'}
+      </button>
     </div>
   )
 }
@@ -697,25 +740,32 @@ function UstawieniaContent() {
             )}
 
             {!ytLoading && ytChannels.map((ch) => (
-              <div key={ch.id} className="flex items-center justify-between py-3 border-b border-gray-800 last:border-0">
-                <div className="flex items-center gap-3">
-                  {ch.channel_thumbnail && (
-                    <img src={ch.channel_thumbnail} alt="" className="w-8 h-8 rounded-full" />
-                  )}
-                  <div>
-                    <p className="text-sm font-medium text-white">{ch.channel_title}</p>
-                    <p className="text-xs text-gray-500">{ch.channel_id}</p>
+              <div key={ch.id} className="py-3 border-b border-gray-800 last:border-0 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {ch.channel_thumbnail && (
+                      <img src={ch.channel_thumbnail} alt="" className="w-8 h-8 rounded-full" />
+                    )}
+                    <div>
+                      <p className="text-sm font-medium text-white">{ch.channel_title}</p>
+                      <p className="text-xs text-gray-500">{ch.channel_id}</p>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => handleDisconnectYoutube(ch.id)}
+                    className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                    title="Odłącz kanał"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
                 </div>
-                <button
-                  onClick={() => handleDisconnectYoutube(ch.id)}
-                  className="text-gray-500 hover:text-red-400 transition-colors p-1"
-                  title="Odłącz kanał"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                {/* footer_text — stopka kanału */}
+                <div className="mt-2 pl-11">
+                  <label className="block text-xs text-gray-400 mb-1">Stopka kanału (footer)</label>
+                  <FooterTextEditor channel={ch} apiUrl={process.env.NEXT_PUBLIC_API_URL || ''} accessToken={accessToken} />
+                </div>
               </div>
             ))}
           </section>
