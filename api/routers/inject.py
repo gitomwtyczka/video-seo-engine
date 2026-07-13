@@ -193,24 +193,27 @@ async def inject_endpoint(
             video_id = _extract_video_id(req.video_url)
             wp_article_url = result.get("post_url")
 
-            # Pobierz footer_text z pierwszego kanału (single-channel case)
-            footer_text = ""
-            async with AsyncSessionLocal() as db_ft:
-                ft_channel = await _get_channel(db_ft, current_user.id, req.yt_channel_ids[0])
-                if ft_channel:
-                    footer_text = ft_channel.footer_text or ""
+            if req.yt_override_description:
+                full_yt_description = req.yt_override_description
+            else:
+                # Pobierz footer_text z pierwszego kanału (single-channel case)
+                footer_text = ""
+                async with AsyncSessionLocal() as db_ft:
+                    ft_channel = await _get_channel(db_ft, current_user.id, req.yt_channel_ids[0])
+                    if ft_channel:
+                        footer_text = ft_channel.footer_text or ""
 
-            full_yt_description = build_yt_description(
-                body=job_result.get("youtube_description_body") or job_result.get("youtube_description_hook", ""),
-                wp_url=wp_article_url or "",
-                mid_cta=job_result.get("youtube_mid_cta", ""),
-                chapters=job_result.get("resolved_chapters") or job_result.get("chapters", []),
-                credits=job_result.get("youtube_credits", {}),
-                footer_text=footer_text,
-                hashtags=job_result.get("youtube_hashtags", []),
-                youtube_id=video_id,
-                site_url=site_config_dict.get("wp_base_url", "")
-            )
+                full_yt_description = build_yt_description(
+                    body=job_result.get("youtube_description_body") or job_result.get("youtube_description_hook", ""),
+                    wp_url=wp_article_url or "",
+                    mid_cta=job_result.get("youtube_mid_cta", ""),
+                    chapters=job_result.get("resolved_chapters") or job_result.get("chapters", []),
+                    credits=job_result.get("youtube_credits", {}),
+                    footer_text=footer_text,
+                    hashtags=job_result.get("youtube_hashtags", []),
+                    youtube_id=video_id,
+                    site_url=site_config_dict.get("wp_base_url", "")
+                )
 
             if video_id:
                 try:
