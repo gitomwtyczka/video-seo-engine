@@ -276,17 +276,26 @@ function FooterTextEditor({ channel, apiUrl, accessToken }: { channel: any, apiU
   const [text, setText] = useState<string>(channel.footer_text || '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string>('')
 
   const save = async () => {
     setSaving(true)
+    setError('')
+    setSaved(false)
     try {
-      await fetch(`${apiUrl}/v1/youtube/channels/${channel.channel_id}`, {
+      const res = await fetch(`${apiUrl}/v1/youtube/channels/${channel.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...(accessToken && { Authorization: `Bearer ${accessToken}` }) },
         body: JSON.stringify({ footer_text: text })
       })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
+    } catch (e: any) {
+      setError(e.message || 'Błąd zapisu')
     } finally {
       setSaving(false)
     }
@@ -308,6 +317,7 @@ function FooterTextEditor({ channel, apiUrl, accessToken }: { channel: any, apiU
       >
         {saving ? 'Zapisuję...' : saved ? '✔ Zapisano' : 'Zapisz stopkę'}
       </button>
+      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
     </div>
   )
 }
