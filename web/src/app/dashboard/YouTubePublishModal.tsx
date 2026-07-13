@@ -58,9 +58,8 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUr
     const parts: string[] = []
 
     // M1 body
-    if (schemaData?.youtube_description_body) {
-      parts.push(schemaData.youtube_description_body)
-    }
+    const body = schemaData?.youtube_description_body ?? schemaData?.youtube_description_hook ?? schemaData?.video_description ?? '';
+    if (body) parts.push(body as string);
 
     // M2 link do artykułu
     if (wpUrl) {
