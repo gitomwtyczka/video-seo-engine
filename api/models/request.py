@@ -82,6 +82,7 @@ class InjectRequest(BaseModel):
     site_config: Optional[SiteConfig] = None
     portal_id: Optional[str] = None
     yt_channel_ids: List[str] = []
+    yt_override_description: Optional[str] = None
     post_status: str = "draft"  # "draft" | "publish" — dla nowych postów
     post_format: str = "video"  # WordPress post format: "standard" | "video" | "gallery" | "quote"
 
@@ -105,6 +106,7 @@ class YouTubePublishRequest(BaseModel):
     channel_ids: List[str]
     video_id: str
     schema_data: dict  # pełne schema_data z generate — zawiera wszystkie pola YT
+    override_description: Optional[str] = None
     wp_article_url: str = ""  # URL artykułu WP (może być pusty jeśli nie opublikowany)
 
 
