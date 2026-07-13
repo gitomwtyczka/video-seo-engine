@@ -1,10 +1,10 @@
 {
   "callsign": "vse-dev",
   "status": "done",
-  "current_task": "Fix: zakładka + body + override",
-  "timestamp": "2026-07-13T14:43:00Z",
+  "current_task": "Hotfix: update_youtube_description w inject.py",
+  "timestamp": "2026-07-13T20:30:00Z",
   "last_completed": [
-    "Fix: zakładka + body + override (2026-07-13) - deploy zakończony"
+    "Hotfix: naprawa importu funkcji publikacji w module inject (2026-07-13) - deploy zakończony"
   ],
   "pending": []
 }
