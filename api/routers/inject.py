@@ -224,6 +224,7 @@ async def inject_endpoint(
                             channel_ids=req.yt_channel_ids,
                             video_id=video_id,
                             new_description=full_yt_description,
+                            new_title=job_result.get("yt_title") or job_result.get("post_title"),
                         )
                 except Exception as yt_err:
                     logger.error("[/v1/inject] YouTube update failed: %s", yt_err)
