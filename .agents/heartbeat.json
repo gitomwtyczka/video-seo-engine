@@ -1,12 +1,10 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "dispatch_vse-dev_yt-preview-footer.md",
-  "timestamp": "2026-07-13T11:53:00Z",
+  "status": "done",
+  "current_task": "yt-preview-footer deploy",
+  "timestamp": "2026-07-13T10:05:00Z",
   "last_completed": [
-    "Fixed [object Object] rendering for chapters and hashtags in YouTubePublishModal.tsx — commit fe650a8bc670b13aabdce0e3bb0ef8ac3533d272 (2026-07-13)"
+    "Wdrożenie funkcji podglądu i stopki YouTube — commit [ostatnie zmiany api/models/request.py i api/routers/youtube.py] (2026-07-13)"
   ],
-  "pending": [
-    "dispatch_vse-dev_yt-preview-footer.md"
-  ]
+  "pending": []
 }
