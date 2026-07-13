@@ -1,8 +1,8 @@
 {
-  "callsign": "Supervisor-01",
+  "callsign": "vse-strateg-01",
   "status": "working",
-  "current_task": "Recon sesji — odczyt stanu projektu, ocena co dalej",
-  "timestamp": "2026-07-14T00:59:00Z",
+  "current_task": "Opracowanie roadmapy dla ludzi wg dispatchu",
+  "timestamp": "2026-07-14T01:28:00Z",
   "last_completed": [
     "vse-dev: Hotfix update_youtube_description → update_youtube_metadata w inject.py (2026-07-13)",
     "vse-dev: Nowa zakładka Opis YouTube w głównym oknie generacji (2026-07-13)",
@@ -10,6 +10,6 @@
     "vse-dev: Deploy finalny API + Web (2026-07-13)"
   ],
   "pending": [
-    "Ocena stanu — trwa (Supervisor-01)"
+    "Opracowanie roadmap-ludzi (vse-strateg-01)"
   ]
 }
