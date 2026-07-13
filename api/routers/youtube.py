@@ -177,23 +177,26 @@ async def publish_youtube_description(
     seo = req.schema_data
 
     for channel_id in req.channel_ids:
-        # Pobierz footer_text z DB
-        footer_text = ""
-        ft_channel = await _get_channel(db, current_user.id, channel_id)
-        if ft_channel:
-            footer_text = ft_channel.footer_text or ""
+        if req.override_description:
+            full_description = req.override_description
+        else:
+            # Pobierz footer_text z DB
+            footer_text = ""
+            ft_channel = await _get_channel(db, current_user.id, channel_id)
+            if ft_channel:
+                footer_text = ft_channel.footer_text or ""
 
-        full_description = build_yt_description(
-            body=seo.get("youtube_description_body") or seo.get("youtube_description_hook", ""),
-            wp_url=req.wp_article_url or "",
-            mid_cta=seo.get("youtube_mid_cta", ""),
-            chapters=seo.get("resolved_chapters") or seo.get("chapters", []),
-            credits=seo.get("youtube_credits", {}),
-            footer_text=footer_text,
-            hashtags=seo.get("youtube_hashtags", []),
-            youtube_id=req.video_id,
-            site_url="",
-        )
+            full_description = build_yt_description(
+                body=seo.get("youtube_description_body") or seo.get("youtube_description_hook", ""),
+                wp_url=req.wp_article_url or "",
+                mid_cta=seo.get("youtube_mid_cta", ""),
+                chapters=seo.get("resolved_chapters") or seo.get("chapters", []),
+                credits=seo.get("youtube_credits", {}),
+                footer_text=footer_text,
+                hashtags=seo.get("youtube_hashtags", []),
+                youtube_id=req.video_id,
+                site_url="",
+            )
 
         # Uzywamy zaktualizowanego opisu i tytulu dla tego kanalu
         res = await update_youtube_metadata(
