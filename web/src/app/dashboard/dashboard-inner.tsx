@@ -1227,6 +1227,7 @@ function TabBar({
 
 
     { key: 'chapters', label: 'Rozdziały', badge: chaptersCount > 0 ? chaptersCount : undefined },
+    { key: 'youtube', label: 'Opis YouTube' },
 
 
 
@@ -4541,7 +4542,8 @@ function buildYtDescription(schema: SchemaData | null | undefined, wpUrl?: strin
   if (!schema) return ''
   const parts: string[] = []
 
-  if (schema.youtube_description_body) parts.push(schema.youtube_description_body as string)
+  const body = schema?.youtube_description_body ?? schema?.youtube_description_hook ?? schema?.video_description ?? '';
+  if (body) parts.push(body as string)
 
   parts.push(`🔗 Artykuł: ${wpUrl || '[WSTAW LINK]'}`)
 
