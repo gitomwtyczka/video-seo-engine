@@ -1,11 +1,1 @@
-{
-  "callsign": "vse-dev-02",
-  "status": "done",
-  "current_task": "Footer fix & YouTube Opis tab (zakończone)",
-  "timestamp": "2026-07-13T12:24:00Z",
-  "last_completed": [
-    "Poprawa FooterTextEditor (page.tsx) — commit af803a7ca15bb3d9b11864b11bb96eebce80f094",
-    "Dodanie zakładki Opis YouTube w dashboardzie — commit 1bf9f097f883d5458c90c7128aff10d9bb3a326a"
-  ],
-  "pending": []
-}
+{"callsign": "vse-dev", "status": "working", "current_task": "HOTFIX — scope bug in dashboard-inner.tsx", "timestamp": "2026-07-13T12:43:00Z"}
