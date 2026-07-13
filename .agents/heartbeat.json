@@ -1,10 +1,12 @@
 {
-  "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "yt-preview-footer deploy",
-  "timestamp": "2026-07-13T10:05:00Z",
-  "last_completed": [
-    "Wdrożenie funkcji podglądu i stopki YouTube — commit [ostatnie zmiany api/models/request.py i api/routers/youtube.py] (2026-07-13)"
-  ],
-  "pending": []
+  "callsign": "vse-dev-02",
+  "status": "working",
+  "current_task": "Footer fix & YouTube Opis tab",
+  "timestamp": "2026-07-13T12:15:00Z",
+  "last_completed": [],
+  "pending": [
+    "Fix FooterTextEditor URL",
+    "Add error handling in FooterTextEditor",
+    "Add Opis YouTube tab in dashboard-inner.tsx"
+  ]
 }
