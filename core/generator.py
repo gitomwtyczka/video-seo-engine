@@ -56,7 +56,7 @@ D13 Slug Trim (2026-06-21, vse-dev-29):
 D15 JSON Sanitizer (2026-06-29, vse-dev-30):
   - _sanitize_llm_json() applied before json.loads() in generate_seo_v4()
   - PRIMARY: json-repair library (pip install json-repair) — structural repair
-  - FALLBACK: regex restricted to HTML attr values (attr=\\"val\\" → attr='val')
+  - FALLBACK: regex restricted to HTML attr values (attr=\\\"val\\\" → attr='val')
   - Zero false positives on plain text, multiline, nested HTML
   - Eliminates 500 errors from LLM outputting raw HTML with unescaped quotes
 
@@ -68,6 +68,11 @@ FIX A (2026-07-10, vse-dev-01):
     - faq_items = [] (skipped)
     - VideoObject + meta description + focus_keyphrase: generated normally
   - Result marked with partial_result=True, transcript_available=False
+
+VTT Limit fix (2026-07-14, Supervisor-01):
+  - text_trimmed limit raised from 80000 → 200000 chars
+  - Covers ~90 min of conversation (avg 2200 char/min post-parse)
+  - Safe for Gemini 2.5 Flash (1M token ctx) and Claude Sonnet (200k token ctx)
 
 Dependencies:
   pip install google-genai anthropic python-dotenv json-repair
@@ -285,7 +290,7 @@ def _sanitize_llm_json(raw_text: str) -> str:
       1. PRIMARY: json-repair (pip install json-repair) — rozumie strukturę JSON,
          naprawia semantycznie, zero false positives.
       2. FALLBACK (gdy json-repair niedostępny): regex wyizolowany do wartości
-         atrybutów HTML (attr=\"val\" → attr='val'), działa wyłącznie wewnątrz
+         atrybutów HTML (attr=\\\"val\\\" → attr='val'), działa wyłącznie wewnątrz
          sekwencji wyglądających jak HTML tag. NIE dotyka zwykłego tekstu.
 
     Passthrough: jeśli raw_text jest już poprawnym JSON — zwracany bez zmian
@@ -325,7 +330,7 @@ def _sanitize_llm_json(raw_text: str) -> str:
     # Does NOT touch: plain text, JSON keys, already-correct JSON.
     #
     # Strategy: find sequences that look like HTML attribute assignments
-    # (word=" ... ") and convert the surrounding double quotes to single quotes.
+    # (word="...") and convert the surrounding double quotes to single quotes.
     # The lookahead/behind anchors it to HTML-like context (alphanumeric attr name).
     #
     # Limitation: cannot fix deeply nested escaped sequences without json-repair.
@@ -335,7 +340,7 @@ def _sanitize_llm_json(raw_text: str) -> str:
         # Replace: attr="val" → attr='val'
         # The pattern is anchored to look like HTML attr=" ... "
         fixed = re.sub(
-            r'(\b[\w-]+)=\\"((?:[^\\\\\"]|\\\\.)*)\\"',
+            r'(\b[\w-]+)=\\"((?:[^\\\\\\"]|\\\\.)*)\\"',
             r"\1='\2'",
             raw_text,
         )
@@ -529,7 +534,7 @@ def generate_seo_v4(
         json.JSONDecodeError: If LLM returns malformed JSON (after sanitizer + 1 retry).
         Exception: On LLM API errors (re-raised with logging).
     """
-    text_trimmed = timestamped_text[:80000]
+    text_trimmed = timestamped_text[:200000]  # ~90 min @ avg 2200 char/min post-parse (raised from 80k, Supervisor-01 2026-07-14)
     total_min = int(total_duration // 60)
 
     if total_min <= 15:
@@ -995,6 +1000,9 @@ def process_video(
     which generates partial SEO (no chapters/quotes) from title+description only.
     Result contains transcript_available=False and partial_result=True.
 
+    VTT Limit (2026-07-14, Supervisor-01):
+    text_trimmed raised to 200000 chars — covers ~90 min of conversation.
+
     Args:
         youtube_id: YouTube video ID.
         wp_id: WordPress post ID.
@@ -1067,7 +1075,7 @@ def process_video(
     if not result.get("post_title", "").strip():
         result["post_title"] = result.get("seo_title", post_title)
         logger.warning(
-            "post_title missing \u2014 fallback to seo_title: %r",
+            "post_title missing — fallback to seo_title: %r",
             result["post_title"][:60],
         )
 
@@ -1075,7 +1083,7 @@ def process_video(
     if not result.get("yt_title", "").strip():
         result["yt_title"] = result.get("post_title", post_title)[:100]
         logger.warning(
-            "yt_title missing \u2014 fallback to post_title: %r",
+            "yt_title missing — fallback to post_title: %r",
             result["yt_title"][:60],
         )
 
