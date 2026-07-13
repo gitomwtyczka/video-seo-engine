@@ -1,13 +1,1 @@
-{
-  "callsign": "vse-analyst",
-  "status": "done",
-  "current_task": "Analiza braku UI podglądu YT oraz footer_text na froncie",
-  "timestamp": "2026-07-12T21:59:00Z",
-  "last_completed": [
-    "Raport dual-write: 2026-07-12_vse-analyst_ui-preview-footer.md"
-  ],
-  "pending": [
-    "Dodać UI (textarea) dla YouTubePublishModal / InjectModal",
-    "Dodać pole footer_text w ustawieniach kanału"
-  ]
-}
+{"callsign": "vse-dev", "status": "working", "current_task": "YT Description Preview + footer_text UI", "timestamp": "2026-07-13T10:30:00Z"}
