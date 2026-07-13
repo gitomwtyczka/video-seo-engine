@@ -1,13 +1,12 @@
 {
-  "callsign": "vse-dev-02",
-  "status": "handoff",
-  "current_task": "Handoff",
-  "timestamp": "2026-07-13T09:49:00Z",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "dispatch_vse-dev_yt-preview-footer.md",
+  "timestamp": "2026-07-13T11:53:00Z",
   "last_completed": [
-    "Fixed [object Object] rendering for chapters and hashtags in YouTubePublishModal.tsx"
+    "Fixed [object Object] rendering for chapters and hashtags in YouTubePublishModal.tsx — commit fe650a8bc670b13aabdce0e3bb0ef8ac3533d272 (2026-07-13)"
   ],
   "pending": [
-    "dispatch 3/4",
-    "dispatch 4/4"
+    "dispatch_vse-dev_yt-preview-footer.md"
   ]
 }
