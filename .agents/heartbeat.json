@@ -1,8 +1,8 @@
 {
-  "callsign": "Supervisor-01",
-  "status": "done",
-  "current_task": "Sesja zamknięta",
-  "timestamp": "2026-07-14T17:29:00Z",
+  "callsign": "sup-analyst-01",
+  "status": "working",
+  "current_task": "Audit lokalnego workera VTT",
+  "timestamp": "2026-07-14T19:29:26+02:00",
   "last_completed": [
     "Diagnoza VTT urwanego: root cause = stary niekompletny plik (2026-07-14)",
     "Fix generator.py limit 80k → 200k — commit 9c116257 (2026-07-14)",
