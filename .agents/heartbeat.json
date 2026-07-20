@@ -1,9 +1,10 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "Update fetcher.py logic based on duration and fallback coverage",
-  "timestamp": "2026-07-20T16:43:28Z",
+  "status": "done",
+  "current_task": "Sesja zamknięta",
+  "timestamp": "2026-07-20T16:52:59.794251Z",
   "last_completed": [
+    "Implementacja fallbacku transkryptu (vtt coverage + duration) — 2026-07-20 [vse-dev-01]",
     "Udokumentowanie architektury i działania lokalnego workera VTT — 2026-07-14",
     "Dual-write raportu audytu: video-seo-engine + sonic-void inbox — 2026-07-14",
     "Dual-write raport: video-seo-engine + sonic-void inbox (2026-07-14)",
