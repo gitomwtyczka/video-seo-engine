@@ -330,25 +330,50 @@ def fetch_transcript_ytdlp(
 
     WARNING: May fail on Oracle Cloud VPS due to YouTube IP ban.
     """
+    import sys
     url = f"https://www.youtube.com/watch?v={video_id}"
     vtt_path = os.path.join(output_dir, f"{video_id}.{lang}.vtt")
-    try:
-        cmd = [
-            "yt-dlp",
-            "--skip-download",
-            "--write-auto-sub",
-            "--write-sub",
-            "--sub-lang", lang,
-            "--sub-format", "vtt",
-            "--output", os.path.join(output_dir, f"{video_id}.%(ext)s"),
-            url
-        ]
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if os.path.exists(vtt_path):
-            with open(vtt_path, 'r', encoding='utf-8') as f:
-                return f.read(), lang
-    except Exception as e:
-        logger.warning("[fetcher] yt-dlp subtitle error for %s: %s", video_id, e)
+    
+    cookies_file = os.environ.get('YTDLP_COOKIES_FILE', '')
+    cmd_base = [
+        "yt-dlp",
+        "--skip-download",
+        "--write-auto-sub",
+        "--write-sub",
+        "--sub-lang", lang,
+        "--sub-format", "vtt",
+        "--output", os.path.join(output_dir, f"{video_id}.%(ext)s"),
+        url
+    ]
+
+    methods_to_try = []
+    if cookies_file and os.path.exists(cookies_file):
+        methods_to_try.append(('file', cmd_base + ['--cookies', cookies_file]))
+    
+    if sys.platform == 'win32':  # local runner na Windows
+        methods_to_try.append(('firefox', cmd_base + ['--cookies-from-browser', 'firefox']))
+        methods_to_try.append(('chrome', cmd_base + ['--cookies-from-browser', 'chrome']))
+        
+    methods_to_try.append(('none', cmd_base))
+    
+    for cookies_method, cmd in methods_to_try:
+        try:
+            logger.info("[fetcher] yt-dlp using cookies: %s", cookies_method)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if os.path.exists(vtt_path):
+                with open(vtt_path, 'r', encoding='utf-8') as f:
+                    return f.read(), lang
+            
+            if result.returncode != 0 and cookies_method != 'none':
+                logger.warning("[fetcher] yt-dlp cookies method '%s' failed, retrying...", cookies_method)
+                continue
+                
+        except Exception as e:
+            logger.warning("[fetcher] yt-dlp subtitle error for %s using %s: %s", video_id, cookies_method, e)
+            if cookies_method != 'none':
+                continue
+                
     return None, None
 
 
