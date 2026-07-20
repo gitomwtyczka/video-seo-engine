@@ -119,6 +119,41 @@ def log(msg: str, quiet: bool = False) -> None:
         logger.info(msg)
 
 
+def get_vtt_coverage_seconds(vtt_text: str) -> float:
+    """Parse VTT to find the last timestamp and return it in seconds."""
+    if not vtt_text:
+        return 0.0
+    
+    matches = re.findall(r'-->\s*(\d+:\d{2}:\d{2}[\.,]\d{3}|\d+:\d{2}[\.,]\d{3})', vtt_text)
+    if not matches:
+        return 0.0
+        
+    last_ts = matches[-1]
+    last_ts = last_ts.replace(',', '.')
+    
+    parts = last_ts.split(':')
+    try:
+        if len(parts) == 3:
+            h, m, s_ms = parts
+            s, ms = s_ms.split('.')
+            return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+        elif len(parts) == 2:
+            m, s_ms = parts
+            s, ms = s_ms.split('.')
+            return int(m) * 60 + int(s) + int(ms) / 1000.0
+    except ValueError:
+        pass
+    return 0.0
+
+
+def check_vtt_coverage(vtt_text: str, duration_seconds: int) -> float:
+    """Return coverage ratio of VTT vs actual video duration."""
+    if not vtt_text or duration_seconds <= 0:
+        return 0.0
+    cov_sec = get_vtt_coverage_seconds(vtt_text)
+    return cov_sec / duration_seconds
+
+
 # ---------------------------------------------------------------------------
 # D11: Video Thumbnails — download from YouTube
 # ---------------------------------------------------------------------------
@@ -317,6 +352,36 @@ def fetch_transcript_ytdlp(
     return None, None
 
 
+def fetch_transcript_api_v3(video_id: str, lang: str, api_key: str) -> Tuple[Optional[str], Optional[str]]:
+    """Fetch transcript via YouTube Data API v3 (Captions endpoint).
+    Usually fails without OAuth, but we attempt it as a last resort.
+    """
+    try:
+        url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}&key={api_key}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        
+        caption_id = None
+        for item in data.get("items", []):
+            if item["snippet"]["language"] == lang:
+                caption_id = item["id"]
+                break
+        if not caption_id and data.get("items"):
+            caption_id = data["items"][0]["id"]
+            lang = data["items"][0]["snippet"]["language"]
+            
+        if caption_id:
+            dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?key={api_key}"
+            dl_req = urllib.request.Request(dl_url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(dl_req, timeout=15) as resp:
+                vtt_text = resp.read().decode('utf-8')
+            return vtt_text, lang
+    except Exception as e:
+        logger.warning("[fetcher] API v3 captions error for %s: %s", video_id, e)
+    return None, None
+
+
 # ---------------------------------------------------------------------------
 # Metadata fetching — YouTube Data API v3 (PRIMARY on VPS)
 # ---------------------------------------------------------------------------
@@ -469,20 +534,66 @@ def process_video(video_id: str, output_dir: str, lang: str = "pl") -> dict:
         logger.error("[fetcher] metadata_fetch_failed for %s", video_id)
         return {"video_id": video_id, "error": "metadata_fetch_failed"}
 
-    # 2. Transcript: transcript-api first, yt-dlp as fallback
-    vtt_text, lang_used = fetch_transcript_api(video_id, lang)
-    if not vtt_text:
-        logger.info("[fetcher] transcript-api failed for %s, trying yt-dlp fallback...", video_id)
-        vtt_text, lang_used = fetch_transcript_ytdlp(video_id, lang, output_dir)
+    duration_seconds = meta.get("duration_seconds", 0)
+    best_vtt = None
+    best_lang = None
+    best_coverage = 0.0
 
-    # 3. Save VTT
-    if vtt_text:
-        vtt_path = os.path.join(output_dir, f"{video_id}.{lang}.vtt")
+    # 2. Transcript: transcript-api (<= 35 min)
+    if duration_seconds <= 35 * 60:
+        logger.info("[fetcher] Duration <= 35 min (%.0f s), trying transcript-api...", duration_seconds)
+        vtt_text, lang_used = fetch_transcript_api(video_id, lang)
+        if vtt_text:
+            cov = check_vtt_coverage(vtt_text, duration_seconds)
+            if cov >= 0.8:
+                best_vtt, best_lang, best_coverage = vtt_text, lang_used, cov
+                logger.info("[fetcher] transcript-api coverage %.2f >= 0.8. OK.", cov)
+            else:
+                logger.info("[fetcher] transcript-api coverage %.2f < 0.8.", cov)
+                best_vtt, best_lang, best_coverage = vtt_text, lang_used, cov
+
+    # 3. yt-dlp if > 35 min OR step 2 failed / coverage < 80%
+    if best_coverage < 0.8:
+        reason = "> 35 min" if duration_seconds > 35 * 60 else "coverage < 80%"
+        logger.info("[fetcher] trying yt-dlp for transcript (%s)...", reason)
+        yt_vtt, yt_lang = fetch_transcript_ytdlp(video_id, lang, output_dir)
+        if yt_vtt:
+            yt_cov = check_vtt_coverage(yt_vtt, duration_seconds)
+            if yt_cov >= 0.8:
+                best_vtt, best_lang, best_coverage = yt_vtt, yt_lang, yt_cov
+                logger.info("[fetcher] yt-dlp coverage %.2f >= 0.8. OK.", yt_cov)
+            else:
+                logger.info("[fetcher] yt-dlp coverage %.2f < 0.8.", yt_cov)
+                if yt_cov > best_coverage:
+                    best_vtt, best_lang, best_coverage = yt_vtt, yt_lang, yt_cov
+
+    # 4. API v3 if yt-dlp also fails / coverage < 80%
+    if best_coverage < 0.8:
+        if api_key:
+            logger.info("[fetcher] trying YouTube Data API v3 captions as last resort...")
+            api3_vtt, api3_lang = fetch_transcript_api_v3(video_id, lang, api_key)
+            if api3_vtt:
+                api3_cov = check_vtt_coverage(api3_vtt, duration_seconds)
+                if api3_cov >= 0.8:
+                    best_vtt, best_lang, best_coverage = api3_vtt, api3_lang, api3_cov
+                    logger.info("[fetcher] API v3 coverage %.2f >= 0.8. OK.", api3_cov)
+                elif api3_cov > best_coverage:
+                    best_vtt, best_lang, best_coverage = api3_vtt, api3_lang, api3_cov
+        
+        # Zapisz co masz, zaloguj ostrzeżenie
+        if best_vtt:
+            logger.warning("[fetcher] Warning: All methods failed to reach 80%% coverage. Best coverage: %.2f%%. Saving what we have.", best_coverage * 100)
+        else:
+            logger.warning("[fetcher] Warning: All methods failed to fetch transcript.")
+
+    # 5. Save VTT
+    if best_vtt:
+        vtt_path = os.path.join(output_dir, f"{video_id}.{best_lang}.vtt")
         with open(vtt_path, 'w', encoding='utf-8') as f:
-            f.write(vtt_text)
-        logger.info("[fetcher] VTT saved: %s (%d chars)", vtt_path, len(vtt_text))
+            f.write(best_vtt)
+        logger.info("[fetcher] VTT saved: %s (%d chars)", vtt_path, len(best_vtt))
         meta["vtt_path"] = vtt_path
-        meta["vtt_language"] = lang_used or lang
+        meta["vtt_language"] = best_lang
     else:
         logger.warning("[fetcher] No transcript available for %s", video_id)
         meta["vtt_path"] = None
