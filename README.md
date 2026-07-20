@@ -227,6 +227,9 @@ video-seo-engine/
 - [x] ✅ Security: auth na POST /v1/inject + user_id isolation audit (2026-07-11)
 - [x] ✅ YouTube OAuth: connect/disconnect kanałów, toast UX, yt_channel_ids do inject (2026-07-11)
 - [x] ✅ YouTube publishing UX: podgląd edycji + per-channel footer (2026-07-13)
+- [x] ✅ Fix VTT Truncation: runner nie ucinał transkryptu — poprawka logiki coverage (2026-07-20)
+- [ ] Local Runner: weryfikacja mechanizmu VTT coverage — runner powinien raportować `last segment at Xs` dla każdej metody fetchu, nie tylko yt-dlp
+- [ ] Local Runner: auto-update yt-dlp — runner jako długożyjący proces powinien raz dziennie (lub w idle) sprawdzać czy yt-dlp jest aktualny (`pip install -U yt-dlp`) i aktualizować bez restartu
 - [ ] cookies.txt strategy — fetcher.py + docker volume
 - [ ] End-to-end test z realnym video PrawyTV
 - [ ] POST /v1/monitor/start — testy E2E
@@ -258,4 +261,4 @@ video-seo-engine/
 ---
 
 *Część ekosystemu [ImpresjaAI](https://impresjapr.pl) — platforma PressAI.*  
-*Roadmap zaktualizowany: 2026-07-13 [vse-dev-01] — YouTube UX preview + footer*
+*Roadmap zaktualizowany: 2026-07-20 [Supervisor-01] — VTT fix done + runner VTT coverage + yt-dlp auto-update*
