@@ -1,5 +1,6 @@
 # Current Tasks
 ## ✅ Zamknięte
+- [x] Wdrożenie cookies.txt strategy dla yt-dlp local runner - 2026-07-20
 - [x] Fix VTT Truncation (runner) - 2026-07-20
 - HOTFIX: Naprawa błędu importu 'update_youtube_description' na 'update_youtube_metadata' w inject.py (2026-07-13)
 - FIX: Brak zakładki YouTube, brak opisu body w podglądzie, naprawa override (raport 2026-07-13)
