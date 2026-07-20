@@ -1,1 +1,1 @@
-placeholder
+CONTENT_FROM_FILE
