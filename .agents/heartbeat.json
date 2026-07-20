@@ -1,8 +1,8 @@
 {
-  "callsign": "sup-analyst-01",
-  "status": "done",
-  "current_task": "Sesja zamknięta",
-  "timestamp": "2026-07-14T17:32:00Z",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "Update fetcher.py logic based on duration and fallback coverage",
+  "timestamp": "2026-07-20T16:43:28Z",
   "last_completed": [
     "Udokumentowanie architektury i działania lokalnego workera VTT — 2026-07-14",
     "Dual-write raportu audytu: video-seo-engine + sonic-void inbox — 2026-07-14",
