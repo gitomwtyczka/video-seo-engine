@@ -1,15 +1,15 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "cookies.txt strategy for yt-dlp local runner",
-  "timestamp": "2026-07-20T18:17:00.000Z",
+  "status": "done",
+  "current_task": "None",
+  "timestamp": "2026-07-20T19:28:00.000Z",
   "last_completed": [
+    "Wdrożenie cookies.txt strategy dla yt-dlp local runner — commit ef3894f5fde8e77ccd4ae68d796b335242f96bd2 (2026-07-20)",
     "Raport audytu logów VTT po fixie (2026-07-20) [vse-analyst]",
     "Implementacja fallbacku transkryptu (vtt coverage + duration) — 2026-07-20 [vse-dev-01]",
     "Fix VTT Truncation runner - commit 33fe7329cfcb88e4f9a076591de602d066fe60ed (2026-07-20)"
   ],
   "pending": [
-    "cookies.txt strategy for yt-dlp local runner — working",
     "Decyzja właściciela: proxy/lokalny worker dla VTT na VPS",
     "Chunking LLM dla transmisji >90 min"
   ]
