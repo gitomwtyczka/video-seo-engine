@@ -246,6 +246,13 @@ def _parse_webvtt_to_segments(vtt_text: str) -> list:
     return segments
 
 
+def _get_segments_duration(segments: list) -> float:
+    """Zwraca czas ostatniego segmentu w sekundach."""
+    if not segments:
+        return 0.0
+    last = max(segments, key=lambda s: s.get("start", 0.0))
+    return float(last.get("start", 0.0))
+
 def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
     """Pobiera transkrypt przez yt-dlp z cookies (PRIMARY strategy v3.3).
 
@@ -318,6 +325,10 @@ def _try_ytdlp_with_cookies_file(video_id: str, cookies_path: str) -> Optional[s
                 "--write-auto-sub",
                 "--sub-lang", lang_spec,
                 "--sub-format", "vtt",
+                "--extractor-args", "youtube:player_client=tv_embedded",
+                "--no-part",
+                "--retries", "10",
+                "--fragment-retries", "10",
                 "--output", str(Path(tmpdir) / f"{video_id}.%(ext)s"),
                 url,
             ]
@@ -335,6 +346,11 @@ def _try_ytdlp_with_cookies_file(video_id: str, cookies_path: str) -> Optional[s
                     vtt_text = Path(vtt_files[0]).read_text(encoding="utf-8")
                     segments = _parse_webvtt_to_segments(vtt_text)
                     if segments:
+                        seg_duration = _get_segments_duration(segments)
+                        log.info(
+                            "VTT coverage: last segment at %.0fs (%dm %02ds) — %d segments",
+                            seg_duration, int(seg_duration // 60), int(seg_duration % 60), len(segments)
+                        )
                         vtt_out = _format_segments_as_vtt(segments)
                         log.info(
                             "yt-dlp+cookies_file OK: lang=%s file=%s segments=%d chars=%d",
@@ -395,6 +411,10 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
                 "--write-auto-sub",
                 "--sub-lang", lang_spec,
                 "--sub-format", "vtt",
+                "--extractor-args", "youtube:player_client=tv_embedded",
+                "--no-part",
+                "--retries", "10",
+                "--fragment-retries", "10",
                 "--output", str(Path(tmpdir) / f"{video_id}.%(ext)s"),
                 url,
             ]
@@ -433,6 +453,11 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
                     vtt_text = Path(vtt_path).read_text(encoding="utf-8")
                     segments = _parse_webvtt_to_segments(vtt_text)
                     if segments:
+                        seg_duration = _get_segments_duration(segments)
+                        log.info(
+                            "VTT coverage: last segment at %.0fs (%dm %02ds) — %d segments",
+                            seg_duration, int(seg_duration // 60), int(seg_duration % 60), len(segments)
+                        )
                         vtt_out = _format_segments_as_vtt(segments)
                         log.info(
                             "yt-dlp OK: browser=%s lang=%s file=%s segments=%d chars=%d",
