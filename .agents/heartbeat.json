@@ -1,23 +1,24 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-analyst-01",
   "status": "done",
   "current_task": "None",
-  "timestamp": "2026-07-20T17:30:54.293222Z",
+  "timestamp": "2026-07-20T17:56:00.000Z",
   "last_completed": [
-    "Implementacja fallbacku transkryptu (vtt coverage + duration) \u2014 2026-07-20 [vse-dev-01]",
-    "Udokumentowanie architektury i dzia\u0142ania lokalnego workera VTT \u2014 2026-07-14",
-    "Dual-write raportu audytu: video-seo-engine + sonic-void inbox \u2014 2026-07-14",
+    "Raport audytu logów VTT po fixie (2026-07-20) [vse-analyst]",
+    "Implementacja fallbacku transkryptu (vtt coverage + duration) — 2026-07-20 [vse-dev-01]",
+    "Udokumentowanie architektury i działania lokalnego workera VTT — 2026-07-14",
+    "Dual-write raportu audytu: video-seo-engine + sonic-void inbox — 2026-07-14",
     "Dual-write raport: video-seo-engine + sonic-void inbox (2026-07-14)",
-    "Pobranie pe\u0142nego VTT lokalnie: 691KB, 4281 seg, 0:00-1:23:30 (2026-07-14)",
+    "Pobranie pełnego VTT lokalnie: 691KB, 4281 seg, 0:00-1:23:30 (2026-07-14)",
     "Dispatch roadmapa-ludzki-opis dla stratega (2026-07-14)",
     "Dispatch vtt-truncation-fix dla vse-dev (2026-07-14)",
     "Deploy vse-api na VPS po zmianie limitu (2026-07-14)",
-    "Fix generator.py limit 80k \u2192 200k \u2014 commit 9c116257 (2026-07-14)",
+    "Fix generator.py limit 80k → 200k — commit 9c116257 (2026-07-14)",
     "Diagnoza VTT urwanego: root cause = stary niekompletny plik (2026-07-14)",
     "Fix VTT Truncation runner - commit 33fe7329cfcb88e4f9a076591de602d066fe60ed (2026-07-20)"
   ],
   "pending": [
-    "Decyzja w\u0142a\u015bciciela: proxy/lokalny worker dla VTT na VPS",
+    "Decyzja właściciela: proxy/lokalny worker dla VTT na VPS",
     "Chunking LLM dla transmisji >90 min"
   ]
 }
