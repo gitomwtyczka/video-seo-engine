@@ -84,7 +84,7 @@ def _check_rate_limit(token: str) -> bool:
 # ---------------------------------------------------------------------------
 # Transcript Sanitization (RYZYKO 1 z Security Supplement)
 # ---------------------------------------------------------------------------
-MAX_TRANSCRIPT_LENGTH = 100_000  # zwiększone z 50k bo __VTT__ dodaje overhead
+MAX_TRANSCRIPT_LENGTH = 300_000  # zwiększone z 50k bo __VTT__ dodaje overhead
 _HTML_TAGS = re.compile(r'<[^>]+>')
 # Wzorzec dopuszczalny w liniach VTT: [MM:SS] tekst
 _VTT_LINE = re.compile(r'^\[\d{2}:\d{2}\] .+')
