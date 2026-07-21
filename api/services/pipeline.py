@@ -575,6 +575,7 @@ async def run_generate(
                     select(YouTubeChannel)
                     .where(YouTubeChannel.user_id == uid)
                     .where(YouTubeChannel.is_active == True)
+                    .order_by(YouTubeChannel.updated_at.desc())
                     .limit(1)
                 )
                 channel = result.scalar_one_or_none()
