@@ -165,6 +165,7 @@ async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(g
             post_title_override=req.post_title,
             publication_type=req.publication_type,  # D6b
             portal_id=req.portal_id,  # D9
+            user_id=str(current_user.id),  # OAuth: private video access
         )
 
         schema_data = result["seo"]
