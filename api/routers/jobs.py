@@ -84,7 +84,7 @@ def _check_rate_limit(token: str) -> bool:
 # ---------------------------------------------------------------------------
 # Transcript Sanitization (RYZYKO 1 z Security Supplement)
 # ---------------------------------------------------------------------------
-MAX_TRANSCRIPT_LENGTH = 300_000  # zwiększone z 50k bo __VTT__ dodaje overhead
+# MAX_TRANSCRIPT_LENGTH — brak limitu (obsługa wielogodzinnych transmisji)
 _HTML_TAGS = re.compile(r'<[^>]+>')
 # Wzorzec dopuszczalny w liniach VTT: [MM:SS] tekst
 _VTT_LINE = re.compile(r'^\[\d{2}:\d{2}\] .+')
@@ -103,12 +103,10 @@ def sanitize_transcript(raw: str) -> str:
     1. Sprawdzenie typu i niepustości
     2. Wykrycie formatu __VTT__ (zachowaj strukturę wieloliniową!)
     3. Strip tagów HTML z każdej linii
-    4. Obcięcie do MAX_TRANSCRIPT_LENGTH
 
     JAK (plain text, fallback dla starszych runnerów):
     1. Strip tagów HTML
     2. Normalizacja whitespace
-    3. Obcięcie do MAX_TRANSCRIPT_LENGTH
 
     Args:
         raw: Surowy tekst transkryptu od runnera.
@@ -144,25 +142,8 @@ def sanitize_transcript(raw: str) -> str:
         clean = _HTML_TAGS.sub(' ', raw)
         clean = ' '.join(clean.split())
 
-    # Ogranicz długość
-    if len(clean) > MAX_TRANSCRIPT_LENGTH:
-        if is_vtt:
-            # Dla VTT: obetnij po pełnych liniach, nie w środku
-            truncated_lines = []
-            total = 0
-            for line in clean.split("\n"):
-                if total + len(line) + 1 > MAX_TRANSCRIPT_LENGTH:
-                    break
-                truncated_lines.append(line)
-                total += len(line) + 1
-            clean = "\n".join(truncated_lines)
-        else:
-            clean = clean[:MAX_TRANSCRIPT_LENGTH]
-        logger.warning(
-            "Transcript truncated to ~%d chars (original: %d)",
-            len(clean), len(raw),
-        )
-
+    # Brak limitu długości — obsługujemy wielogodzinne transmisje
+    logger.debug("Transcript sanitized: %d chars", len(clean))
     return clean
 
 
