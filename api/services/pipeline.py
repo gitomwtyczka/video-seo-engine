@@ -489,6 +489,7 @@ async def run_generate(
     post_title_override: Optional[str] = None,
     publication_type: str = "full_analysis",
     portal_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> dict:
     """Fetch transcript + generate SEO schema. No WP write.
 
@@ -562,8 +563,51 @@ async def run_generate(
                 len(internal_links),
             )
 
+
+    access_token = None
+    if user_id:
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import select
+            from api.models.youtube_channel import YouTubeChannel
+            try:
+                uid = uuid.UUID(user_id)
+                result = await db.execute(
+                    select(YouTubeChannel)
+                    .where(YouTubeChannel.user_id == uid)
+                    .where(YouTubeChannel.is_active == True)
+                    .limit(1)
+                )
+                channel = result.scalar_one_or_none()
+                if channel:
+                    if hasattr(channel, 'access_token') and getattr(channel, 'access_token'):
+                        access_token = channel.access_token
+                    elif channel.refresh_token:
+                        import requests
+                        client_id = os.environ.get("GOOGLE_CLIENT_ID", "") or os.environ.get("YT_CLIENT_ID", "")
+                        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "") or os.environ.get("YT_CLIENT_SECRET", "")
+                        if client_id and client_secret:
+                            resp = requests.post(
+                                "https://oauth2.googleapis.com/token",
+                                data={
+                                    "client_id": client_id,
+                                    "client_secret": client_secret,
+                                    "refresh_token": channel.refresh_token,
+                                    "grant_type": "refresh_token",
+                                },
+                                timeout=15,
+                            )
+                            if resp.status_code == 200:
+                                access_token = resp.json().get("access_token")
+                                logger.info("[generate] Got access_token from refresh_token")
+                            else:
+                                logger.warning("[generate] Failed to get access_token: %s", resp.text)
+                        else:
+                            logger.warning("[generate] Missing OAuth client credentials")
+            except Exception as exc:
+                logger.warning("[generate] Error getting channel access_token: %s", exc)
+
     with tempfile.TemporaryDirectory() as tmp_dir:
-        meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang)
+        meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang, access_token)
         if not meta or meta.get("error"):
             raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
 
