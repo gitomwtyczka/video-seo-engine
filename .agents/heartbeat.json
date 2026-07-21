@@ -1,8 +1,8 @@
 {
   "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "None",
-  "timestamp": "2026-07-20T19:28:00.000Z",
+  "status": "working",
+  "current_task": "Implementing private video OAuth fix in fetch_metadata_api_v3",
+  "timestamp": "2026-07-21T23:16:10+02:00",
   "last_completed": [
     "Wdrożenie cookies.txt strategy dla yt-dlp local runner — commit ef3894f5fde8e77ccd4ae68d796b335242f96bd2 (2026-07-20)",
     "Raport audytu logów VTT po fixie (2026-07-20) [vse-analyst]",
