@@ -411,7 +411,7 @@ def fetch_transcript_api_v3(video_id: str, lang: str, api_key: str) -> Tuple[Opt
 # Metadata fetching — YouTube Data API v3 (PRIMARY on VPS)
 # ---------------------------------------------------------------------------
 
-def fetch_metadata_api_v3(video_id: str, api_key: str) -> dict:
+def fetch_metadata_api_v3(video_id: str, api_key: str, access_token: str | None = None) -> dict:
     """Fetch video metadata via YouTube Data API v3.
 
     Uses googleapis.com — NOT blocked on Oracle Cloud VPS.
@@ -419,13 +419,21 @@ def fetch_metadata_api_v3(video_id: str, api_key: str) -> dict:
 
     Returns metadata dict or {} on failure.
     """
-    url = (
-        f"https://www.googleapis.com/youtube/v3/videos"
-        f"?id={video_id}&key={api_key}"
-        f"&part=snippet,contentDetails,statistics"
-    )
+    url = f"https://www.googleapis.com/youtube/v3/videos"
+    import urllib.parse
+    params = {"id": video_id, "part": "snippet,contentDetails,statistics"}
+    headers = {}
+    
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    else:
+        params["key"] = api_key
+        
+    query_string = urllib.parse.urlencode(params)
+    url = f"{url}?{query_string}"
+    
     try:
-        req = urllib.request.Request(url)  # noqa: S310
+        req = urllib.request.Request(url, headers=headers)  # noqa: S310
         with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
             data = json.loads(resp.read())
 
@@ -523,7 +531,7 @@ def fetch_metadata_ytdlp(video_id: str) -> dict:
 # Main entry point — called by pipeline.py
 # ---------------------------------------------------------------------------
 
-def process_video(video_id: str, output_dir: str, lang: str = "pl") -> dict:
+def process_video(video_id: str, output_dir: str, lang: str = "pl", access_token: str | None = None) -> dict:
     """Fetch metadata + transcript for one video. Returns metadata dict.
 
     Called by api/services/pipeline.py as:
@@ -547,7 +555,7 @@ def process_video(video_id: str, output_dir: str, lang: str = "pl") -> dict:
     # 1. Metadata: API v3 first (VPS-safe), yt-dlp as local fallback
     api_key = os.environ.get("YOUTUBE_API_KEY", "")
     if api_key:
-        meta = fetch_metadata_api_v3(video_id, api_key)
+        meta = fetch_metadata_api_v3(video_id, api_key, access_token)
     else:
         logger.warning(
             "[fetcher] YOUTUBE_API_KEY not set — falling back to yt-dlp "
