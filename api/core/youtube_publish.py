@@ -29,14 +29,14 @@ async def _get_channel(db: AsyncSession, user_id: int, channel_id: str) -> YouTu
     return result.scalar_one_or_none()
 
 def _build_credentials(channel: YouTubeChannel) -> Credentials:
-    # Initialize Credentials with the refresh token
+    # Scope musi byc identyczny jak w OAuth flow (youtube.py YT_SCOPE)
     return Credentials(
         token=None,
         refresh_token=channel.refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
-        scopes=["https://www.googleapis.com/auth/youtube"],
+        scopes=["https://www.googleapis.com/auth/youtube.force-ssl"],
     )
 
 async def _save_refreshed_token(db: AsyncSession, channel: YouTubeChannel, creds: Credentials):
