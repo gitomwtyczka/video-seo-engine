@@ -1,9 +1,10 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
+  "status": "done",
   "current_task": "hotfix-yt-write-403: youtube/v3/videos 403 Forbidden przy wysyłce opisu na YT",
-  "timestamp": "2026-07-22T22:57:00+02:00",
+  "timestamp": "2026-07-22T23:00:00+02:00",
   "last_completed": [
+    "Hotfix: dodano scope do wywołania _build_credentials dla YouTube videos.update API - commit 23a599f (2026-07-22)",
     "Implementing private video OAuth fix in fetch_metadata_api_v3 (2026-07-21)"
   ],
   "pending": []
