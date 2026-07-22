@@ -36,6 +36,7 @@ def _build_credentials(channel: YouTubeChannel) -> Credentials:
         token_uri="https://oauth2.googleapis.com/token",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
+        scopes=["https://www.googleapis.com/auth/youtube"],
     )
 
 async def _save_refreshed_token(db: AsyncSession, channel: YouTubeChannel, creds: Credentials):
