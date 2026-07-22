@@ -1,16 +1,10 @@
 {
   "callsign": "vse-dev-01",
   "status": "working",
-  "current_task": "Implementing private video OAuth fix in fetch_metadata_api_v3",
-  "timestamp": "2026-07-21T23:16:10+02:00",
+  "current_task": "hotfix-yt-write-403: youtube/v3/videos 403 Forbidden przy wysyłce opisu na YT",
+  "timestamp": "2026-07-22T22:57:00+02:00",
   "last_completed": [
-    "Wdrożenie cookies.txt strategy dla yt-dlp local runner — commit ef3894f5fde8e77ccd4ae68d796b335242f96bd2 (2026-07-20)",
-    "Raport audytu logów VTT po fixie (2026-07-20) [vse-analyst]",
-    "Implementacja fallbacku transkryptu (vtt coverage + duration) — 2026-07-20 [vse-dev-01]",
-    "Fix VTT Truncation runner - commit 33fe7329cfcb88e4f9a076591de602d066fe60ed (2026-07-20)"
+    "Implementing private video OAuth fix in fetch_metadata_api_v3 (2026-07-21)"
   ],
-  "pending": [
-    "Decyzja właściciela: proxy/lokalny worker dla VTT na VPS",
-    "Chunking LLM dla transmisji >90 min"
-  ]
+  "pending": []
 }
