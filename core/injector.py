@@ -66,6 +66,12 @@ D11: Video Screenshots + ImageObject (2026-06-21, vse-dev-26):
        build_schema_jsonld() dodaje "image" z ImageObject do VideoObject.
        build_post_content() wstawia <figure> z <img> po pierwszym akapicie.
 
+Fix lead-excerpt (2026-07-23, vse-dev-fix):
+  CO: Usuwa lead z post_excerpt — lead był wyświetlany dwukrotnie na stronie.
+  PO CO: Lead pojawiał się pod tytułem (post_excerpt) i pod filmem (post_content).
+         User chce lead TYLKO w treści (pod filmem), NIE pod tytułem.
+  JAK: Usunięto excerpt z payloadu update_post(). WP post_excerpt = pusty.
+
 Dependencies:
   pip install requests python-dotenv
 """
@@ -927,7 +933,7 @@ def _build_figure_blocks(uploaded_images: list[dict]) -> list[str]:
             continue
 
         fig_html = (
-            f'<!-- wp:image {{"sizeSlug":"large"}} -->\n'
+            f'<!-- wp:image {"sizeSlug":"large"} -->\n'
             f'<figure class="wp-block-image size-large">'
             f'<img src="{url}" alt="{alt}" '
             f'width="{width}" height="{height}" loading="lazy" />'
@@ -1152,7 +1158,6 @@ def update_post(
     logger.info("  uploadDate: %s", upload_date)
 
     content = build_post_content(seo, yt_id, upload_date, yt_api_key, profile=profile)
-    excerpt = _strip_html(seo["lead"])
 
     if dry_run:
         rankmath_meta = _build_rankmath_meta(seo, saas_data)
@@ -1163,7 +1168,8 @@ def update_post(
     url = f"{wp_base_url}/wp-json/wp/v2/posts/{wp_id}"
     # NOTE: WP REST 'meta' field silently ignores rank_math_* keys —
     # use update_rankmath_meta() separately for the correct endpoint.
-    payload: dict = {"content": content, "excerpt": excerpt}
+    # excerpt removed — lead is displayed in post_content only (fix lead-excerpt 2026-07-23)
+    payload: dict = {"content": content}
 
     # Post title — update only if provided by generator
     post_title_val = seo.get("post_title", "").strip()
