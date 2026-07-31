@@ -1,11 +1,12 @@
 {
-  "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "deploy git pull + rebuild vse-api",
-  "timestamp": "2026-07-23T20:09:00+02:00",
+  "callsign": "vse-strateg-01",
+  "status": "working",
+  "current_task": "Diagnoza błędu invalid_grant na tokenie YT przy wysyłce opisu",
+  "timestamp": "2026-07-31T17:06:00+02:00",
   "last_completed": [
-    "Wdrożenie poprawki post_excerpt: pomyślny git pull na VPS i przebudowa vse-api (2026-07-23)",
-    "Hotfix: dodano scope do wywołania _build_credentials dla YouTube videos.update API - commit 23a599f (2026-07-22)"
+    "Odczyt yt_admin.py — analiza flow tokenu OAuth"
   ],
-  "pending": []
+  "pending": [
+    "Dispatch do vse-dev — naprawa tokenu YT"
+  ]
 }
