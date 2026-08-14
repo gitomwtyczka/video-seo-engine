@@ -71,7 +71,7 @@ podcast:
     - slug: prawy-biblijny
       name: "Prawy Biblijny — Słowo na dziś"
       description: "Codzienna Ewangelia z komentarzem. Prawy.pl zaprasza na krótkie rozważanie Słowa Bożego."
-      yt_playlist_id: null          # uzupełni user po stworzeniu podcastu na YT
+      yt_playlist_id: "PLw7UeigJuyWkUzzvhS1vZX0H251raaYa7"
       yt_podcast_show_id: null      # YouTube Podcast Show ID (z YT Studio > Podcasty)
       wp_show_slug: prawy-biblijny
       wp_taxonomy: podcast_show
