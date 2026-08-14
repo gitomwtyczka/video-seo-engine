@@ -62,3 +62,36 @@ monitor:
   interval_seconds: 1800     # 30 min
   lookback_days: 14          # skanuj ostatnie N dni
   dry_run: false
+
+# ===================================================
+# PODCAST SHOWS CONFIGURATION
+# ===================================================
+podcast:
+  shows:
+    - slug: prawy-biblijny
+      name: "Prawy Biblijny — Słowo na dziś"
+      description: "Codzienna Ewangelia z komentarzem. Prawy.pl zaprasza na krótkie rozważanie Słowa Bożego."
+      yt_playlist_id: null          # uzupełni user po stworzeniu podcastu na YT
+      yt_podcast_show_id: null      # YouTube Podcast Show ID (z YT Studio > Podcasty)
+      wp_show_slug: prawy-biblijny
+      wp_taxonomy: podcast_show
+      mp3_server_path: /var/www/html/wp-content/uploads/podcast/prawy-biblijny
+      rss_url: https://prawy.pl/podcast-rss/prawy-biblijny/
+      publish_time: "07:00:00"
+      category: "Religion & Spirituality"
+      language: pl
+      current_episode: 6           # ostatni wgrany odcinek
+
+    - slug: pluzanski-bez-przemilczen
+      name: "Płużański. Bez Przemilczeń!"
+      description: "Rozmowy bez przemilczeń — historia, polityka, Polska. Tadeusz Płużański i goście."
+      yt_playlist_id: null          # uzupełni user
+      yt_podcast_show_id: null      # YouTube Podcast Show ID
+      wp_show_slug: pluzanski-bez-przemilczen
+      wp_taxonomy: podcast_show
+      mp3_server_path: /var/www/html/wp-content/uploads/podcast/pluzanski-bez-przemilczen
+      rss_url: https://prawy.pl/podcast-rss/pluzanski-bez-przemilczen/
+      publish_time: "18:00:00"
+      category: "Society & Culture"
+      language: pl
+      current_episode: 18
