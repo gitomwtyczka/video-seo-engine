@@ -36,6 +36,9 @@ Endpoints:
   GET  /v1/payments/portal-session — Stripe Customer Portal URL
   GET  /v1/youtube/oauth/login — Redirect to Google OAuth for YT
   GET  /v1/youtube/oauth/callback — Callback from Google OAuth for YT
+  GET  /v1/podcast/shows      — list podcast shows for profile
+  GET  /v1/podcast/shows/{slug} — podcast show config
+  POST /v1/podcast/link-mp3   — link MP3 to WordPress post
   GET  /docs                  — Swagger UI
 """
 import logging
@@ -54,6 +57,7 @@ from api.routers.portals import router as portals_router
 from api.routers.profiles import router as profiles_router
 from api.routers.payments import router as payments_router
 from api.routers.youtube import router as youtube_router
+from api.routers.podcast import router as podcast_router
 from api.models.response import HealthResponse
 from api.middleware.error_logging import ErrorLoggingMiddleware
 from api.db import engine, Base, AsyncSessionLocal
@@ -116,6 +120,9 @@ app.include_router(payments_router)
 
 # YouTube router (OAuth channels)
 app.include_router(youtube_router)
+
+# Podcast router (multi-show management)
+app.include_router(podcast_router, prefix="/v1")
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
