@@ -7,18 +7,21 @@ JAK: 5 endpointów: kandydaci, render, pending (dla Local Runner), result, statu
 """
 import logging
 import os
+import re
+import tempfile
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import select, desc
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import get_db
+from api.models.job import TranscriptJob
 from api.models.short_job import ShortJob
 from core.shorts import propose_shorts
-from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/shorts", tags=["shorts"])
@@ -56,51 +59,168 @@ class ResultRequest(BaseModel):
     error: Optional[str] = None
 
 
+# --- Helpers ---
+
+def _extract_youtube_id(url_or_id: Optional[str]) -> Optional[str]:
+    """Wyciąga 11-znakowy identyfikator wideo YouTube z URL lub stringu."""
+    if not url_or_id:
+        return None
+    cleaned = url_or_id.strip()
+    if re.match(r'^[a-zA-Z0-9_-]{11}$', cleaned):
+        return cleaned
+    patterns = [
+        r'(?:youtube\.com/watch\?v=)([a-zA-Z0-9_-]{11})',
+        r'(?:youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'(?:youtube\.com/embed/)([a-zA-Z0-9_-]{11})',
+        r'(?:youtube\.com/v/)([a-zA-Z0-9_-]{11})',
+        r'(?:youtube\.com/shorts/)([a-zA-Z0-9_-]{11})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, cleaned)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _convert_transcript_to_webvtt(transcript: str) -> str:
+    """Konwertuje transkrypt z bazy danych (format __VTT__ / [MM:SS] / plain text) do standardowego WebVTT."""
+    transcript = transcript.strip()
+    if transcript.startswith("WEBVTT"):
+        return transcript
+
+    if transcript.startswith("__VTT__"):
+        transcript = transcript[len("__VTT__"):].lstrip("\n")
+
+    lines = transcript.split("\n")
+    segments = []
+    ts_pattern = re.compile(r'^(?:\[)?(?:(\d{1,2}):)?(\d{2}):(\d{2})(?:\.\d+)?(?:\])?\s*(.*)$')
+
+    for line in lines:
+        line_s = line.strip()
+        if not line_s or line_s == "__VTT__":
+            continue
+        m = ts_pattern.match(line_s)
+        if m:
+            h_str, m_str, s_str, text = m.groups()
+            hours = int(h_str) if h_str else 0
+            mins = int(m_str)
+            secs = int(s_str)
+            start_sec = hours * 3600 + mins * 60 + secs
+            clean_text = text.strip()
+            if clean_text:
+                segments.append((start_sec, clean_text))
+        else:
+            if segments:
+                last_time, last_text = segments[-1]
+                segments[-1] = (last_time, f"{last_text} {line_s}")
+            else:
+                segments.append((0, line_s))
+
+    if not segments:
+        return f"WEBVTT\n\n1\n00:00:00.000 --> 00:01:00.000\n{transcript}\n"
+
+    webvtt_parts = ["WEBVTT", ""]
+    for i, (start_sec, text) in enumerate(segments):
+        if i + 1 < len(segments):
+            end_sec = max(segments[i + 1][0], start_sec + 1)
+        else:
+            end_sec = start_sec + 5
+
+        start_h, start_m, start_s = start_sec // 3600, (start_sec % 3600) // 60, start_sec % 60
+        end_h, end_m, end_s = end_sec // 3600, (end_sec % 3600) // 60, end_sec % 60
+
+        start_fmt = f"{start_h:02d}:{start_m:02d}:{start_s:02d}.000"
+        end_fmt = f"{end_h:02d}:{end_m:02d}:{end_s:02d}.000"
+
+        webvtt_parts.append(str(i + 1))
+        webvtt_parts.append(f"{start_fmt} --> {end_fmt}")
+        webvtt_parts.append(text)
+        webvtt_parts.append("")
+
+    return "\n".join(webvtt_parts)
+
+
 # --- Endpoints ---
 
 @router.post("/candidates")
-async def get_candidates(req: CandidatesRequest):
+async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_db)):
     """Analizuje transkrypt VTT i zwraca propozycje kandydatów na shorty."""
     api_key = os.getenv("GEMINI_API_KEY", "") if req.provider == "gemini" else os.getenv("ANTHROPIC_API_KEY", "")
-    
-    # Znajdź VTT path na podstawie youtube_id
+
+    yt_id = _extract_youtube_id(req.youtube_id) or _extract_youtube_id(req.youtube_url) or req.youtube_id
     vtt_path = req.vtt_path
-    if not vtt_path and req.youtube_id:
-        # Spróbuj typowych lokalizacji VTT na VPS
+    tmp_file = None
+
+    # 1. Sprawdź plik na dysku jeśli podano youtube_id / youtube_url
+    if not vtt_path and yt_id:
         candidates_paths = [
-            f"/home/ubuntu/video-seo-engine/data/vtt/{req.youtube_id}.vtt",
-            f"/tmp/{req.youtube_id}.vtt",
+            f"/home/ubuntu/video-seo-engine/data/vtt/{yt_id}.vtt",
+            f"/tmp/{yt_id}.vtt",
         ]
         for p in candidates_paths:
             if os.path.exists(p):
                 vtt_path = p
                 break
-    
+
+    # 2. Jeśli brak pliku na dysku — pobierz transkrypt z bazy PostgreSQL
     if not vtt_path or not os.path.exists(vtt_path):
-        raise HTTPException(status_code=404, detail=f"VTT file not found for youtube_id={req.youtube_id}")
-    
-    candidates = propose_shorts(
-        vtt_path=vtt_path,
-        count_emotional=req.count_emotional,
-        count_professional=req.count_professional,
-        custom_query=req.custom_query,
-        count_custom=req.count_custom,
-        api_key=api_key,
-        provider=req.provider,
-    )
-    
-    return {
-        "candidates": [c.to_dict() for c in candidates],
-        "total": len(candidates),
-    }
+        conditions = [TranscriptJob.transcript.isnot(None)]
+        if yt_id:
+            conditions.append(TranscriptJob.video_url.contains(yt_id))
+        elif req.youtube_url:
+            conditions.append(TranscriptJob.video_url == req.youtube_url)
+
+        query = (
+            select(TranscriptJob)
+            .where(*conditions)
+            .order_by(desc(TranscriptJob.created_at))
+            .limit(1)
+        )
+        result = await db.execute(query)
+        job = result.scalar_one_or_none()
+
+        if job and job.transcript:
+            webvtt_content = _convert_transcript_to_webvtt(job.transcript)
+            tmp_fd, tmp_file = tempfile.mkstemp(suffix=".vtt", prefix=f"vse_{yt_id or 'shorts'}_")
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.write(webvtt_content)
+            vtt_path = tmp_file
+            logger.info("candidates: VTT extracted from DB job %s -> %s", job.id, tmp_file)
+
+    if not vtt_path or not os.path.exists(vtt_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"VTT not found for youtube_id={yt_id or req.youtube_id or req.youtube_url or 'unknown'}. Generate SEO first to fetch transcript."
+        )
+
+    try:
+        candidates = propose_shorts(
+            vtt_path=vtt_path,
+            count_emotional=req.count_emotional,
+            count_professional=req.count_professional,
+            custom_query=req.custom_query,
+            count_custom=req.count_custom,
+            api_key=api_key,
+            provider=req.provider,
+        )
+        return {
+            "candidates": [c.to_dict() for c in candidates],
+            "total": len(candidates),
+        }
+    finally:
+        if tmp_file and os.path.exists(tmp_file):
+            try:
+                os.remove(tmp_file)
+            except Exception as e:
+                logger.warning("Failed to remove temp VTT file %s: %s", tmp_file, e)
 
 
 @router.post("/render")
-async def render_short(req: RenderRequest, db: Session = Depends(get_db)):
+async def render_short(req: RenderRequest, db: AsyncSession = Depends(get_db)):
     """Zleca wycięcie i renderowanie wybranego kandydata."""
     if not req.youtube_url and not req.local_path:
         raise HTTPException(status_code=400, detail="Wymagany youtube_url lub local_path")
-    
+
     job = ShortJob(
         status="pending",
         youtube_url=req.youtube_url,
@@ -124,12 +244,12 @@ async def render_short(req: RenderRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/pending")
-async def get_pending_shorts(db: Session = Depends(get_db)):
+async def get_pending_shorts(db: AsyncSession = Depends(get_db)):
     """Zwraca oczekujące zadania dla Local Runner — endpoint pollingu."""
     query = select(ShortJob).where(ShortJob.status == "pending").limit(5)
     result_jobs = await db.execute(query)
     jobs = result_jobs.scalars().all()
-    
+
     result = []
     for job in jobs:
         job.status = "processing"
@@ -147,12 +267,12 @@ async def get_pending_shorts(db: Session = Depends(get_db)):
 
 
 @router.post("/{job_id}/result")
-async def submit_short_result(job_id: UUID, req: ResultRequest, db: Session = Depends(get_db)):
+async def submit_short_result(job_id: UUID, req: ResultRequest, db: AsyncSession = Depends(get_db)):
     """Local Runner raportuje wynik renderowania."""
     query = select(ShortJob).where(ShortJob.id == job_id)
     result = await db.execute(query)
     job = result.scalar_one_or_none()
-    
+
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     job.status = req.status
@@ -165,12 +285,12 @@ async def submit_short_result(job_id: UUID, req: ResultRequest, db: Session = De
 
 
 @router.get("/{job_id}")
-async def get_short_status(job_id: UUID, db: Session = Depends(get_db)):
+async def get_short_status(job_id: UUID, db: AsyncSession = Depends(get_db)):
     """Sprawdza status zadania i zwraca ścieżki do plików."""
     query = select(ShortJob).where(ShortJob.id == job_id)
     result = await db.execute(query)
     job = result.scalar_one_or_none()
-    
+
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return {
