@@ -840,6 +840,22 @@ def main() -> None:
     shorts_thread = threading.Thread(target=_short_jobs_loop, name="shorts_loop", daemon=True)
     shorts_thread.start()
 
+    # Library indexer (background)
+    try:
+        from library_matcher import start_background_indexer, FPCALC
+        FPCALC_AVAILABLE = FPCALC is not None
+    except ImportError:
+        FPCALC_AVAILABLE = False
+
+    default_library = r"C:\Users\tomas2\Videos"
+    library_dirs_raw = os.getenv("LOCAL_VIDEO_LIBRARY", default_library)
+    library_dirs = [d.strip() for d in library_dirs_raw.split(";") if d.strip()]
+    if library_dirs and FPCALC_AVAILABLE:  # sprawdz czy fpcalc jest dostępny
+        start_background_indexer(library_dirs, stop_event=_stop_requested)
+        log.info("Library indexer started for: %s", library_dirs)
+    else:
+        log.info("Library indexer: LOCAL_VIDEO_LIBRARY not set or fpcalc unavailable, skipping")
+
     while not _stop_requested.is_set():
         try:
             jobs = get_pending_jobs()
