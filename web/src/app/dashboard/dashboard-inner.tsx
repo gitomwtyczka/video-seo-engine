@@ -3103,7 +3103,7 @@ function AddPortalModal({
 
 
 
-  const [newProfileType, setNewProfileType] = useState('full_analysis')
+  const [newProfileType, setNewProfileType] = useState('analiza')
 
 
 
@@ -3974,288 +3974,160 @@ function AddPortalModal({
           {showNewProfileForm && (
 
 
-
             <div className="space-y-3 pl-3 border-l-2 border-violet-500/30">
-
-
 
               <p className="text-xs text-violet-400 font-medium">Nowy profil treści</p>
 
 
 
-
-
-
-
               {/* Site brand */}
-
-
 
               <div>
 
-
-
                 <label className="block text-xs text-gray-400 mb-1">Site brand</label>
-
-
 
                 <input
 
-
-
                   type="text"
-
-
 
                   value={newProfileBrand}
 
-
-
                   onChange={(e) => setNewProfileBrand(e.target.value)}
-
-
 
                   placeholder="np. BiznesCiti"
 
-
-
                   className={inputClass}
-
-
 
                 />
 
-
-
               </div>
-
-
-
-
 
 
 
               {/* Publication type */}
 
-
-
               <div>
-
-
 
                 <label className="block text-xs text-gray-400 mb-1">Domyślny typ publikacji</label>
 
-
-
                 <select
-
-
 
                   value={newProfileType}
 
-
-
                   onChange={(e) => setNewProfileType(e.target.value)}
-
-
 
                   className={selectClass}
 
-
-
                   style={selectStyle}
-
-
 
                 >
 
-
-
-                  <option value="full_analysis">Full Analysis — rozbudowany artykuł SEO</option>
-
-
-
-                  <option value="watching_page">Film — krótki artykuł z embedem</option>
-
-
-
-                  <option value="discover">Discover — format Google Discover</option>
-
-
+                  <optgroup label="-- Informacyjne --">
+                    <option value="news">News (depesza)</option>
+                  </optgroup>
+                  <optgroup label="-- Publicystyczne --">
+                    <option value="analiza">Analiza pogłębiona</option>
+                    <option value="felieton">Felieton</option>
+                  </optgroup>
+                  <optgroup label="-- Narracyjne --">
+                    <option value="wywiad">Wywiad Q&A</option>
+                    <option value="reportaz">Reportaż</option>
+                  </optgroup>
+                  <optgroup label="-- Użytkowe --">
+                    <option value="explainer">Explainer (wyjaśniamy)</option>
+                    <option value="poradnik">Poradnik / How-To</option>
+                  </optgroup>
+                  <optgroup label="-- Legacy (zachowane) --">
+                    <option value="full_analysis">Pełna analiza (stary)</option>
+                    <option value="watching_page">Strona oglądania</option>
+                    <option value="discover">Google Discover</option>
+                  </optgroup>
 
                 </select>
 
-
-
               </div>
-
-
-
-
 
 
 
               {/* SEO language */}
 
-
-
               <div>
-
-
 
                 <label className="block text-xs text-gray-400 mb-1">Język SEO</label>
 
-
-
                 <select
-
-
 
                   value={newProfileLang}
 
-
-
                   onChange={(e) => setNewProfileLang(e.target.value)}
-
-
 
                   className={selectClass}
 
-
-
                   style={selectStyle}
-
-
 
                 >
 
-
-
                   <option value="pl">Polski</option>
-
-
 
                   <option value="en">English</option>
 
-
-
                   <option value="de">Deutsch</option>
-
-
 
                 </select>
 
-
-
               </div>
-
-
-
-
 
 
 
               {/* External link (optional) */}
 
-
-
               <div className="grid grid-cols-2 gap-3">
 
-
-
                 <div>
-
-
 
                   <label className="block text-xs text-gray-400 mb-1">Link zewn. SEO</label>
 
-
-
                   <input
-
-
 
                     type="url"
 
-
-
                     value={newProfileExtUrl}
-
-
 
                     onChange={(e) => setNewProfileExtUrl(e.target.value)}
 
-
-
                     placeholder="https://youtube.com"
-
-
 
                     className={inputClass}
 
-
-
                   />
 
-
-
                 </div>
-
-
 
                 <div>
 
-
-
                   <label className="block text-xs text-gray-400 mb-1">Anchor linku</label>
-
-
 
                   <input
 
-
-
                     type="text"
-
-
 
                     value={newProfileExtAnchor}
 
-
-
                     onChange={(e) => setNewProfileExtAnchor(e.target.value)}
-
-
 
                     placeholder="┼╣ródło wideo"
 
-
-
                     className={inputClass}
-
-
 
                   />
 
-
-
                 </div>
-
-
 
               </div>
 
-
-
             </div>
 
-
-
           )}
-
-
-
-
 
 
 
@@ -4263,265 +4135,127 @@ function AddPortalModal({
 
 
 
-
-
-
-
           <div className="flex gap-3 pt-2">
 
-
-
             <button
-
-
 
               onClick={onClose}
 
-
-
               disabled={saving}
-
-
 
               className="flex-1 py-2 bg-gray-800 text-white rounded-lg font-medium hover:bg-gray-700 transition-colors"
 
-
-
             >
-
-
 
               Anuluj
 
-
-
             </button>
-
-
 
             <button
 
-
-
               onClick={handleSave}
-
-
 
               disabled={saving}
 
-
-
               className="flex-1 py-2 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-500 transition-colors"
-
-
 
             >
 
-
-
               {saving ? 'Zapisywanie...' : showNewProfileForm ? '✨ Utwórz profil i portal' : 'Zapisz portal'}
-
-
 
             </button>
 
-
-
           </div>
-
-
 
         </div>
 
-
-
       </div>
-
-
 
     </div>
 
-
-
   )
 
-
-
 }
-
-
-
-
-
-
-
-
 
 
 
 /**
 
-
-
  * CO: ManageSubscriptionLink — przycisk zarządzania subskrypcją Stripe
-
-
 
  * PO CO: Użytkownicy Pro/Agency mogą zmienić plan, anulować lub zaktualizować kartę
 
-
-
  *        bez budowania custom UI — Stripe Customer Portal.
-
-
 
  * JAK: Wywołuje GET /v1/payments/portal-session → redirect do Stripe Portal.
 
-
-
  */
-
-
 
 function ManageSubscriptionLink({ accessToken }: { accessToken?: string }) {
 
-
-
   const [loading, setLoading] = useState(false)
-
-
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
 
 
 
-
-
-
-
   const handleManage = async () => {
-
-
 
     setLoading(true)
 
-
-
     try {
-
-
 
       const res = await fetch(`${apiUrl}/v1/payments/portal-session`, {
 
-
-
         headers: { Authorization: `Bearer ${accessToken || ''}` },
-
-
 
       })
 
-
-
       if (res.ok) {
-
-
 
         const { portal_url } = await res.json()
 
-
-
         window.location.href = portal_url
-
-
 
       }
 
-
-
     } catch {
-
-
 
       // silent — user stays on dashboard
 
-
-
     } finally {
-
-
 
       setLoading(false)
 
-
-
     }
-
-
 
   }
 
 
 
-
-
-
-
   return (
-
-
 
     <button
 
-
-
       onClick={handleManage}
-
-
 
       disabled={loading}
 
-
-
       className="text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5 text-left disabled:opacity-50"
-
-
 
     >
 
-
-
       {loading ? '...' : '⚙ Zarządzaj subskrypcją'}
-
-
 
     </button>
 
-
-
   )
-
-
 
 }
 
 
 
-
-
-
-
-
-
-
-
 // ÔöÇÔöÇÔöÇ Main Dashboard ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
-
-
-
-
-
-
 
 
 
@@ -4618,10 +4352,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   const [url, setUrl] = useState('')
 
 
@@ -4662,10 +4392,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   useEffect(() => {
 
 
@@ -4702,12 +4428,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
-
-
   // Portal selector + publication type
 
 
@@ -4720,17 +4440,13 @@ export default function DashboardInner() {
 
 
 
-  const [publicationType, setPublicationType] = useState<string>('full_analysis')
+  const [publicationType, setPublicationType] = useState<string>('analiza')
 
 
 
   const [showAddPortalModal, setShowAddPortalModal] = useState(false)
 
   const [ytDescription, setYtDescription] = useState<string>('')
-
-
-
-
 
 
 
@@ -4774,10 +4490,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   // ÔöÇÔöÇÔöÇ Load from history (?job_id in URL) ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 
@@ -4787,10 +4499,6 @@ export default function DashboardInner() {
 
 
   const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken);
-
-
-
-
 
 
 
@@ -4846,10 +4554,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   // Auth guard
 
 
@@ -4863,10 +4567,6 @@ export default function DashboardInner() {
 
 
   }, [status, router])
-
-
-
-
 
 
 
@@ -4934,10 +4634,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   const isPro =
 
 
@@ -4947,10 +4643,6 @@ export default function DashboardInner() {
 
 
     (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))
-
-
-
-
 
 
 
@@ -4991,10 +4683,6 @@ export default function DashboardInner() {
 
 
   }, [])
-
-
-
-
 
 
 
@@ -5094,10 +4782,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
       let data: GenerateResponse | null = null
 
 
@@ -5111,10 +4795,6 @@ export default function DashboardInner() {
 
 
       }
-
-
-
-
 
 
 
@@ -5146,19 +4826,11 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
       const schema = data.schema_data ?? null
 
 
 
       if (!schema) throw new Error('Serwer nie zwrócił schema_data')
-
-
-
-
 
 
 
@@ -5194,10 +4866,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   if (status === 'loading') {
 
 
@@ -5226,10 +4894,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   // Derived display data
 
 
@@ -5250,10 +4914,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
   const planLabel = userProfile?.plan?.display_name ?? 'Free'
 
 
@@ -5263,10 +4923,6 @@ export default function DashboardInner() {
 
 
   const usageQuota = userProfile?.usage?.quota ?? 5
-
-
-
-
 
 
 
@@ -5342,10 +4998,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
         <nav className="flex-1 p-4 space-y-1">
 
 
@@ -5363,10 +5015,6 @@ export default function DashboardInner() {
 
 
         </nav>
-
-
-
-
 
 
 
@@ -5546,10 +5194,6 @@ export default function DashboardInner() {
 
 
 
-
-
-
-
       {/* Main content */}
 
 
@@ -5595,10 +5239,6 @@ export default function DashboardInner() {
 
 
           </p>
-
-
-
-
 
 
 
@@ -5679,10 +5319,6 @@ export default function DashboardInner() {
 
 
           )}
-
-
-
-
 
 
 

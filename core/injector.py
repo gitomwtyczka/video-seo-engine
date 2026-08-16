@@ -891,7 +891,8 @@ def _split_first_paragraph(html: str) -> tuple[str, str]:
     """
     match = re.search(r'(<p>.*?</p>)', html, re.DOTALL)
     if match:
-        first_p = match.group(1)
+        # Include anything before the first <p> (like <aside class="context-box"> or <hr id='system-readmore' />)
+        first_p = html[:match.end()].strip()
         rest = html[match.end():].strip()
         return first_p, rest
     return "", html
@@ -1156,6 +1157,10 @@ def update_post(
     """
     upload_date = get_post_date(wp_id, wp_base_url, auth)
     logger.info("  uploadDate: %s", upload_date)
+
+    logger.info("injecting article_body: %d chars, engine=%s", 
+        len(seo.get('article_body', '')), 
+        seo.get('article_engine', 'unknown'))
 
     content = build_post_content(seo, yt_id, upload_date, yt_api_key, profile=profile)
 
