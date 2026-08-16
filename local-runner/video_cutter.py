@@ -15,6 +15,7 @@ import logging
 import os
 import subprocess
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -93,7 +94,9 @@ def cut_video(config: CutConfig) -> dict[str, str]:
     try:
         # KROK 1: Pobierz/wytnij źródło do temp
         if config.source == "youtube":
-            _download_yt_segment(config, temp_path)
+            ok = _download_fragment(config.yt_url, config.start_sec, config.end_sec, temp_path)
+            if not ok:
+                raise RuntimeError(f"Failed to download YouTube fragment: {config.yt_url}")
         elif config.source == "local":
             _cut_local_segment(config, temp_path)
         else:
@@ -117,49 +120,108 @@ def cut_video(config: CutConfig) -> dict[str, str]:
     return result
 
 
-def _download_yt_segment(config: CutConfig, output_path: str) -> None:
-    """Pobiera fragment wideo z YouTube przez yt-dlp.
-    
-    CO: Pobiera tylko wymagany fragment (start_sec–end_sec), nie cały film.
-    JAK: yt-dlp --download-sections + cookies z pliku lub przeglądarki.
+def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, output_path: str) -> bool:
     """
-    start = config.start_sec
-    end = config.end_sec
+    CO: Pobiera fragment wideo z YouTube.
+    PO CO: Unika pobierania całego wideo (może mieć GB) gdy potrzebujemy kilkudziesięciu sekund.
+    JAK: 3-stopniowy fallback:
+      1. yt-dlp --download-sections (najszybszy, natywny)
+      2. yt-dlp -g + ffmpeg ze streamu (bez pobierania)
+      3. pełne pobranie + ffmpeg cut (fallback)
+    """
+    import subprocess, shutil, tempfile, os
     
-    cmd = [
-        "yt-dlp",
-        "--download-sections", f"*{start:.3f}-{end:.3f}",
-        "--force-keyframes-at-cuts",
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "--merge-output-format", "mp4",
-        "-o", output_path,
-        "--no-playlist",
-    ]
+    duration = end_sec - start_sec
+    # Dodaj 2s bufora po obu stronach na keyframe alignment
+    buf_start = max(0, start_sec - 2)
+    buf_end = end_sec + 2
     
-    # Cookies
-    if os.path.exists(config.cookies_path):
-        cmd += ["--cookies", config.cookies_path]
-        log.info("[yt-dlp] using cookies file: %s", config.cookies_path)
-    else:
-        # Fallback: cookies z przeglądarki
-        for browser in ["chrome", "firefox", "edge"]:
-            cmd_test = cmd + ["--cookies-from-browser", browser, config.yt_url]
-            log.info("[yt-dlp] trying browser cookies: %s", browser)
-            result = subprocess.run(cmd_test, capture_output=True, text=True, timeout=300)
-            if result.returncode == 0:
-                return
-            log.warning("[yt-dlp] browser %s failed: %s", browser, result.stderr[:200])
-        # Ostatnia próba bez cookies
-        cmd.append(config.yt_url)
+    # --- METODA 1: --download-sections ---
+    try:
+        cmd = [
+            "yt-dlp",
+            "--download-sections", f"*{buf_start:.0f}-{buf_end:.0f}",
+            "--force-keyframes-at-cuts",  # dokładne cięcie
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "-o", output_path,
+            youtube_url,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0 and os.path.exists(output_path):
+            log.info("download_fragment: method=download-sections OK")
+            return True
+        log.warning("download_fragment: method=download-sections failed: %s", result.stderr[:200])
+    except Exception as e:
+        log.warning("download_fragment: method=download-sections error: %s", e)
     
-    if config.cookies_path in cmd:
-        cmd.append(config.yt_url)
+    # --- METODA 2: direct stream URL via yt-dlp -g + ffmpeg ---
+    try:
+        # Pobierz URL streamu
+        cmd_url = ["yt-dlp", "-g", "--no-playlist",
+                   "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                   youtube_url]
+        result_url = subprocess.run(cmd_url, capture_output=True, text=True, timeout=30)
+        if result_url.returncode == 0:
+            urls = result_url.stdout.strip().split("\n")
+            video_url = urls[0]
+            audio_url = urls[1] if len(urls) > 1 else None
+            
+            # FFmpeg cut bezpośrednio ze streamu
+            if audio_url:
+                cmd_ff = [
+                    "ffmpeg", "-y",
+                    "-ss", str(buf_start), "-to", str(buf_end),
+                    "-i", video_url,
+                    "-ss", str(buf_start), "-to", str(buf_end),
+                    "-i", audio_url,
+                    "-c:v", "libx264", "-c:a", "aac",
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    output_path
+                ]
+            else:
+                cmd_ff = [
+                    "ffmpeg", "-y",
+                    "-ss", str(buf_start), "-to", str(buf_end),
+                    "-i", video_url,
+                    "-c", "copy",
+                    output_path
+                ]
+            result_ff = subprocess.run(cmd_ff, capture_output=True, text=True, timeout=180)
+            if result_ff.returncode == 0 and os.path.exists(output_path):
+                log.info("download_fragment: method=stream+ffmpeg OK")
+                return True
+            log.warning("download_fragment: method=stream+ffmpeg failed: %s", result_ff.stderr[:200])
+    except Exception as e:
+        log.warning("download_fragment: method=stream+ffmpeg error: %s", e)
     
-    log.info("[yt-dlp] cmd: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if result.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed (rc={result.returncode}): {result.stderr[:500]}")
-    log.info("[yt-dlp] downloaded segment: %s", output_path)
+    # --- METODA 3: fallback pełne pobranie + cut ---
+    try:
+        log.warning("download_fragment: falling back to full download")
+        tmp_dir = tempfile.mkdtemp()
+        tmp_video = os.path.join(tmp_dir, "full.mp4")
+        
+        cmd_dl = ["yt-dlp", "-f", "best[ext=mp4]/best", "-o", tmp_video, youtube_url]
+        result_dl = subprocess.run(cmd_dl, capture_output=True, text=True, timeout=600)
+        if result_dl.returncode != 0:
+            log.error("download_fragment: full download failed: %s", result_dl.stderr[:200])
+            return False
+        
+        cmd_cut = [
+            "ffmpeg", "-y",
+            "-ss", str(start_sec), "-to", str(end_sec),
+            "-i", tmp_video,
+            "-c", "copy",
+            output_path
+        ]
+        result_cut = subprocess.run(cmd_cut, capture_output=True, text=True, timeout=60)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if result_cut.returncode == 0 and os.path.exists(output_path):
+            log.info("download_fragment: method=full+cut OK")
+            return True
+    except Exception as e:
+        log.error("download_fragment: full download error: %s", e)
+    
+    return False
 
 
 def _cut_local_segment(config: CutConfig, output_path: str) -> None:
