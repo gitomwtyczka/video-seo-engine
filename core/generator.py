@@ -15,7 +15,7 @@ Schema standards (Google 2026):
   - interactionStatistic: WatchAction + userInteractionCount (from YouTube)
   - SeekToAction: added for completeness (not rendered for PL content)
   - Quotation: NOT added (Google does not render; keep if existing)
-  - Default model: gemini-2.5-flash | Claude: claude-sonnet-4-5
+  - Default model: gemini-2.5-flash | Claude: claude-3-5-sonnet-20241022
 
 SAAS Enrichment (2026-06-17, vse-dev-14):
   - generate_seo_v4() accepts optional priority_keywords and internal_links
@@ -285,7 +285,7 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
         import anthropic  # type: ignore
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=8192,
             messages=[{"role": "user", "content": prompt}],
         )

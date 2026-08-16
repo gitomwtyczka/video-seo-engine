@@ -134,13 +134,22 @@ def propose_shorts(
         count_emotional, count_professional, count_custom, custom_query, provider
     )
     
-    raw = _call_llm(prompt, api_key, provider)
+    try:
+        raw = _call_llm(prompt, api_key, provider)
+    except Exception as llm_err:
+        logger.error("propose_shorts: LLM error: %s", llm_err)
+        raise ValueError(f"LLM call failed: {llm_err}")
+
     raw = raw.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     raw = _sanitize_llm_json(raw)
     
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error("propose_shorts: JSON parse error: %s | raw[:200]=%s", e, raw[:200])
+        raise ValueError(f"LLM returned invalid JSON: {e}")
     candidates_raw = data.get("candidates", [])
     
     candidates: list[ShortCandidate] = []

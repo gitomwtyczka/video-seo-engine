@@ -37,7 +37,7 @@ class CandidatesRequest(BaseModel):
     count_emotional: int = 2
     count_professional: int = 2
     count_custom: int = 3
-    provider: str = "gemini"
+    provider: Optional[str] = None
 
 
 class RenderRequest(BaseModel):
@@ -145,7 +145,17 @@ def _convert_transcript_to_webvtt(transcript: str) -> str:
 @router.post("/candidates")
 async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_db)):
     """Analizuje transkrypt VTT i zwraca propozycje kandydatów na shorty."""
-    api_key = os.getenv("GEMINI_API_KEY", "") if req.provider == "gemini" else os.getenv("ANTHROPIC_API_KEY", "")
+    provider = req.provider or os.getenv("DEFAULT_LLM_PROVIDER", "claude")
+    api_key = os.getenv("ANTHROPIC_API_KEY", "") if provider == "claude" else os.getenv("GEMINI_API_KEY", "")
+
+    # Fallback jeśli wybrany provider nie ma klucza w środowisku
+    if not api_key:
+        if os.getenv("ANTHROPIC_API_KEY"):
+            provider = "claude"
+            api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        elif os.getenv("GEMINI_API_KEY"):
+            provider = "gemini"
+            api_key = os.getenv("GEMINI_API_KEY", "")
 
     yt_id = _extract_youtube_id(req.youtube_id) or _extract_youtube_id(req.youtube_url) or req.youtube_id
     vtt_path = req.vtt_path
@@ -201,12 +211,17 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
             custom_query=req.custom_query,
             count_custom=req.count_custom,
             api_key=api_key,
-            provider=req.provider,
+            provider=provider,
         )
         return {
             "candidates": [c.to_dict() for c in candidates],
             "total": len(candidates),
         }
+    except ValueError as ve:
+        raise HTTPException(status_code=422, detail=str(ve))
+    except Exception as e:
+        logger.error("candidates: unexpected error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Internal error: {e}")
     finally:
         if tmp_file and os.path.exists(tmp_file):
             try:
