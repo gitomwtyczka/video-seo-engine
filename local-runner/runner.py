@@ -766,6 +766,7 @@ def _process_short_job(job: dict) -> None:
         output_dir=render_config.get("output_dir", r"C:\VSE\Shorts"),
         render_format=render_config.get("format", "9:16"),
         subtitles=render_config.get("subtitles", "none"),
+        candidate_data=job.get("candidate_data"),
     )
     
     try:
