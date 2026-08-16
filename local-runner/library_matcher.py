@@ -126,7 +126,7 @@ def _fingerprint_similarity(fp1: str, fp2: str) -> float:
             return 0.0
         
         matches = sum(
-            bin(a ^ b).count("0") / 32  # proporcja zgodnych bitów
+            (32 - bin((a ^ b) & 0xFFFFFFFF).count("1")) / 32.0  # proporcja zgodnych bitów
             for a, b in zip(ints1[:length], ints2[:length])
         )
         return matches / length
@@ -141,7 +141,9 @@ def _fingerprint_similarity(fp1: str, fp2: str) -> float:
 
 def _init_db(db_path: str) -> sqlite3.Connection:
     """Inicjalizuje bazę SQLite z tabelą index."""
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS library_index (
