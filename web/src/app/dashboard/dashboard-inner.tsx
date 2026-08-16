@@ -4381,11 +4381,38 @@ export default function DashboardInner() {
 
   // ShortMachine state
   const [smYoutubeId, setSmYoutubeId] = useState('');
+
+  // Auto-populate smYoutubeId z aktualnego wideo URL
+  useEffect(() => {
+    if (!smYoutubeId) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const jobVideoUrl = url || urlParams.get('video_url') || '';
+      if (jobVideoUrl) {
+        const match = jobVideoUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+        if (match) setSmYoutubeId(match[1]);
+        else if (jobVideoUrl.length === 11) setSmYoutubeId(jobVideoUrl);
+      }
+    }
+  }, [url, smYoutubeId]);
   const [smCustomQuery, setSmCustomQuery] = useState('');
   const [smCountEmotional, setSmCountEmotional] = useState(2);
   const [smCountProfessional, setSmCountProfessional] = useState(2);
   const [smCountCustom, setSmCountCustom] = useState(3);
   const [smCandidates, setSmCandidates] = useState<any[]>([]);
+
+  // Auto-load saved candidates from DB
+  useEffect(() => {
+    if (!smYoutubeId || smCandidates.length > 0) return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+    fetch(`${apiBase}/v1/shorts/candidates/${smYoutubeId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.from_cache && data.candidates?.length > 0) {
+          setSmCandidates(data.candidates);
+        }
+      })
+      .catch(err => console.warn('Failed to load saved candidates:', err));
+  }, [smYoutubeId, smCandidates.length]);
   const [smLoading, setSmLoading] = useState(false);
   const [smError, setSmError] = useState<string | null>(null);
   const [smRenderConfig, setSmRenderConfig] = useState<Record<number, {format: string, subtitles: string}>>({});
