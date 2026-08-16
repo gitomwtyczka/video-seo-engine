@@ -12,6 +12,8 @@ JAK: yt-dlp --download-sections dla YT | ffmpeg -ss -to dla plików lokalnych.
 Dependencies: yt-dlp (binary on PATH), ffmpeg (binary on PATH)
 """
 import logging
+import re
+import unicodedata
 import os
 import subprocess
 import shutil
@@ -48,6 +50,31 @@ def check_dependencies() -> dict[str, bool]:
     return deps
 
 
+def _make_slug(candidate_data, start_sec: float, end_sec: float, max_len: int = 45) -> str:
+    """
+    CO: Generuje czytelny slug nazwy pliku z tekstu hooka i zakresu czasu.
+    PO CO: Nazwy plików muszą odzwierciedlać treść nagrań (nie timestampy).
+    JAK: Normalizuje Unicode -> ASCII, usuwa znaki specjalne, skraca do max_len.
+    """
+    hook = ''
+    if candidate_data:
+        hook = (candidate_data.get('hook') or candidate_data.get('hook_text')
+                or candidate_data.get('text') or candidate_data.get('title') or '')
+    if not hook:
+        import time
+        return f"short_{int(time.time())}"
+    text = unicodedata.normalize('NFKD', hook)
+    text = ''.join(c for c in text if not unicodedata.combining(c))
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\s+', '_', text.strip()).strip('_')
+    if len(text) > max_len:
+        text = text[:max_len].rstrip('_')
+    def fmt(sec: float) -> str:
+        m, s = int(sec) // 60, int(sec) % 60
+        return f"{m}m{s:02d}s"
+    return f"{text}_{fmt(start_sec)}-{fmt(end_sec)}"
+
+
 @dataclass
 class CutConfig:
     """Konfiguracja renderowania jednego shorta."""
@@ -60,6 +87,7 @@ class CutConfig:
     local_path: str = ""               # pełna ścieżka na dysku Windows
     render_format: str = "9:16"        # '9:16' | '16:9'
     subtitles: str = "none"           # 'none' | 'srt'
+    candidate_data: Optional[dict] = None   # dane kandydata z AI (hook, text)
     cookies_path: str = r"C:\ProgramData\VSELocalRunner\yt_cookies.txt"
 
 
@@ -78,11 +106,9 @@ def cut_video(config: CutConfig) -> dict[str, str]:
     """
     os.makedirs(config.output_dir, exist_ok=True)
     
-    # Auto-nazwa z timestampem
+    # Auto-nazwa
     if not config.output_name:
-        import time
-        ts = int(time.time())
-        config.output_name = f"short_{ts}"
+        config.output_name = _make_slug(config.candidate_data, config.start_sec, config.end_sec)
     
     base = os.path.join(config.output_dir, config.output_name)
     temp_path = base + "_temp.mp4"
