@@ -48,7 +48,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from api.routers import generate, inject, monitor, process, sitemap
+from api.routers import generate, inject, monitor, process, sitemap, shorts
 from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
 from api.routers.jobs import router as jobs_router
@@ -103,6 +103,9 @@ app.include_router(users_router)
 
 # Local Transcript Runner router
 app.include_router(jobs_router)
+
+# Shorts Router
+app.include_router(shorts.router)
 
 # Admin panel router (requires is_admin=True)
 app.include_router(admin_router)
@@ -176,6 +179,7 @@ async def startup_event() -> None:
         from api.models.portal import WpPortal  # noqa: F401
         from api.models.youtube_channel import YouTubeChannel # noqa: F401
         from api.models.oauth_state import OAuthState # noqa: F401
+        from api.models.short_job import ShortJob # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals, youtube_channels).")
