@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.db import get_db
 from api.models.job import TranscriptJob
 from api.models.short_job import ShortJob
+from api.models.short_candidate import ShortCandidateSet
 from core.shorts import propose_shorts, get_vtt_segments_for_candidate
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class CandidatesRequest(BaseModel):
     count_professional: int = 2
     count_custom: int = 3
     provider: Optional[str] = None
+    portal_id: Optional[str] = None
 
 
 class RenderRequest(BaseModel):
@@ -142,6 +144,41 @@ def _convert_transcript_to_webvtt(transcript: str) -> str:
 
 # --- Endpoints ---
 
+@router.get("/candidates/{youtube_id}")
+async def get_saved_candidates(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Pobiera ostatnio zapisanych kandydatów dla youtube_id z DB."""
+    conditions = [ShortCandidateSet.youtube_id == youtube_id]
+    if portal_id:
+        conditions.append(ShortCandidateSet.portal_id == portal_id)
+    
+    query = select(ShortCandidateSet).where(*conditions).order_by(desc(ShortCandidateSet.created_at)).limit(1)
+    result = await db.execute(query)
+    record = result.scalar_one_or_none()
+    
+    if not record:
+        return {"candidates": [], "total": 0, "from_cache": False}
+    return {
+        "candidates": record.candidates,
+        "total": len(record.candidates),
+        "from_cache": True,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "custom_query": record.custom_query,
+    }
+
+@router.post("/candidates/{youtube_id}/save")
+async def save_candidates(youtube_id: str, body: dict, db: AsyncSession = Depends(get_db)):
+    """Zapisuje kandydatów do DB (wywoływane przez frontend po analizie)."""
+    record = ShortCandidateSet(
+        youtube_id=youtube_id,
+        youtube_url=body.get("youtube_url"),
+        portal_id=body.get("portal_id"),
+        custom_query=body.get("custom_query"),
+        candidates=body.get("candidates", []),
+    )
+    db.add(record)
+    await db.commit()
+    return {"id": str(record.id), "saved": len(record.candidates)}
+
 @router.post("/candidates")
 async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_db)):
     """Analizuje transkrypt VTT i zwraca propozycje kandydatów na shorty."""
@@ -224,6 +261,21 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
                 context_sec=60.0,
             )
             result_candidates.append(c_dict)
+
+        if yt_id and result_candidates:
+            try:
+                record = ShortCandidateSet(
+                    youtube_id=yt_id,
+                    youtube_url=req.youtube_url,
+                    custom_query=req.custom_query,
+                    candidates=result_candidates,
+                    portal_id=req.portal_id
+                )
+                db.add(record)
+                await db.commit()
+                logger.info("Saved %d candidates for youtube_id=%s", len(result_candidates), yt_id)
+            except Exception as e:
+                logger.warning("Could not save candidates to DB: %s", e)
 
         return {
             "candidates": result_candidates,
