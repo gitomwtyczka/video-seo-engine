@@ -11,7 +11,14 @@ D9 (2026-06-20, vse-dev-23):
   - GenerateRequest: added profile_id field for dashboard portal selector
 """
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
+
+VALID_PUBLICATION_TYPES = {
+    # Legacy
+    "full_analysis", "watching_page", "discover",
+    # New journalism formats
+    "analiza", "news", "explainer", "wywiad", "poradnik", "felieton", "reportaz",
+}
 
 
 class SiteConfig(BaseModel):
@@ -30,6 +37,12 @@ class ProcessOptions(BaseModel):
     llm_provider: str = "claude"  # "claude" | "gemini"
     lang: str = "pl"
     publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
+
+    @validator("publication_type")
+    def validate_publication_type(cls, v):
+        if v not in VALID_PUBLICATION_TYPES:
+            raise ValueError(f"Invalid publication_type: {v}")
+        return v
 
 
 class ProcessRequest(BaseModel):
@@ -59,6 +72,12 @@ class GenerateRequest(BaseModel):
     post_title: Optional[str] = None  # override title from metadata
     publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
     portal_id: Optional[str] = None  # replaced profile_id with portal_id (UUID as string)
+
+    @validator("publication_type")
+    def validate_publication_type(cls, v):
+        if v not in VALID_PUBLICATION_TYPES:
+            raise ValueError(f"Invalid publication_type: {v}")
+        return v
 
 
 class InjectRequest(BaseModel):

@@ -31,6 +31,10 @@ D6b Publication types (2026-06-20, vse-dev-21):
   - Three types: full_analysis (default), watching_page, discover
   - Each type modifies the LLM prompt for article_body length/format
 
+D1 Two-Pass Content Pipeline:
+  - Pass 1: Schema generation (no article_body)
+  - Pass 2: Article generation via PressAI M2M or local fallback LLM
+
 D10 Smart External Links (2026-06-21, vse-dev-25):
   - LLM prompt requests external_links (2-3 authority DoFollow links)
   - article_body MUST contain woven <a> tags to authority sources
@@ -94,6 +98,33 @@ try:
 except ImportError:
     _JSON_REPAIR_AVAILABLE = False
     logger.warning("D15: json-repair not installed — using regex fallback. pip install json-repair")
+
+
+# ============================================================
+# FORMAT INSTRUCTIONS (Pass 2)
+# ============================================================
+
+FORMAT_INSTRUCTIONS: dict[str, str] = {
+    "analiza": "Napisz pogłębioną analizę: teza → dane/dowody → analiza wieloaspektowa → wnioski → prognozy. Minimum 3 Śródtła/przykłady. Styl: merytoryczny, bez kolokwializmow.",
+    "news": "Napisz newsa: odwrócona piramida, 5W+H w leadzie, 1 akapit tła, co dalej. Styl: zwarty, rzeczowy.",
+    "explainer": "Wyjaśnij mechanizm: co to jest, dlaczego ważne, jak działa, co to oznacza dla czytelnika. Prosty język.",
+    "wywiad": "Napisz wywiad Q&A: krótki wstęp redakcyjny (2-3 zdania) + dialog pytanie-odpowiedź z transkryptu.",
+    "poradnik": "Napisz poradnik: problem → kroki rozwiązania (numerowane) → wskazówki praktyczne.",
+    "felieton": "Napisz felieton: styl autorski, ironia, metafory. Mocna puenta na końcu.",
+    "reportaz": "Napisz reportaż: immersyjna narracja, sceny, konkrety, detale.",
+    # Backward compat
+    "full_analysis": "Napisz pogłębiony artykuł analityczny.",
+    "watching_page": "Napisz krótki opis wideo (2-3 akapity). Styl: informacyjny.",
+    "discover": "Napisz krótki artykuł pod Google Discover: emocjonalny hook, krótkie zdania, mobile-first.",
+}
+
+def _get_target_words(publication_type: str) -> int:
+    return {
+        "analiza": 1000, "reportaz": 1200, "wywiad": 900,
+        "news": 600, "explainer": 800, "poradnik": 800,
+        "felieton": 700, "full_analysis": 800,
+        "watching_page": 400, "discover": 500,
+    }.get(publication_type, 800)
 
 
 # ============================================================
@@ -268,6 +299,121 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
         ).text
     else:
         raise ValueError(f"Unsupported LLM provider: {provider!r}. Use 'gemini' or 'claude'.")
+
+
+# ============================================================
+# PASS 2 ARTICLE GENERATION
+# ============================================================
+
+def _generate_article_fallback(
+    schema: dict,
+    vtt_text: str,
+    publication_type: str,
+    api_key: str,
+    provider: str = "gemini",
+    target_words: int = 800,
+) -> str:
+    """Fallback: generuj długi artykuł lokalnym LLM gdy PressAI niedostępny.
+    
+    CO: Generuje pełny artykuł HTML przez lokalny LLM (Gemini/Claude).
+    PO CO: Gdy USE_PRESSAI_ARTICLE_ENGINE=false lub PressAI niedostępny.
+    JAK: Osobny prompt skupiony wyłącznie na treści artykułu, bez JSON overhead.
+    """
+    keyphrase = schema.get("focus_keyphrases", [""])[0] if schema.get("focus_keyphrases") else ""
+    instruction = FORMAT_INSTRUCTIONS.get(publication_type, FORMAT_INSTRUCTIONS["full_analysis"])
+    post_title = schema.get("post_title", "")
+    
+    prompt = f"""Jesteś redaktorem portalu. Napisz artykuł na podstawie transkryptu wideo.
+
+FRAZA KLUCZOWA: {keyphrase}
+TYTUŁ: {post_title}
+FORMAT: {instruction}
+CEL DŁUGOŚCI: minimum {target_words} słów
+
+ZASADY HTML:
+- Używaj <h2>, <h3>, <p>, <blockquote> (NIE <html>, <head>, <body>)
+- Apostrofy (') w atrybutach HTML, NIE cudzysłowy
+- Co 150-200 słów nowy nagłówek <h3>
+- Fraza kluczowa naturalnie minimum 3x w tekście
+- Pierwszy akapit zawiera główną frazę
+- Znacznik przed FAQ: <hr id='system-readmore' />
+
+TRANSKRYPT:
+{vtt_text[:120000]}
+
+Zwróć TYLKO HTML artykułu (bez JSON, bez wyjaśnień):"""
+    
+    logger.info("_generate_article_fallback: type=%s target=%d words provider=%s", publication_type, target_words, provider)
+    return _call_llm(prompt, api_key, provider)
+
+
+async def generate_article_content(
+    schema: dict,
+    vtt_text: str,
+    publication_type: str,
+    api_key: str,
+    provider: str = "gemini",
+    pressai_api_url: str = "",
+    pressai_token: str = "",
+    internal_links: Optional[list[dict]] = None,
+) -> tuple[str, str]:
+    """Pass 2: generuje długi artykuł (600-1200+ słów).
+    
+    CO: Generuje treść artykułu jako Pass 2 pipeline.
+    PO CO: Pass 1 generuje krótkie metadata; Pass 2 generuje pełny artykuł.
+    JAK: Próbuje PressAI M2M API. Fallback: lokalny LLM.
+    
+    Returns:
+        Tuple (article_html: str, engine: str)
+        engine = 'pressai' | 'local_fallback'
+    """
+    FORMAT_MAP = {
+        "analiza": "analiza", "news": "news", "explainer": "explainer",
+        "wywiad": "wywiad", "poradnik": "poradnik", "felieton": "felieton",
+        "reportaz": "reportaz",
+        "full_analysis": "analiza", "watching_page": "news", "discover": "news",
+    }
+    target_words = _get_target_words(publication_type)
+    pressai_format = FORMAT_MAP.get(publication_type, "analiza")
+    
+    # Próba PressAI M2M
+    if pressai_api_url and pressai_token:
+        try:
+            import httpx
+            payload = {
+                "focus_keyphrase": schema.get("focus_keyphrases", [""])[0] if schema.get("focus_keyphrases") else "",
+                "keyphrases": schema.get("focus_keyphrases", []),
+                "transcript": vtt_text[:200000],
+                "title": schema.get("post_title", ""),
+                "format": pressai_format,
+                "target_words": target_words,
+                "internal_links": internal_links or [],
+                "source": "vse",
+            }
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    f"{pressai_api_url}/api/external/generate-article",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {pressai_token}"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                article_html = data.get("article_body", "")
+                if article_html and len(article_html) > 200:
+                    logger.info("Pass 2: PressAI article (%d chars)", len(article_html))
+                    return article_html, "pressai"
+                logger.warning("Pass 2: PressAI returned short/empty article, using fallback")
+        except Exception as e:
+            logger.warning("Pass 2: PressAI failed (%s) — falling back to local LLM", e)
+    
+    # Fallback: lokalny LLM
+    article_html = _generate_article_fallback(
+        schema=schema, vtt_text=vtt_text,
+        publication_type=publication_type,
+        api_key=api_key, provider=provider,
+        target_words=target_words,
+    )
+    return article_html, "local_fallback"
 
 
 # ============================================================
@@ -610,21 +756,7 @@ Rozdzialy musza:
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
 6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa.
 7. **lead** \u2014 2-3 zdania, max 300 znakow. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
-8. **article_body** \u2014 HTML: 3-5 <p>, 1-2 <h2> z fraza, ~1000-1500 zn. Opisz KONKRETNE watki.
-   KRYTYCZNE DLA SEO: Uzyj glownej frazy z focus_keyphrases[0] MINIMUM 3-5 RAZY naturalnie w tekscie
-   (w tym co najmniej raz w <h2>). Gestosc frazy kluczowej musi wynosic 1-1.5%.
-   Nie upychaj sztucznie \u2014 fraza musi brzmiec naturalnie w kontekscie zdania.
-   POZYCJA: Pierwszy akapit article_body MUSI zaczynac sie od zdania zawierajacego
-   glowna fraze z focus_keyphrases[0].
-   LINKI WEWNETRZNE: Jesli w sekcji [PROPOZYCJE LINKOW WEWNETRZNYCH] podano URL-e - wstaw 2-4 z nich. Jesli brak prawdziwych URL-i - wstaw `<!-- TODO: dodac link wewnetrzny -->`.
-   KRYTYCZNE DLA JSON: W tagach HTML ZAWSZE uzywaj APOSTROFOW (') zamiast cudzyslowow (") w atrybutach.
-   Przyklad poprawny: <a href='https://example.com' target='_blank'>tekst</a>
-   Przyklad BLEDNY: <a href="https://example.com" target="_blank">tekst</a>
-   Podwojne cudzysłowy w atrybutach HTML LAMIA format JSON.
-   Linki musza brzmiec naturalnie w kontekscie zdania, np.:
-   "jak informuje <a href='https://...' target='_blank'>Polska Agencja Prasowa</a>"
-   lub "wedlug danych <a href='https://...' target='_blank'>Ministerstwa Obrony Narodowej</a>".
-9. **quotes** \u2014 {qt_range} cytatow z rozmowy:
+8. **quotes** \u2014 {qt_range} cytatow z rozmowy:
    - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania, powtorzenia.
    - "speaker": imie i nazwisko
    - "anchor_text": DOKLADNE 8-15 pierwszych slow ORYGINALNEGO transkryptu
@@ -679,7 +811,7 @@ yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","article_body":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}"""
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}"""
 
     logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
     if priority_keywords:
@@ -767,6 +899,8 @@ def _normalize_keyphrases(result: dict) -> list[str]:
 
     return []
 
+# Backward compat alias
+generate_video_schema = generate_seo_v4
 
 # ============================================================
 # D13: SLUG HARD LIMIT — trim to max 60 chars at word boundary
@@ -887,22 +1021,20 @@ URL: {yt_url}{desc_section}
 4. **yt_title** — 40-65 znakow, inny niz post_title, angazujacy YouTubowy tytul.
 5. **meta_description** — max 155 znakow, z fraza kluczowa.
 6. **lead** — 2-3 zdania, max 300 znakow. Pierwsza fraza w pierwszym zdaniu.
-7. **article_body** — HTML: 2-3 <p>, ~600-900 zn. Uzyj glownej frazy 2-3 razy.
-   KRYTYCZNE DLA JSON: W atrybutach HTML ZAWSZE apostrofy ('), NIE cudzyslow (").
-8. **faq** — 1-2 pytania i odpowiedzi na podstawie tytulu.
-9. **youtube_description_hook** — max 200 znakow. Angazujacy wstep 2-3 zdania.
+7. **faq** — 1-2 pytania i odpowiedzi na podstawie tytulu.
+8. **youtube_description_hook** — max 200 znakow. Angazujacy wstep 2-3 zdania.
    PIERWSZE zdanie MUSI zawierac glowna fraze z focus_keyphrases[0]. BEZ hashtagow.
-10. **youtube_hashtags** — lista 3 hashtagow jako JSON array.
-11. **video_description** — max 200 zn.
-12. **tags** — 5-8 tagow lowercase.
-13. **external_links** — 1-2 linki do authority sources (Wikipedia, .gov.pl).
+9. **youtube_hashtags** — lista 3 hashtagow jako JSON array.
+10. **video_description** — max 200 zn.
+11. **tags** — 5-8 tagow lowercase.
+12. **external_links** — 1-2 linki do authority sources (Wikipedia, .gov.pl).
     Format: {{"url": "...", "anchor_text": "...", "reason": "..."}}
-14. **image_descriptions** — 1 opis screenshota.
+13. **image_descriptions** — 1 opis screenshota.
     Format: {{"alt_text": "...", "caption": "...", "context": "po akapicie 1"}}
 
-NIE generuj: chapters, quotes (brak transkryptu).
+NIE generuj: chapters, quotes (brak transkryptu), article_body.
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":[],"post_title":"","seo_title":"","yt_title":"","meta_description":"","lead":"","article_body":"","chapters":[],"quotes":[],"faq":[{{"question":"","answer":""}}],"youtube_description_hook":"","youtube_hashtags":[],"video_description":"","tags":[],"external_links":[],"image_descriptions":[{{"alt_text":"","caption":"","context":""}}]}}"""
+{{"focus_keyphrases":[],"post_title":"","seo_title":"","yt_title":"","meta_description":"","lead":"","chapters":[],"quotes":[],"faq":[{{"question":"","answer":""}}],"youtube_description_hook":"","youtube_hashtags":[],"video_description":"","tags":[],"external_links":[],"image_descriptions":[{{"alt_text":"","caption":"","context":""}}]}}"""
 
     try:
         text = _call_llm(prompt, api_key, provider)
@@ -965,6 +1097,42 @@ Odpowiedz TYLKO JSON (bez markdown):
         "[FIX A] Partial schema generated: keyphrases=%r type=%s brand=%s",
         keyphrases, publication_type, site_brand or "none",
     )
+    
+    # PASS 2: Article Generation
+    pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
+    pressai_url = os.getenv("PRESSAI_API_URL", "")
+    pressai_token = os.getenv("PRESSAI_EXTERNAL_TOKEN", "")
+    
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        # if loop is running, we cannot use run_until_complete, but process_video is normally called in a thread where loop is not running.
+        # Fallback to asyncio.run if get_event_loop fails with "There is no current event loop"
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    try:
+        article_html, article_engine = loop.run_until_complete(
+            generate_article_content(
+                schema=result,
+                vtt_text=video_description_hint,  # No transcript, pass hint
+                publication_type=publication_type,
+                api_key=api_key,
+                provider=provider,
+                pressai_api_url=pressai_url if pressai_enabled else "",
+                pressai_token=pressai_token if pressai_enabled else "",
+                internal_links=internal_links,
+            )
+        )
+        result["article_body"] = article_html
+        result["article_engine"] = article_engine
+        logger.info("Pass 2 (Partial): article_body=%d chars engine=%s", len(article_html), article_engine)
+    except Exception as e:
+        logger.error("Pass 2 (Partial): article generation failed: %s", e)
+        result["article_body"] = result.get("article_body", "")
+        result["article_engine"] = "pass1_legacy"
+
     return result
 
 
@@ -1131,6 +1299,39 @@ def process_video(
         anchor = q.get("anchor_text", q.get("text", "")[:40])
         ts = find_anchor_in_vtt(anchor, segments)
         q["time"] = max(0, ts)
+
+    # PASS 2: Article Generation
+    pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
+    pressai_url = os.getenv("PRESSAI_API_URL", "")
+    pressai_token = os.getenv("PRESSAI_EXTERNAL_TOKEN", "")
+    
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    try:
+        article_html, article_engine = loop.run_until_complete(
+            generate_article_content(
+                schema=result,
+                vtt_text=timestamped,
+                publication_type=publication_type,
+                api_key=api_key,
+                provider=provider,
+                pressai_api_url=pressai_url if pressai_enabled else "",
+                pressai_token=pressai_token if pressai_enabled else "",
+                internal_links=internal_links,
+            )
+        )
+        result["article_body"] = article_html
+        result["article_engine"] = article_engine
+        logger.info("Pass 2: article_body=%d chars engine=%s", len(article_html), article_engine)
+    except Exception as e:
+        logger.error("Pass 2: article generation failed: %s", e)
+        result["article_body"] = result.get("article_body", "")
+        result["article_engine"] = "pass1_legacy"
 
     # Attach metadata
     result["wp_id"] = wp_id
