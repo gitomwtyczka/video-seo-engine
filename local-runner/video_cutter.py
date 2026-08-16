@@ -131,6 +131,26 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     """
     import subprocess, shutil, tempfile, os
     
+    # Spróbuj dopasowania lokalnego pliku
+    try:
+        from library_matcher import find_local_match
+        local_match = find_local_match(youtube_url)
+        if local_match:
+            log.info("[cut] Using local file: %s", local_match)
+            # Ustaw source na local i wytnij
+            config_copy = CutConfig(
+                source='local',
+                local_path=local_match,
+                start_sec=start_sec,
+                end_sec=end_sec,
+                output_dir=os.path.dirname(output_path),
+                output_name=os.path.splitext(os.path.basename(output_path))[0].replace('_temp', ''),
+            )
+            _cut_local_segment(config_copy, output_path)
+            return True
+    except Exception as e:
+        log.warning("[cut] library_matcher error (falling back to yt-dlp): %s", e)
+    
     duration = end_sec - start_sec
     # Dodaj 2s bufora po obu stronach na keyframe alignment
     buf_start = max(0, start_sec - 2)
