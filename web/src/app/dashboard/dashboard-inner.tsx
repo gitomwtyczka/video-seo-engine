@@ -4391,6 +4391,14 @@ export default function DashboardInner() {
   const [smRenderConfig, setSmRenderConfig] = useState<Record<number, {format: string, subtitles: string}>>({});
   const [smJobStatus, setSmJobStatus] = useState<Record<number, any>>({});
   const [smTrimAdj, setSmTrimAdj] = useState<Record<number, {startDelta: number; endDelta: number}>>({});
+  const [smExpandedIdx, setSmExpandedIdx] = useState<number | null>(null);
+  const [smTrimMode, setSmTrimMode] = useState<'start' | 'end'>('start');
+  const [smSelected, setSmSelected] = useState<Set<number>>(new Set());
+  const toggleSmSelected = (idx: number) => setSmSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(idx)) next.delete(idx); else next.add(idx);
+    return next;
+  });
 
   const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`;
   const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) });
@@ -7174,6 +7182,7 @@ export default function DashboardInner() {
                     <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-2">
+                          <input type="checkbox" checked={smSelected.has(i)} onChange={() => toggleSmSelected(i)} style={{cursor:'pointer',accentColor:'#3b82f6'}} />
                           <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                             c.type === 'emotional' ? 'bg-red-900 text-red-300' :
                             c.type === 'professional' ? 'bg-blue-900 text-blue-300' :
@@ -7185,9 +7194,14 @@ export default function DashboardInner() {
                             &nbsp;({c.duration_sec}s)
                           </span>
                         </div>
-                        <span className="text-yellow-400 text-sm">
-                          {'★'.repeat(Math.round(c.score * 5))}{'☆'.repeat(5 - Math.round(c.score * 5))}
-                        </span>
+                        <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                          <span className="text-yellow-400 text-sm">
+                            {'★'.repeat(Math.round(c.score * 5))}{'☆'.repeat(5 - Math.round(c.score * 5))}
+                          </span>
+                          <button onClick={() => setSmExpandedIdx(smExpandedIdx === i ? null : i)} style={{padding:'2px 8px',fontSize:'11px',background: smExpandedIdx===i ? '#1e40af' : '#1e293b',border:'1px solid '+(smExpandedIdx===i?'#3b82f6':'#334155'),borderRadius:'4px',color: smExpandedIdx===i?'#93c5fd':'#94a3b8',cursor:'pointer'}}>
+                            {smExpandedIdx === i ? '▲ Transkrypt' : '✏ Transkrypt'}
+                          </button>
+                        </div>
                       </div>
                       
                       <div className="text-sm space-y-1">
@@ -7198,6 +7212,38 @@ export default function DashboardInner() {
                         )}
                       </div>
                       
+                      {smExpandedIdx === i && (
+                        <div style={{marginBottom:'12px',border:'1px solid #334155',borderRadius:'8px',overflow:'hidden',background:'#0f172a'}}>
+                          {(() => {
+                            const ytMatch = (c.youtube_url||'').match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+                            const ytId = ytMatch ? ytMatch[1] : null;
+                            const adjStart = getAdj(i, c).start;
+                            return ytId ? (
+                              <div style={{position:'relative',paddingBottom:'56.25%',height:0,overflow:'hidden'}}>
+                                <iframe key={`yt-${i}-${Math.floor(adjStart)}`} src={`https://www.youtube.com/embed/${ytId}?start=${Math.floor(adjStart)}&autoplay=0&rel=0`} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:'none'}} allowFullScreen />
+                              </div>
+                            ) : <div style={{padding:'8px',color:'#64748b',fontSize:'12px'}}>Brak YouTube URL dla podglądu</div>;
+                          })()}
+                          <div style={{maxHeight:'220px',overflowY:'auto',padding:'8px'}}>
+                            <div style={{display:'flex',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
+                              <span style={{fontSize:'11px',color:'#94a3b8'}}>Klik ustawia:</span>
+                              <button onClick={()=>setSmTrimMode('start')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='start'?'#3b82f6':'#1e293b',color:smTrimMode==='start'?'#fff':'#94a3b8'}}>◀ Start</button>
+                              <button onClick={()=>setSmTrimMode('end')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='end'?'#f59e0b':'#1e293b',color:smTrimMode==='end'?'#fff':'#94a3b8'}}>Koniec ▶</button>
+                              <span style={{marginLeft:'auto',fontSize:'11px',color:'#64748b'}}>{(c.vtt_segments||[]).length} segmentów</span>
+                            </div>
+                            {(c.vtt_segments||[]).map((seg: any, si: number) => {
+                              const adj = getAdj(i, c);
+                              const isInRange = seg.ts >= adj.start && seg.ts <= adj.end;
+                              return (
+                                <div key={si} onClick={() => { if (smTrimMode === 'start') { setSmTrimAdj((p: any) => ({...p, [i]: {startDelta: seg.ts - (c.start_sec??0), endDelta: p[i]?.endDelta??0}})); } else { setSmTrimAdj((p: any) => ({...p, [i]: {startDelta: p[i]?.startDelta??0, endDelta: seg.ts - (c.end_sec??0) + 2}})); } }} style={{padding:'4px 8px',marginBottom:'2px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',lineHeight:'1.4',background: isInRange ? 'rgba(59,130,246,0.15)' : 'transparent',borderLeft: isInRange ? '3px solid #3b82f6' : '3px solid transparent',color: isInRange ? '#e2e8f0' : '#64748b',transition: 'background 0.1s'}}>
+                                  <span style={{color:'#475569',marginRight:'8px',fontFamily:'monospace',fontSize:'11px'}}>{seg.time_str}</span>
+                                  {seg.text}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'8px',fontSize:'12px',color:'#888'}}>
                         <span>✂ Start:</span>
                         {([-5,-2,-1] as number[]).map(d=>(
@@ -7262,6 +7308,13 @@ export default function DashboardInner() {
                       )}
                     </div>
                   ))}
+                  {smSelected.size > 0 && (
+                    <div style={{position:'sticky',bottom:'8px',textAlign:'center',marginTop:'8px',zIndex:10}}>
+                      <button onClick={() => { smSelected.forEach((selIdx: number) => { const c = smCandidates[selIdx]; const a = getAdj(selIdx, c); handleRenderShort({...c, start_sec: a.start, end_sec: a.end}, selIdx); }); setSmSelected(new Set()); }} style={{padding:'10px 24px',background:'linear-gradient(135deg,#059669,#10b981)',border:'none',borderRadius:'8px',color:'#fff',fontWeight:'600',fontSize:'14px',cursor:'pointer',boxShadow:'0 4px 12px rgba(16,185,129,0.3)'}}>
+                        ► Renderuj zaznaczone ({smSelected.size})
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               
