@@ -69,13 +69,31 @@ def _find_fpcalc() -> Optional[str]:
 FPCALC = _find_fpcalc()
 
 
+def _get_short_path(long_path: str) -> str:
+    """Konwertuje Unicode ścieżkę do formatu 8.3 (dla starych binarek Windows).
+    
+    CO: Konwersja do krótkiej ścieżki Windows (np. EW~1.MP4) dla fpcalc 1.1.
+    PO CO: fpcalc 1.1 nie obsługuje Unicode pathów — krótka ścieżka omija problem.
+    """
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(32768)
+        result = ctypes.windll.kernel32.GetShortPathNameW(long_path, buf, 32768)
+        if result > 0:
+            return buf.value
+    except Exception:
+        pass
+    return long_path
+
+
 def _get_fingerprint(media_path: str, duration_limit: int = 120) -> Optional[tuple[float, str]]:
     """
     Generuje fingerprint audio dla pliku wideo/audio.
     
     CO: Uruchamia fpcalc.exe na pliku i zwraca (duration, fingerprint).
     PO CO: Fingerprint to kompaktowa sygnatura dźwiękowa do porównywania.
-    JAK: fpcalc analizuje pierwsze `duration_limit` sekund audio.
+    JAK: fpcalc bez -json (kompatybilność z v1.1+), parsuje wyjście tekstowe.
+         Używa krótkiej ścieżki (GetShortPathNameW) dla obsługi Unicode pathów.
     
     Returns:
         Tuple (duration_sec, fingerprint_string) lub None jeśli błąd.
@@ -84,15 +102,52 @@ def _get_fingerprint(media_path: str, duration_limit: int = 120) -> Optional[tup
         log.warning("fpcalc not found — library matching unavailable")
         return None
     try:
-        cmd = [FPCALC, "-json", "-length", str(duration_limit), media_path]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        # Konwertuj do krótkiej ścieżki dla obsługi polskich znaków (fpcalc 1.1)
+        short_path = _get_short_path(media_path)
+        if short_path != media_path:
+            log.debug("fpcalc: using short path %s", short_path)
+        
+        # BEZ -json (nie obsługiwane przez fpcalc 1.1)
+        cmd = [FPCALC, "-length", str(duration_limit), short_path]
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
+        
+        # Dekoduj wyjście (bytes) z obsługą błędów kodowania
+        stdout = result.stdout.decode("utf-8", errors="replace")
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        
         if result.returncode != 0:
-            log.warning("fpcalc error for %s: %s", media_path, result.stderr[:200])
+            log.warning("fpcalc error for %s: %s", os.path.basename(media_path), stderr[:200])
             return None
-        data = json.loads(result.stdout)
-        return float(data["duration"]), data["fingerprint"]
+        
+        # Parsuj wyjście tekstowe:
+        # DURATION=123.45
+        # FINGERPRINT=AQADtJmS...
+        duration: Optional[float] = None
+        fingerprint: Optional[str] = None
+        
+        for line in stdout.splitlines():
+            line = line.strip()
+            if line.startswith("DURATION="):
+                try:
+                    duration = float(line.split("=", 1)[1])
+                except ValueError:
+                    pass
+            elif line.startswith("FINGERPRINT="):
+                fingerprint = line.split("=", 1)[1].strip()
+        
+        if duration is not None and fingerprint:
+            log.debug("fpcalc OK: %s (%.1fs)", os.path.basename(media_path), duration)
+            return duration, fingerprint
+        
+        log.warning("fpcalc: could not parse output for %s: %r", 
+                    os.path.basename(media_path), stdout[:300])
+        return None
+        
+    except subprocess.TimeoutExpired:
+        log.warning("fpcalc timeout for %s", os.path.basename(media_path))
+        return None
     except Exception as e:
-        log.warning("fpcalc exception for %s: %s", media_path, e)
+        log.warning("fpcalc exception for %s: %s", os.path.basename(media_path), e)
         return None
 
 
