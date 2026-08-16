@@ -7165,13 +7165,22 @@ export default function DashboardInner() {
                   </div>
                 </div>
                 
+                <style>{`@keyframes sm-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
                 <button
                   id="sm-get-candidates-btn"
                   onClick={handleGetCandidates}
                   disabled={smLoading || !smYoutubeId}
                   className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors"
                 >
-                  {smLoading ? 'Analizuję...' : 'Analizuj wideo'}
+                  {smLoading ? (
+                    <>
+                      <svg style={{display:'inline-block',width:'16px',height:'16px',animation:'sm-spin 0.8s linear infinite',marginRight:'8px',verticalAlign:'middle'}} viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="3"/>
+                        <path d="M12 2a10 10 0 0 1 10 10" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+                      </svg>
+                      Analizuję transkrypt AI...
+                    </>
+                  ) : '🎯 Analizuj wideo'}
                 </button>
               </div>
               
