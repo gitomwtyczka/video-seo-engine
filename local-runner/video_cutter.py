@@ -31,10 +31,10 @@ def _check_binary(name: str) -> bool:
 
 def check_dependencies() -> dict[str, bool]:
     """Sprawdza dostępność wymaganych binarów.
-    
-    CO: Weryfikuje yt-dlp i ffmpeg przy starcie worke-ra.
+
+    CO: Weryfikuje yt-dlp i ffmpeg przy starcie workera.
     PO CO: Wczesne wykrycie braku narzędzi przed próbą renderowania.
-    
+
     Returns:
         Dict {narzędzie: czy_dostępne}
     """
@@ -58,8 +58,11 @@ def _make_slug(candidate_data, start_sec: float, end_sec: float, max_len: int = 
     """
     hook = ''
     if candidate_data:
-        hook = (candidate_data.get('hook') or candidate_data.get('hook_text')
-                or candidate_data.get('text') or candidate_data.get('title') or '')
+        if isinstance(candidate_data, dict):
+            hook = (candidate_data.get('hook_text') or candidate_data.get('hook')
+                    or candidate_data.get('text') or candidate_data.get('title') or '')
+        elif isinstance(candidate_data, str):
+            hook = candidate_data
     if not hook:
         import time
         return f"short_{int(time.time())}"
@@ -87,36 +90,36 @@ class CutConfig:
     local_path: str = ""               # pełna ścieżka na dysku Windows
     render_format: str = "9:16"        # '9:16' | '16:9'
     subtitles: str = "none"           # 'none' | 'srt'
-    candidate_data: Optional[dict] = None   # dane kandydata z AI (hook, text)
+    candidate_data: Optional[dict] = None   # dane kandydata z AI (hook_text, etc.)
     cookies_path: str = r"C:\ProgramData\VSELocalRunner\yt_cookies.txt"
 
 
 def cut_video(config: CutConfig) -> dict[str, str]:
-    """Wycina i eksportuje wideo. Zwraca sścieżki wyeksportowanych plików.
-    
+    """Wycina i eksportuje wideo. Zwraca ścieżki wyeksportowanych plików.
+
     CO: Główna funkcja renderowania shorta.
     PO CO: Produkuje dwa pliki: surowy (dla edytora) i social (gotowy do publikacji).
     JAK:
-        1. Pobierz/otwiórz źródło → temp_raw.mp4
+        1. Pobierz/otwórz źródło -> temp_raw.mp4
         2. Eksport surowy: -c copy (zero re-encode, dla Premiere/FinalCut)
         3. Eksport social: libx264 veryfast + scale/crop do 9:16 lub 16:9
-    
+
     Returns:
         Dict z kluczami: 'raw', 'social', opcjonalnie 'srt'
     """
     os.makedirs(config.output_dir, exist_ok=True)
-    
-    # Auto-nazwa
+
+    # Auto-nazwa z hooka (czytelna) lub timestamp jako fallback
     if not config.output_name:
         config.output_name = _make_slug(config.candidate_data, config.start_sec, config.end_sec)
-    
+
     base = os.path.join(config.output_dir, config.output_name)
     temp_path = base + "_temp.mp4"
     raw_path = base + "_raw.mp4"
     social_path = base + "_social.mp4"
-    
+
     result: dict[str, str] = {}
-    
+
     try:
         # KROK 1: Pobierz/wytnij źródło do temp
         if config.source == "youtube":
@@ -127,22 +130,22 @@ def cut_video(config: CutConfig) -> dict[str, str]:
             _cut_local_segment(config, temp_path)
         else:
             raise ValueError(f"Unknown source: {config.source!r}")
-        
+
         # KROK 2: Eksport surowy (stream copy — bez re-encode)
         _export_raw(temp_path, raw_path)
         result["raw"] = raw_path
         log.info("[cut] raw export: %s", raw_path)
-        
+
         # KROK 3: Eksport social (libx264 veryfast + format wideo)
         _export_social(temp_path, social_path, config.render_format)
         result["social"] = social_path
         log.info("[cut] social export: %s", social_path)
-        
+
     finally:
         # Usuń temp
         if os.path.exists(temp_path):
             os.remove(temp_path)
-    
+
     return result
 
 
@@ -156,14 +159,13 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
       3. pełne pobranie + ffmpeg cut (fallback)
     """
     import subprocess, shutil, tempfile, os
-    
+
     # Spróbuj dopasowania lokalnego pliku
     try:
         from library_matcher import find_local_match
         local_match = find_local_match(youtube_url)
         if local_match:
             log.info("[cut] Using local file: %s", local_match)
-            # Ustaw source na local i wytnij
             config_copy = CutConfig(
                 source='local',
                 local_path=local_match,
@@ -176,18 +178,16 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
             return True
     except Exception as e:
         log.warning("[cut] library_matcher error (falling back to yt-dlp): %s", e)
-    
-    duration = end_sec - start_sec
-    # Dodaj 2s bufora po obu stronach na keyframe alignment
+
     buf_start = max(0, start_sec - 2)
     buf_end = end_sec + 2
-    
+
     # --- METODA 1: --download-sections ---
     try:
         cmd = [
             "yt-dlp",
             "--download-sections", f"*{buf_start:.0f}-{buf_end:.0f}",
-            "--force-keyframes-at-cuts",  # dokładne cięcie
+            "--force-keyframes-at-cuts",
             "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "-o", output_path,
             youtube_url,
@@ -199,10 +199,9 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
         log.warning("download_fragment: method=download-sections failed: %s", result.stderr[:200])
     except Exception as e:
         log.warning("download_fragment: method=download-sections error: %s", e)
-    
+
     # --- METODA 2: direct stream URL via yt-dlp -g + ffmpeg ---
     try:
-        # Pobierz URL streamu
         cmd_url = ["yt-dlp", "-g", "--no-playlist",
                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                    youtube_url]
@@ -211,8 +210,7 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
             urls = result_url.stdout.strip().split("\n")
             video_url = urls[0]
             audio_url = urls[1] if len(urls) > 1 else None
-            
-            # FFmpeg cut bezpośrednio ze streamu
+
             if audio_url:
                 cmd_ff = [
                     "ffmpeg", "-y",
@@ -239,19 +237,19 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
             log.warning("download_fragment: method=stream+ffmpeg failed: %s", result_ff.stderr[:200])
     except Exception as e:
         log.warning("download_fragment: method=stream+ffmpeg error: %s", e)
-    
+
     # --- METODA 3: fallback pełne pobranie + cut ---
     try:
         log.warning("download_fragment: falling back to full download")
         tmp_dir = tempfile.mkdtemp()
         tmp_video = os.path.join(tmp_dir, "full.mp4")
-        
+
         cmd_dl = ["yt-dlp", "-f", "best[ext=mp4]/best", "-o", tmp_video, youtube_url]
         result_dl = subprocess.run(cmd_dl, capture_output=True, text=True, timeout=600)
         if result_dl.returncode != 0:
             log.error("download_fragment: full download failed: %s", result_dl.stderr[:200])
             return False
-        
+
         cmd_cut = [
             "ffmpeg", "-y",
             "-ss", str(start_sec), "-to", str(end_sec),
@@ -266,7 +264,7 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
             return True
     except Exception as e:
         log.error("download_fragment: full download error: %s", e)
-    
+
     return False
 
 
@@ -274,7 +272,7 @@ def _cut_local_segment(config: CutConfig, output_path: str) -> None:
     """Wycina fragment z lokalnego pliku przez FFmpeg."""
     if not os.path.exists(config.local_path):
         raise FileNotFoundError(f"Local video not found: {config.local_path!r}")
-    
+
     cmd = [
         "ffmpeg", "-y",
         "-ss", str(config.start_sec),
@@ -283,7 +281,7 @@ def _cut_local_segment(config: CutConfig, output_path: str) -> None:
         "-c", "copy",
         output_path,
     ]
-    log.info("[ffmpeg] cut local: %.1f–%.1fs from %s", config.start_sec, config.end_sec, config.local_path)
+    log.info("[ffmpeg] cut local: %.1f-%.1fs from %s", config.start_sec, config.end_sec, config.local_path)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg cut failed: {result.stderr[:500]}")
@@ -299,18 +297,16 @@ def _export_raw(input_path: str, output_path: str) -> None:
 
 def _export_social(input_path: str, output_path: str, render_format: str = "9:16") -> None:
     """Eksport social — libx264 veryfast + scale/crop do formatu pionowego lub poziomego.
-    
+
     CO: Koduje wideo pod publikację social media.
     PO CO: Gotowy plik .mp4 do wgrania na TikTok/Shorts/Reels (9:16) lub YT (16:9).
     JAK: libx264 veryfast crf23 — wysoka jakość, czas ~2-3s dla klipu 45s.
     """
     if render_format == "9:16":
-        # Pionowy: scale do wysokości 1920, crop do szerokości 1080
         vf = "scale=-2:1920,crop=1080:1920"
     else:
-        # Poziomy 16:9: scale do 1920x1080
         vf = "scale=1920:-2,crop=1920:1080"
-    
+
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
