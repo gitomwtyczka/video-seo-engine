@@ -43,7 +43,7 @@ class SocialsRequest(BaseModel):
     title: str
     focus_keyphrase: str
     article_body: str = ""
-    provider: str = "gemini"
+    provider: str = "claude"
 
 
 @router.post("/generate")
