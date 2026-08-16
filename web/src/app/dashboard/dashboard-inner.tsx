@@ -4707,8 +4707,6 @@ export default function DashboardInner() {
   }
 }, [result])
 
-  const handleGenerate = async (e: React.FormEvent) => {
-
   const handleGetCandidates = async () => {
     setSmLoading(true);
     setSmError(null);
@@ -4779,6 +4777,9 @@ export default function DashboardInner() {
       setSmError(`Render error: ${e.message}`);
     }
   };
+
+  const handleGenerate = async (e: React.FormEvent) => {
+
 
 
 
