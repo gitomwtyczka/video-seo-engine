@@ -4390,6 +4390,10 @@ export default function DashboardInner() {
   const [smError, setSmError] = useState<string | null>(null);
   const [smRenderConfig, setSmRenderConfig] = useState<Record<number, {format: string, subtitles: string}>>({});
   const [smJobStatus, setSmJobStatus] = useState<Record<number, any>>({});
+  const [smTrimAdj, setSmTrimAdj] = useState<Record<number, {startDelta: number; endDelta: number}>>({});
+
+  const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`;
+  const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) });
 
 
 
@@ -7194,6 +7198,27 @@ export default function DashboardInner() {
                         )}
                       </div>
                       
+                      <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'8px',fontSize:'12px',color:'#888'}}>
+                        <span>✂ Start:</span>
+                        {([-5,-2,-1] as number[]).map(d=>(
+                          <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>
+                        ))}
+                        <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).start)}</span>
+                        {([1,2,5] as number[]).map(d=>(
+                          <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>
+                        ))}
+                        <span style={{marginLeft:'8px'}}>Koniec:</span>
+                        {([-5,-2,-1] as number[]).map(d=>(
+                          <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>
+                        ))}
+                        <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).end)}</span>
+                        {([1,2,5] as number[]).map(d=>(
+                          <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>
+                        ))}
+                        <span style={{marginLeft:'6px',color:'#64748b'}}>{Math.round(getAdj(i,c).end-getAdj(i,c).start)}s</span>
+                        {(smTrimAdj[i]?.startDelta||smTrimAdj[i]?.endDelta)?<button onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:0,endDelta:0}}))} style={{padding:'1px 5px',fontSize:'10px',background:'transparent',border:'1px solid #475569',borderRadius:'3px',color:'#64748b',cursor:'pointer',marginLeft:'auto'}}>↺</button>:null}
+                      </div>
+
                       <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-700">
                         <select
                           value={smRenderConfig[i]?.format || '9:16'}
@@ -7213,7 +7238,7 @@ export default function DashboardInner() {
                         </select>
                         <button
                           id={`sm-render-btn-${i}`}
-                          onClick={() => handleRenderShort(c, i)}
+                          onClick={() => { const a = getAdj(i, c); handleRenderShort({ ...c, start_sec: a.start, end_sec: a.end }, i); }}
                           className="bg-green-700 hover:bg-green-600 text-white text-xs font-medium px-3 py-1 rounded transition-colors"
                         >
                           ▶ Renderuj
