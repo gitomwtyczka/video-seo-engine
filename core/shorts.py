@@ -186,6 +186,46 @@ def propose_shorts(
     return candidates
 
 
+def get_vtt_segments_for_candidate(
+    vtt_path: str,
+    start_sec: float,
+    end_sec: float,
+    context_sec: float = 60.0,
+) -> list[dict]:
+    """
+    Zwraca segmenty VTT dla kandydata z kontekstem.
+    
+    CO: Wyodrębnia segmenty transkryptu dla zakresu start_sec-end_sec +/- context_sec.
+    PO CO: Transcript Editor Panel — wyświetla klikalny transkrypt w UI.
+    JAK: Parsuje VTT, filtruje segmenty w zakresie, zwraca listę {ts, text, in_range}.
+    
+    Returns:
+        Lista dictów: [{"ts": float, "time_str": "MM:SS", "text": str, "in_range": bool}]
+    """
+    try:
+        _, segments, _ = parse_vtt_full(vtt_path)
+    except Exception as e:
+        logger.warning("get_vtt_segments: parse failed: %s", e)
+        return []
+    
+    context_start = max(0.0, start_sec - context_sec)
+    context_end = end_sec + context_sec
+    
+    result = []
+    for ts, text in segments:
+        if context_start <= ts <= context_end:
+            mins = int(ts // 60)
+            secs = int(ts % 60)
+            result.append({
+                "ts": round(ts, 1),
+                "time_str": f"{mins}:{secs:02d}",
+                "text": text.strip(),
+                "in_range": start_sec <= ts <= end_sec,
+            })
+    
+    return result
+
+
 def extract_srt_segment(
     segments: list[tuple[float, str]],
     start_sec: float,
