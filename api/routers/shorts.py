@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.db import get_db
 from api.models.job import TranscriptJob
 from api.models.short_job import ShortJob
-from core.shorts import propose_shorts
+from core.shorts import propose_shorts, get_vtt_segments_for_candidate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/shorts", tags=["shorts"])
@@ -213,9 +213,21 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
             api_key=api_key,
             provider=provider,
         )
+        result_candidates = []
+        for c in candidates:
+            c_dict = c.to_dict()
+            # Dodaj segmenty VTT dla tego kandydata (+/-60s kontekstu)
+            c_dict["vtt_segments"] = get_vtt_segments_for_candidate(
+                vtt_path=vtt_path,
+                start_sec=c.start_sec,
+                end_sec=c.end_sec,
+                context_sec=60.0,
+            )
+            result_candidates.append(c_dict)
+
         return {
-            "candidates": [c.to_dict() for c in candidates],
-            "total": len(candidates),
+            "candidates": result_candidates,
+            "total": len(result_candidates),
         }
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
