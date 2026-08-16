@@ -284,8 +284,9 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
     if provider == "claude":
         import anthropic  # type: ignore
         client = anthropic.Anthropic(api_key=api_key)
+        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
         msg = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=model,
             max_tokens=8192,
             messages=[{"role": "user", "content": prompt}],
         )
