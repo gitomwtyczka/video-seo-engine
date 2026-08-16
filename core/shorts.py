@@ -69,11 +69,16 @@ Na podstawie transkryptu z timestampami zaproponuj kandydatury na shorty.
   start_sec = początek tego zdania
 - **Body (środek)**: Spójna narracja rozwijająca temat.
 - **Punchline (ostatnie 3-8 sekund)**: Pointa, konkluzja lub zawieszenie myśli.
-  end_sec = koniec tego zdania
+  `end_sec` = KONIEC ostatniego słowa punchline + 1.5 sekundy (NIE początek zdania!)
+  
+  PRZYKŁAD: Jeśli zdanie punchline zaczyna się o [19:01] i trwa 8 sekund:
+  - POPRAWNE: end_sec = 1141 + 8 + 1.5 = 1150 
+  - BŁĘDNE: end_sec = 1141 (to jest POCZĄTEK punchline, nie koniec!)
 
 ## ZASADY DOBORU:
-- Długość kandydata: 25-58 sekund (SHORT MUSI BYĆ KRÓTKI)
-- Granice cięcia: dopasuj do przerw między zdaniami (nie ucinaj słów)
+- start_sec: timestamp VTT początku pierwszego słowa hooka
+- end_sec: timestamp VTT OSTATNIEGO słowa punchline + 1.5s ciszy
+- Długość: end_sec - start_sec musi być między 25 a 58 sekund
 - Nie nakrywaj kandydatów (różne fragmenty wideo)
 - score: 0.8+ = doskonały, 0.6-0.79 = dobry, <0.6 = słaby
 
