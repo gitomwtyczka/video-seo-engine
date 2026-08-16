@@ -354,7 +354,7 @@ type CopiedKey = string | null
 
 
 
-type TabKey = 'schema' | 'article' | 'chapters' | 'youtube' | 'youtube'
+type TabKey = 'schema' | 'article' | 'chapters' | 'youtube' | 'shorts'
 
 
 
@@ -1228,6 +1228,7 @@ function TabBar({
 
     { key: 'chapters', label: 'Rozdziały', badge: chaptersCount > 0 ? chaptersCount : undefined },
     { key: 'youtube', label: 'Opis YouTube' },
+    { key: 'shorts', label: '✂️ ShortMachine' },
 
 
 
@@ -4378,6 +4379,18 @@ export default function DashboardInner() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('article')
 
+  // ShortMachine state
+  const [smYoutubeId, setSmYoutubeId] = useState('');
+  const [smCustomQuery, setSmCustomQuery] = useState('');
+  const [smCountEmotional, setSmCountEmotional] = useState(2);
+  const [smCountProfessional, setSmCountProfessional] = useState(2);
+  const [smCountCustom, setSmCountCustom] = useState(3);
+  const [smCandidates, setSmCandidates] = useState<any[]>([]);
+  const [smLoading, setSmLoading] = useState(false);
+  const [smError, setSmError] = useState<string | null>(null);
+  const [smRenderConfig, setSmRenderConfig] = useState<Record<number, {format: string, subtitles: string}>>({});
+  const [smJobStatus, setSmJobStatus] = useState<Record<number, any>>({});
+
 
 
   const [showInjectModal, setShowInjectModal] = useState(false)
@@ -4695,6 +4708,77 @@ export default function DashboardInner() {
 }, [result])
 
   const handleGenerate = async (e: React.FormEvent) => {
+
+  const handleGetCandidates = async () => {
+    setSmLoading(true);
+    setSmError(null);
+    setSmCandidates([]);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const res = await fetch(`${apiUrl}/v1/shorts/candidates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) },
+        body: JSON.stringify({
+          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,
+          youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : undefined,
+          custom_query: smCustomQuery,
+          count_emotional: smCountEmotional,
+          count_professional: smCountProfessional,
+          count_custom: smCustomQuery ? smCountCustom : 0,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setSmCandidates(data.candidates || []);
+    } catch (e: any) {
+      setSmError(e.message);
+    } finally {
+      setSmLoading(false);
+    }
+  };
+
+  const handleRenderShort = async (candidate: any, index: number) => {
+    try {
+      const cfg = smRenderConfig[index] || {};
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const res = await fetch(`${apiUrl}/v1/shorts/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) },
+        body: JSON.stringify({
+          youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : `https://www.youtube.com/watch?v=${smYoutubeId}`,
+          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,
+          start_sec: candidate.start_sec,
+          end_sec: candidate.end_sec,
+          candidate_data: candidate,
+          render_format: cfg.format || '9:16',
+          subtitles: cfg.subtitles || 'none',
+          output_dir: 'C:\\VSE\\Shorts',
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const jobId = data.job_id;
+      setSmJobStatus(prev => ({...prev, [index]: {status: 'pending'}}));
+      
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 40) { clearInterval(poll); return; }
+        try {
+          const statusRes = await fetch(`${apiUrl}/v1/shorts/${jobId}`, {
+            headers: { ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) }
+          });
+          const statusData = await statusRes.json();
+          setSmJobStatus(prev => ({...prev, [index]: statusData}));
+          if (statusData.status === 'done' || statusData.status === 'error') {
+            clearInterval(poll);
+          }
+        } catch {}
+      }, 3000);
+    } catch (e: any) {
+      setSmError(`Render error: ${e.message}`);
+    }
+  };
 
 
 
@@ -7016,12 +7100,153 @@ export default function DashboardInner() {
 
           )}
 
-
-
+          {activeTab === 'shorts' && (
+            <div className="space-y-6">
+              <h2 className="text-xl font-semibold text-white">✂️ ShortMachine</h2>
+              
+              <div className="bg-gray-800 rounded-xl p-6 space-y-4">
+                <h3 className="text-lg font-medium text-white">Propozycje kandydatów</h3>
+                
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">YouTube ID lub URL</label>
+                  <input
+                    id="sm-youtube-id"
+                    type="text"
+                    value={smYoutubeId}
+                    onChange={e => setSmYoutubeId(e.target.value)}
+                    placeholder="np. dQw4w9WgXcQ"
+                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Custom query (opcjonalny)</label>
+                  <input
+                    id="sm-custom-query"
+                    type="text"
+                    value={smCustomQuery}
+                    onChange={e => setSmCustomQuery(e.target.value)}
+                    placeholder="np. Niemcy teściową Europy"
+                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Emotional</label>
+                    <input id="sm-count-emotional" type="number" min="0" max="5" value={smCountEmotional}
+                      onChange={e => setSmCountEmotional(Number(e.target.value))}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Professional</label>
+                    <input id="sm-count-professional" type="number" min="0" max="5" value={smCountProfessional}
+                      onChange={e => setSmCountProfessional(Number(e.target.value))}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Custom</label>
+                    <input id="sm-count-custom" type="number" min="0" max="5" value={smCountCustom}
+                      onChange={e => setSmCountCustom(Number(e.target.value))}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
+                  </div>
+                </div>
+                
+                <button
+                  id="sm-get-candidates-btn"
+                  onClick={handleGetCandidates}
+                  disabled={smLoading || !smYoutubeId}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                >
+                  {smLoading ? 'Analizuję...' : 'Analizuj wideo'}
+                </button>
+              </div>
+              
+              {smCandidates.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-medium text-white">Kandydaci ({smCandidates.length})</h3>
+                  {smCandidates.map((c, i) => (
+                    <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                            c.type === 'emotional' ? 'bg-red-900 text-red-300' :
+                            c.type === 'professional' ? 'bg-blue-900 text-blue-300' :
+                            'bg-purple-900 text-purple-300'
+                          }`}>{c.type}</span>
+                          <span className="text-sm text-gray-400">
+                            {Math.floor(c.start_sec / 60)}:{String(Math.floor(c.start_sec % 60)).padStart(2,'0')} - 
+                            {Math.floor(c.end_sec / 60)}:{String(Math.floor(c.end_sec % 60)).padStart(2,'0')}
+                            &nbsp;({c.duration_sec}s)
+                          </span>
+                        </div>
+                        <span className="text-yellow-400 text-sm">
+                          {'★'.repeat(Math.round(c.score * 5))}{'☆'.repeat(5 - Math.round(c.score * 5))}
+                        </span>
+                      </div>
+                      
+                      <div className="text-sm space-y-1">
+                        <p><span className="text-gray-400">Hook:</span> <span className="text-white">{c.hook_text}</span></p>
+                        <p><span className="text-gray-400">Puenta:</span> <span className="text-white">{c.punchline_text}</span></p>
+                        {c.query_match && (
+                          <p><span className="text-gray-400">Match:</span> <span className="text-green-400">{c.query_match}</span></p>
+                        )}
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-700">
+                        <select
+                          value={smRenderConfig[i]?.format || '9:16'}
+                          onChange={e => setSmRenderConfig(prev => ({...prev, [i]: {...(prev[i]||{}), format: e.target.value}}))}
+                          className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs"
+                        >
+                          <option value="9:16">9:16 (Shorts)</option>
+                          <option value="16:9">16:9 (YT)</option>
+                        </select>
+                        <select
+                          value={smRenderConfig[i]?.subtitles || 'none'}
+                          onChange={e => setSmRenderConfig(prev => ({...prev, [i]: {...(prev[i]||{}), subtitles: e.target.value}}))}
+                          className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs"
+                        >
+                          <option value="none">Bez napisów</option>
+                          <option value="srt">Export SRT</option>
+                        </select>
+                        <button
+                          id={`sm-render-btn-${i}`}
+                          onClick={() => handleRenderShort(c, i)}
+                          className="bg-green-700 hover:bg-green-600 text-white text-xs font-medium px-3 py-1 rounded transition-colors"
+                        >
+                          ▶ Renderuj
+                        </button>
+                      </div>
+                      
+                      {smJobStatus[i] && (
+                        <div className={`text-xs px-2 py-1 rounded ${
+                          smJobStatus[i].status === 'done' ? 'bg-green-900 text-green-300' :
+                          smJobStatus[i].status === 'error' ? 'bg-red-900 text-red-300' :
+                          'bg-yellow-900 text-yellow-300'
+                        }`}>
+                          {smJobStatus[i].status === 'done' ? (
+                            <span>Gotowe: {smJobStatus[i].result_paths?.raw || 'plik zapisany'}</span>
+                          ) : smJobStatus[i].status === 'error' ? (
+                            <span>Błąd: {smJobStatus[i].error}</span>
+                          ) : (
+                            <span>Przetwarzam... ({smJobStatus[i].status})</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {smError && (
+                <div className="bg-red-900 border border-red-700 text-red-300 rounded-lg p-3 text-sm">
+                  {smError}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-
-
-
       </main>
 
 
