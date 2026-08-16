@@ -54,8 +54,20 @@ import sys
 import tempfile
 import time
 import random
+import threading
 from pathlib import Path
 from typing import Optional, Tuple
+
+# ShortMachine imports
+try:
+    from video_cutter import CutConfig, cut_video, check_dependencies
+    _VIDEO_CUTTER_OK = True
+except ImportError:
+    _VIDEO_CUTTER_OK = False
+
+# Global stop event for loops
+_stop_requested = threading.Event()
+
 
 # Fix UnicodeEncodeError w Windows Service (cp1250 nie obsluguje strzalek Unicode)
 # Musi byc przed inicjalizacja loggera
@@ -129,6 +141,11 @@ def _setup_logging() -> logging.Logger:
 
 
 log = _setup_logging()
+
+if _VIDEO_CUTTER_OK:
+    deps = check_dependencies()
+    if not deps.get("ffmpeg"):
+        log.warning("ffmpeg not found — ShortMachine rendering will be unavailable")
 
 # ---------------------------------------------------------------------------
 # YouTube Transcript Fetching
@@ -712,6 +729,87 @@ def process_job(job: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# ShortMachine Jobs Processing
+# ---------------------------------------------------------------------------
+
+def _submit_short_result(job_id: str, status: str, result_paths: dict = None, error: str = None) -> None:
+    """Raportuje wynik zadania ShortMachine do VSE API."""
+    payload = {"status": status}
+    if result_paths:
+        payload["result_paths"] = result_paths
+    if error:
+        payload["error"] = error
+    
+    url = f"{API_BASE}/v1/shorts/{job_id}/result"
+    try:
+        resp = requests.post(url, json=payload, headers=_headers(), timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        log.error("[shorts] Failed to submit result for %s: %s", job_id, e)
+
+
+def _process_short_job(job: dict) -> None:
+    """Przetwarza jedno zadanie wycinania shorta."""
+    job_id = job["id"]
+    log.info("[shorts] Processing short job %s", job_id)
+    
+    render_config = job.get("render_config", {})
+    
+    source = "youtube" if job.get("youtube_url") else "local"
+    
+    config = CutConfig(
+        source=source,
+        start_sec=float(job["start_sec"]),
+        end_sec=float(job["end_sec"]),
+        yt_url=job.get("youtube_url", ""),
+        local_path=job.get("local_path", ""),
+        output_dir=render_config.get("output_dir", r"C:\VSE\Shorts"),
+        render_format=render_config.get("format", "9:16"),
+        subtitles=render_config.get("subtitles", "none"),
+    )
+    
+    try:
+        result_paths = cut_video(config)
+        _submit_short_result(job_id, status="done", result_paths=result_paths)
+        log.info("[shorts] Job %s done: %s", job_id, result_paths)
+    except Exception as e:
+        log.error("[shorts] Job %s failed: %s", job_id, e, exc_info=True)
+        _submit_short_result(job_id, status="error", error=str(e))
+
+
+def _short_jobs_loop() -> None:
+    """Wątek pollingu dla zadań ShortMachine."""
+    if not _VIDEO_CUTTER_OK:
+        log.warning("[shorts_loop] video_cutter unavailable — loop disabled")
+        return
+    
+    log.info("[shorts_loop] starting")
+    while not _stop_requested.is_set():
+        try:
+            url = f"{API_BASE}/v1/shorts/pending"
+            resp = requests.get(url, headers=_headers(), timeout=15)
+            if resp.status_code == 429:
+                log.warning("[shorts_loop] rate limited, waiting 60s")
+                _stop_requested.wait(60)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            jobs = data.get("jobs", [])
+            if jobs:
+                log.info("[shorts_loop] %d short job(s) pending", len(jobs))
+                for job in jobs:
+                    if _stop_requested.is_set():
+                        break
+                    _process_short_job(job)
+        except Exception as e:
+            log.error("[shorts_loop] error: %s", e)
+        
+        _stop_requested.wait(5)  # Polling co 5 sekund
+    
+    log.info("[shorts_loop] stopped")
+
+
+# ---------------------------------------------------------------------------
 # Main Loop
 # ---------------------------------------------------------------------------
 
@@ -738,26 +836,33 @@ def main() -> None:
     log.info("Transcript strategy: cookies_file -> yt-dlp+browser -> transcript-api")
     log.info("=" * 60)
 
-    while True:
+    # Start ShortMachine worker thread
+    shorts_thread = threading.Thread(target=_short_jobs_loop, name="shorts_loop", daemon=True)
+    shorts_thread.start()
+
+    while not _stop_requested.is_set():
         try:
             jobs = get_pending_jobs()
             if jobs:
                 log.info("%d pending job(s) found", len(jobs))
                 for job in jobs:
+                    if _stop_requested.is_set():
+                        break
                     process_job(job)
                     delay = random.uniform(5, 15)
                     log.debug("Anti-burst delay: %.1fs", delay)
-                    time.sleep(delay)
+                    _stop_requested.wait(delay)
             else:
                 log.debug("No pending jobs")
 
         except KeyboardInterrupt:
             log.info("KeyboardInterrupt — stopping VSE Local Runner")
+            _stop_requested.set()
             break
         except Exception as e:
             log.error("Unexpected error in main loop: %s", e, exc_info=True)
 
-        time.sleep(POLL_INTERVAL)
+        _stop_requested.wait(POLL_INTERVAL)
 
 
 if __name__ == "__main__":

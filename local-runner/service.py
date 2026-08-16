@@ -124,6 +124,13 @@ def _runner_loop():
             )
             return
 
+        # Synchronize stop event with runner module
+        r._stop_requested = _stop_requested
+        
+        # Start ShortMachine worker thread
+        shorts_thread = threading.Thread(target=r._short_jobs_loop, name="shorts_loop", daemon=True)
+        shorts_thread.start()
+
         while not _stop_requested.is_set():
             try:
                 jobs = r.get_pending_jobs()
