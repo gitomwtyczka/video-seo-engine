@@ -48,7 +48,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from api.routers import generate, inject, monitor, process, sitemap, shorts
+from api.routers import generate, inject, monitor, process, sitemap, shorts, socials
 from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
 from api.routers.jobs import router as jobs_router
@@ -106,6 +106,9 @@ app.include_router(jobs_router)
 
 # Shorts Router
 app.include_router(shorts.router)
+
+# Socials Router
+app.include_router(socials.router)
 
 # Admin panel router (requires is_admin=True)
 app.include_router(admin_router)
