@@ -4788,7 +4788,7 @@ export default function DashboardInner() {
           end_sec: candidate.end_sec,
           candidate_data: candidate,
           render_format: cfg.format || '9:16',
-          subtitles: cfg.subtitles || 'none',
+          subtitles: cfg.subtitles || 'srt',
           output_dir: 'C:\\VSE\\Shorts',
         }),
       });
@@ -7311,7 +7311,7 @@ export default function DashboardInner() {
                           <option value="16:9">16:9 (YT)</option>
                         </select>
                         <select
-                          value={smRenderConfig[i]?.subtitles || 'none'}
+                          value={smRenderConfig[i]?.subtitles || 'srt'}
                           onChange={e => setSmRenderConfig(prev => ({...prev, [i]: {...(prev[i]||{}), subtitles: e.target.value}}))}
                           className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs"
                         >
