@@ -89,3 +89,15 @@ class SitemapResponse(BaseModel):
     videos_count: int = 0
     output_path: Optional[str] = None
     error: Optional[str] = None
+
+
+class AsyncJobResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    result: Optional[dict] = None
+    error: Optional[str] = None
