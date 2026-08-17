@@ -94,15 +94,52 @@ class CutConfig:
     cookies_path: str = r"C:\ProgramData\VSELocalRunner\yt_cookies.txt"
 
 
+def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
+    """
+    CO: Generuje plik SRT z listy segmentów VTT.
+    PO CO: Plik .srt obok wideo — do importu w Premiere/DaVinci lub uploadu z napisami.
+    JAK: Przesuwa znaczniki czasu względem początku klipu, filtruje spoza zakresu.
+    """
+    def to_srt_ts(sec: float) -> str:
+        sec = max(0.0, sec)
+        h = int(sec // 3600)
+        m = int((sec % 3600) // 60)
+        s = int(sec % 60)
+        ms = int(round((sec % 1) * 1000))
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    lines = []
+    idx = 1
+    for seg in vtt_segments:
+        rel_start = seg.get('start', 0) - clip_start_sec
+        rel_end = seg.get('end', seg.get('start', 0) + 3) - clip_start_sec
+        if rel_end <= 0:
+            continue
+        if rel_start >= (clip_end_sec - clip_start_sec):
+            break
+        rel_start = max(0.0, rel_start)
+        text = seg.get('text', '').strip()
+        if not text:
+            continue
+        lines.append(str(idx))
+        lines.append(f"{to_srt_ts(rel_start)} --> {to_srt_ts(rel_end)}")
+        lines.append(text)
+        lines.append('')
+        idx += 1
+    return '\n'.join(lines)
+
+
 def cut_video(config: CutConfig) -> dict[str, str]:
     """Wycina i eksportuje wideo. Zwraca ścieżki wyeksportowanych plików.
 
     CO: Główna funkcja renderowania shorta.
     PO CO: Produkuje dwa pliki: surowy (dla edytora) i social (gotowy do publikacji).
+          Opcjonalnie plik .srt z napisami (do importu w edytorze lub uploadu).
     JAK:
         1. Pobierz/otwórz źródło -> temp_raw.mp4
-        2. Eksport surowy: -c copy (zero re-encode, dla Premiere/FinalCut)
-        3. Eksport social: libx264 veryfast + scale/crop do 9:16 lub 16:9
+        2. Generuj .srt jeśli subtitles='srt'
+        3. Eksport surowy: -c copy (zero re-encode, dla Premiere/FinalCut)
+        4. Eksport social: libx264 veryfast + scale/crop do 9:16 lub 16:9
 
     Returns:
         Dict z kluczami: 'raw', 'social', opcjonalnie 'srt'
@@ -113,12 +150,28 @@ def cut_video(config: CutConfig) -> dict[str, str]:
     if not config.output_name:
         config.output_name = _make_slug(config.candidate_data, config.start_sec, config.end_sec)
 
+    result: dict[str, str] = {}
+
+    # Generuj SRT jeśli subtitles='srt' i są segmenty
+    if config.subtitles == 'srt' and config.candidate_data:
+        vtt_segs = config.candidate_data.get('vtt_segments', [])
+        if vtt_segs:
+            srt_content = _generate_srt(vtt_segs, config.start_sec, config.end_sec)
+            if srt_content.strip():
+                srt_path = os.path.join(config.output_dir, config.output_name) + '.srt'
+                with open(srt_path, 'w', encoding='utf-8') as _f:
+                    _f.write(srt_content)
+                result['srt'] = srt_path
+                log.info('[cut] SRT saved: %s (%d segments)', srt_path, len(vtt_segs))
+            else:
+                log.warning('[cut] No SRT content from %d segments', len(vtt_segs))
+        else:
+            log.warning('[cut] subtitles=srt but no vtt_segments in candidate_data')
+
     base = os.path.join(config.output_dir, config.output_name)
     temp_path = base + "_temp.mp4"
     raw_path = base + "_raw.mp4"
     social_path = base + "_social.mp4"
-
-    result: dict[str, str] = {}
 
     try:
         # KROK 1: Pobierz/wytnij źródło do temp
@@ -142,7 +195,6 @@ def cut_video(config: CutConfig) -> dict[str, str]:
         log.info("[cut] social export: %s", social_path)
 
     finally:
-        # Usuń temp
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
@@ -244,7 +296,9 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
         tmp_dir = tempfile.mkdtemp()
         tmp_video = os.path.join(tmp_dir, "full.mp4")
 
-        cmd_dl = ["yt-dlp", "-f", "best[ext=mp4]/best", "-o", tmp_video, youtube_url]
+        cmd_dl = ["yt-dlp", "-f", "bestvideo+bestaudio/best",
+                  "--merge-output-format", "mp4",
+                  "-o", tmp_video, youtube_url]
         result_dl = subprocess.run(cmd_dl, capture_output=True, text=True, timeout=600)
         if result_dl.returncode != 0:
             log.error("download_fragment: full download failed: %s", result_dl.stderr[:200])
