@@ -97,8 +97,9 @@ class CutConfig:
 def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
     """
     CO: Generuje plik SRT z listy segmentów VTT.
-    PO CO: Plik .srt obok wideo — do importu w Premiere/DaVinci lub uploadu z napisami.
-    JAK: Przesuwa znaczniki czasu względem początku klipu, filtruje spoza zakresu.
+    PO CO: Plik .srt obok wideo do importu w Premiere/DaVinci lub uploadu.
+    JAK: Obsługuje format 'ts' (core/shorts.py) i 'start'/'end' (ogólny VTT).
+         Przesuwa znaczniki względem początku klipu, filtruje segmenty spoza zakresu.
     """
     def to_srt_ts(sec: float) -> str:
         sec = max(0.0, sec)
@@ -110,14 +111,21 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
 
     lines = []
     idx = 1
+    clip_duration = clip_end_sec - clip_start_sec
     for seg in vtt_segments:
-        rel_start = seg.get('start', 0) - clip_start_sec
-        rel_end = seg.get('end', seg.get('start', 0) + 3) - clip_start_sec
+        # Obsługa obu formatów: 'ts' (core/shorts.py) i 'start' (ogólny VTT)
+        seg_start = seg.get('start') if seg.get('start') is not None else seg.get('ts', 0.0)
+        seg_end = seg.get('end') if seg.get('end') is not None else (seg_start + 3.0)
+        # Przesuń względem startu klipu
+        rel_start = seg_start - clip_start_sec
+        rel_end = seg_end - clip_start_sec
+        # Pomiń segmenty spoza zakresu klipu
         if rel_end <= 0:
             continue
-        if rel_start >= (clip_end_sec - clip_start_sec):
+        if rel_start >= clip_duration:
             break
         rel_start = max(0.0, rel_start)
+        rel_end = min(rel_end, clip_duration)
         text = seg.get('text', '').strip()
         if not text:
             continue
@@ -164,7 +172,7 @@ def cut_video(config: CutConfig) -> dict[str, str]:
                 result['srt'] = srt_path
                 log.info('[cut] SRT saved: %s (%d segments)', srt_path, len(vtt_segs))
             else:
-                log.warning('[cut] No SRT content from %d segments', len(vtt_segs))
+                log.warning('[cut] No SRT content from %d segments (check vtt_segments format)', len(vtt_segs))
         else:
             log.warning('[cut] subtitles=srt but no vtt_segments in candidate_data')
 
