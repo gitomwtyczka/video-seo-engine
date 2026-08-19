@@ -1,12 +1,14 @@
 {
   "callsign": "vse-strateg-01",
   "status": "working",
-  "current_task": "Diagnoza błędu invalid_grant na tokenie YT przy wysyłce opisu",
-  "timestamp": "2026-07-31T17:06:00+02:00",
+  "current_task": "Diagnoza błędu ShortMachine — Failed to download YouTube fragment przy renderowaniu",
+  "timestamp": "2026-08-19T14:32:00+02:00",
   "last_completed": [
-    "Odczyt yt_admin.py — analiza flow tokenu OAuth"
+    "Diagnoza błędu invalid_grant na tokenie YT"
   ],
   "pending": [
-    "Dispatch do vse-dev — naprawa tokenu YT"
+    "Analityk: zbadanie root cause ShortMachine render fail",
+    "Backup VPS przed działaniem",
+    "Dispatch do vse-dev — naprawa ShortMachine"
   ]
 }
