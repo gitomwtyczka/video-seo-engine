@@ -116,7 +116,7 @@ class CutConfig:
     cookies_path: str = r"C:\ProgramData\VSELocalRunner\yt_cookies.txt"
 
 
-def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
+def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float, single_line: bool = False) -> str:
     """
     CO: Generuje plik SRT z dynamicznymi napisami karaoke (słowa narastają na ekranie).
     PO CO: Efekt karaoke (YouTube Shorts / TikTok) — słowa pojawiają się po kolei,
@@ -167,7 +167,7 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
                 return " ".join(curr_words[n:]).strip()
         return curr_text
 
-    def _flush_screen(steps: list, all_chunks: list, words_per_line: int, gap: float) -> None:
+    def _flush_screen(steps: list, all_chunks: list, words_per_line: int, gap: float, single_line: bool = False) -> None:
         """
         Generuje narastające wpisy SRT dla jednego ekranu.
         Każdy step dodaje słowa do wyświetlanego tekstu.
@@ -179,11 +179,14 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
             accumulated_words.extend(step['words'])
 
             # Formatuj tekst: podział na linie
-            line1 = ' '.join(accumulated_words[:words_per_line])
-            line2_words = accumulated_words[words_per_line:]
-            text = line1
-            if line2_words:
-                text = line1 + '\n' + ' '.join(line2_words)
+            if single_line:
+                text = ' '.join(accumulated_words)  # całość w jednej linii
+            else:
+                line1 = ' '.join(accumulated_words[:words_per_line])
+                line2_words = accumulated_words[words_per_line:]
+                text = line1
+                if line2_words:
+                    text = line1 + '\n' + ' '.join(line2_words)
 
             # Timing: od startu tego step do startu następnego
             start = step['start']
@@ -318,13 +321,13 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         screen_word_count += len(step['words'])
         if screen_word_count >= WORDS_PER_SCREEN:
             # Flush screen — generuj narastające wpisy SRT
-            _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
+            _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP, single_line)
             screen_steps = []
             screen_word_count = 0
 
     # Ostatni niepełny screen
     if screen_steps:
-        _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
+        _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP, single_line)
 
     # FAZA 4: Generuj linie SRT z chunków
     lines = []
@@ -373,6 +376,16 @@ def cut_video(config: CutConfig) -> dict[str, str]:
                     _f.write(srt_content)
                 result['srt'] = srt_path
                 log.info('[cut] SRT saved: %s (%d segments)', srt_path, len(vtt_segs))
+
+                # Generuj single-line SRT dla SubMachine
+                srt_sm_content = _generate_srt(vtt_segs, config.start_sec, config.end_sec, single_line=True)
+                srt_sm_path = str(srt_path).replace('.srt', '_submachine.srt')
+                try:
+                    with open(srt_sm_path, 'w', encoding='utf-8') as _f:
+                        _f.write(srt_sm_content)
+                    log.info("SubMachine SRT saved: %s", srt_sm_path)
+                except Exception as e:
+                    log.warning("Could not save SubMachine SRT: %s", e)
             else:
                 log.warning('[cut] No SRT content from %d segments (check vtt_segments format)', len(vtt_segs))
         else:
