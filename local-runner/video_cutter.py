@@ -12,6 +12,7 @@ JAK: yt-dlp --download-sections dla YT | ffmpeg -ss -to dla plików lokalnych.
 Dependencies: yt-dlp (binary on PATH), ffmpeg (binary on PATH)
 """
 import logging
+import json
 import re
 import unicodedata
 import os
@@ -22,6 +23,27 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+OVERRIDES_PATH = r"C:\ProgramData\VSELocalRunner\local_overrides.json"
+
+
+def _load_local_overrides() -> dict:
+    """
+    CO: Wczytuje manualne mapowanie YouTube ID → ścieżka lokalna.
+    PO CO: Pozwala renderować wideo prywatne lub gdy automatyczne dopasowanie
+           (fingerprint) nie działa — np. plik nie ma ID YouTube w nazwie.
+    JAK: Czyta JSON z OVERRIDES_PATH.
+         Format: {"YOUTUBE_ID": "C:\\ścieżka\\do\\pliku.mp4"}
+         Plik edytowalny przez użytkownika ręcznie lub przez UI.
+    """
+    if not os.path.exists(OVERRIDES_PATH):
+        return {}
+    try:
+        with open(OVERRIDES_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        log.warning("[cut] local_overrides.json load error: %s", e)
+        return {}
 
 
 def _check_binary(name: str) -> bool:
@@ -213,14 +235,35 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     """
     CO: Pobiera fragment wideo z YouTube.
     PO CO: Unika pobierania całego wideo (może mieć GB) gdy potrzebujemy kilkudziesięciu sekund.
-    JAK: 3-stopniowy fallback:
-      1. yt-dlp --download-sections (najszybszy, natywny)
-      2. yt-dlp -g + ffmpeg ze streamu (bez pobierania)
-      3. pełne pobranie + ffmpeg cut (fallback)
+    JAK: 4-stopniowy fallback:
+      0. local_overrides.json — manualne mapowanie YT ID → plik lokalny (zero sieci)
+      1. find_local_by_yt_id — ID w nazwie pliku (zero sieci)
+      2. find_local_match — audio fingerprint (wymaga YT audio sample)
+      3. yt-dlp --download-sections (najszybszy, natywny)
+      4. yt-dlp -g + ffmpeg ze streamu
+      5. pełne pobranie + ffmpeg cut (ostatni fallback)
     """
     import subprocess, shutil, tempfile, os
 
-    # Sprobuj dopasowania lokalnego pliku
+    # Priorytet 0: local_overrides.json — manualne mapowanie YT ID → plik lokalny
+    try:
+        _m = re.search(r'(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})', youtube_url) \
+             or re.match(r'^([A-Za-z0-9_-]{11})$', youtube_url)
+        if _m:
+            _ov = _load_local_overrides().get(_m.group(1))
+            if _ov and os.path.exists(_ov):
+                log.info("[cut] local_overrides match: %s -> %s", _m.group(1), _ov)
+                _cut_local_segment(CutConfig(
+                    source='local', local_path=_ov,
+                    start_sec=start_sec, end_sec=end_sec,
+                    output_dir=os.path.dirname(output_path),
+                    output_name=os.path.splitext(os.path.basename(output_path))[0].replace('_temp', ''),
+                ), output_path)
+                return True
+    except Exception as _e:
+        log.warning("[cut] local_overrides error: %s", _e)
+
+    # Priorytet 1+2: dopasowanie lokalnego pliku przez library_matcher
     try:
         from library_matcher import find_local_by_yt_id, find_local_match
 
