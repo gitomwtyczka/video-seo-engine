@@ -1,12 +1,10 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
+  "status": "done",
   "current_task": "fix: SRT sliding window deduplication — remove YouTube auto-caption overlap in video_cutter.py",
-  "timestamp": "2026-08-19T16:35:00+02:00",
+  "timestamp": "2026-08-19T16:36:45+02:00",
   "last_completed": [
-    "runner.py — commit b481c74d3491f06f584ae054071bdc8ae6ad8f20 (2026-08-19)"
+    "video_cutter.py — commit eaf50aad3e1b7e49dadae96e070c1b2a67d1c164 (2026-08-19)"
   ],
-  "pending": [
-    "fix(short-machine): SRT sliding window deduplication in video_cutter.py"
-  ]
+  "pending": []
 }
