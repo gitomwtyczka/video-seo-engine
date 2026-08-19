@@ -137,6 +137,25 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         ms = int(round((sec % 1) * 1000))
         return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
+    def _clean_speech_text(text: str) -> str:
+        """Czyści tekst mowy z fillerów i powtórzeń (YouTube auto-captions)."""
+        import re
+
+        # 1. Usuń fillery: słowa składające się tylko z liter y/e (np. y, yy, yyy, yyyy, ee, eee)
+        text = re.sub(r'(?<![\w])[yeYE]+(?![\w])', '', text)
+
+        # 2. Usuń powtórzenia kolejnych identycznych słów (tak tak → tak, no no → no)
+        # Obsługuje 2+ powtórzeń, case-insensitive
+        text = re.sub(r'\b(\w+)(\s+\1)+\b', r'\1', text, flags=re.IGNORECASE)
+
+        # 3. Wyczyść wielokrotne spacje (po usunięciach mogą powstać)
+        text = re.sub(r' +', ' ', text).strip()
+
+        # 4. Usuń wiodące przecinki i spacje (jeśli filler był na początku: ", słowo")
+        text = re.sub(r'^[\s,\.]+', '', text).strip()
+
+        return text
+
     # Deduplikacja sliding window YouTube auto-captions
     def _remove_text_overlap(prev_text: str, curr_text: str) -> str:
         """Usuwa prefix curr_text który pokrywa się z końcem prev_text (YouTube sliding window)."""
@@ -261,7 +280,9 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
     # FAZA 3A: Spłaszcz segmenty do listy słów z timing
     word_timing = []  # lista {'word': str, 'start': float, 'end': float}
     for seg in clean_segments:
-        words = seg['text'].split()
+        # NOWE: Oczyść tekst z fillerów i powtórzeń
+        cleaned_text = _clean_speech_text(seg['text'])
+        words = cleaned_text.split()
         if not words:
             continue
         seg_dur = max(0.1, seg['rel_end'] - seg['rel_start'])
