@@ -169,7 +169,7 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
             # Timing: od startu tego step do startu następnego
             start = step['start']
             if j + 1 < len(steps):
-                end = steps[j + 1]['start'] - 0.01  # minimalna przerwa między wpisami
+                end = steps[j + 1]['start']  # zero gap — płynne przejście między słowami
             else:
                 end = step['end']
 
