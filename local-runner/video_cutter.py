@@ -118,10 +118,14 @@ class CutConfig:
 
 def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
     """
-    CO: Generuje plik SRT z listy segmentów VTT.
+    CO: Generuje plik SRT z dynamicznymi napisami słowo po słowie (2-4 słowa na chunk).
     PO CO: Plik .srt obok wideo do importu w Premiere/DaVinci lub uploadu.
+           Brak overlapów czasowych, krótkie dynamiczne segmenty pod YouTube Shorts.
     JAK: Obsługuje format 'ts' (core/shorts.py) i 'start'/'end' (ogólny VTT).
-         Przesuwa znaczniki względem początku klipu, filtruje segmenty spoza zakresu.
+         1. Filtruje segmenty w oknie klipu i przelicza na czas względny.
+         2. Usuwa overlapy czasowe między segmentami i deduplikuje tekst sliding window.
+         3. Dzieli segmenty na krótkie chunki słowne (WORDS_PER_CHUNK = 3).
+         4. Formatuje do standardu SRT.
     """
     def to_srt_ts(sec: float) -> str:
         sec = max(0.0, sec)
@@ -142,38 +146,120 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
                 return " ".join(curr_words[n:]).strip()
         return curr_text
 
-    lines = []
-    idx = 1
-    prev_seg_text = ""
     clip_duration = clip_end_sec - clip_start_sec
+    if clip_duration <= 0 or not vtt_segments:
+        return ""
+
+    # FAZA 1: Zbierz segmenty w oknie klipu (filtrowanie)
+    raw_segments = []
     for seg in vtt_segments:
         # Obsługa obu formatów: 'ts' (core/shorts.py) i 'start' (ogólny VTT)
         seg_start = seg.get('start') if seg.get('start') is not None else seg.get('ts', 0.0)
         seg_end = seg.get('end') if seg.get('end') is not None else (seg_start + 3.0)
+
         # Przesuń względem startu klipu
         rel_start = seg_start - clip_start_sec
         rel_end = seg_end - clip_start_sec
+
         # Pomiń segmenty spoza zakresu klipu
         if rel_end <= 0:
             continue
         if rel_start >= clip_duration:
             break
+
         rel_start = max(0.0, rel_start)
         rel_end = min(rel_end, clip_duration)
         text = seg.get('text', '').strip()
         if not text:
             continue
+
+        raw_segments.append({
+            'rel_start': rel_start,
+            'rel_end': rel_end,
+            'text': text
+        })
+
+    if not raw_segments:
+        return ""
+
+    # FAZA 2: Fix overlapów + deduplikacja tekstu
+    clean_segments = []
+    prev_seg_text = ""
+    for i, seg in enumerate(raw_segments):
+        rel_start = seg['rel_start']
+        rel_end = seg['rel_end']
+
+        # End nie może przekraczać startu następnego segmentu (eliminacja overlapów)
+        if i + 1 < len(raw_segments):
+            next_rel_start = raw_segments[i + 1]['rel_start']
+            if next_rel_start > rel_start:
+                rel_end = min(rel_end, next_rel_start)
+            else:
+                rel_end = max(rel_start + 0.1, rel_end)
+
+        text = seg['text']
         # Usuń overlap z poprzednim segmentem (YouTube sliding window)
-        if idx > 1 and prev_seg_text:
+        if prev_seg_text:
             text = _remove_text_overlap(prev_seg_text, text)
         if not text:
             continue
         prev_seg_text = text
+
+        clean_segments.append({
+            'rel_start': rel_start,
+            'rel_end': max(rel_start + 0.1, rel_end),
+            'text': text
+        })
+
+    # FAZA 3: Podziel na chunki słowne (dynamiczne napisy 2-4 słowa)
+    WORDS_PER_CHUNK = 3  # docelowo 3 słowa na chunk
+    all_chunks = []
+
+    for seg in clean_segments:
+        rel_start = seg['rel_start']
+        rel_end = seg['rel_end']
+        text = seg['text']
+        words = text.split()
+        if not words:
+            continue
+
+        if len(words) <= WORDS_PER_CHUNK:
+            # Krótki segment — zostaw jako jeden wpis SRT
+            all_chunks.append({
+                'text': text,
+                'rel_start': rel_start,
+                'rel_end': rel_end
+            })
+        else:
+            # Podziel na chunki
+            n_chunks = (len(words) + WORDS_PER_CHUNK - 1) // WORDS_PER_CHUNK  # ceiling division
+            total_dur = max(0.1, rel_end - rel_start)
+            chunk_duration = total_dur / n_chunks
+            for j in range(n_chunks):
+                chunk_words = words[j * WORDS_PER_CHUNK : (j + 1) * WORDS_PER_CHUNK]
+                chunk_start = rel_start + j * chunk_duration
+                chunk_end = rel_start + (j + 1) * chunk_duration
+                # Clamp: ostatni chunk kończy się na rel_end
+                chunk_end = min(chunk_end, rel_end)
+                # Minimum czas trwania
+                if chunk_end - chunk_start < 0.3:
+                    chunk_end = chunk_start + 0.3
+                all_chunks.append({
+                    'text': ' '.join(chunk_words),
+                    'rel_start': chunk_start,
+                    'rel_end': chunk_end
+                })
+
+    # FAZA 4: Generuj linie SRT z chunków
+    lines = []
+    idx = 1
+    for chunk in all_chunks:
         lines.append(str(idx))
-        lines.append(f"{to_srt_ts(rel_start)} --> {to_srt_ts(rel_end)}")
-        lines.append(text)
+        lines.append(f"{to_srt_ts(chunk['rel_start'])} --> {to_srt_ts(chunk['rel_end'])}")
+        lines.append(chunk['text'])
         lines.append('')
         idx += 1
+
     return '\n'.join(lines)
 
 
