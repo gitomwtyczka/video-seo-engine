@@ -1,10 +1,10 @@
 {
   "callsign": "vse-dev-01",
   "status": "done",
-  "current_task": "fix: SRT dynamic word chunks + timestamp overlap fix for YouTube Shorts in video_cutter.py",
-  "timestamp": "2026-08-19T17:16:50+02:00",
+  "current_task": "feat: SRT karaoke progressive reveal — words build up per screen in video_cutter.py",
+  "timestamp": "2026-08-19T17:41:00+02:00",
   "last_completed": [
-    "video_cutter.py — commit 09b6f5bea0548ef14e69a1be8705c4d6325da366 (2026-08-19)"
+    "video_cutter.py karaoke SRT — commit 7ca5ceb001a94e5b933ded8d5153a29f82d0e28f (2026-08-19)"
   ],
   "pending": []
 }
