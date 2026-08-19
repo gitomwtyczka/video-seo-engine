@@ -118,14 +118,16 @@ class CutConfig:
 
 def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
     """
-    CO: Generuje plik SRT z dynamicznymi napisami słowo po słowie (2-4 słowa na chunk).
-    PO CO: Plik .srt obok wideo do importu w Premiere/DaVinci lub uploadu.
-           Brak overlapów czasowych, krótkie dynamiczne segmenty pod YouTube Shorts.
+    CO: Generuje plik SRT z dynamicznymi napisami karaoke (słowa narastają na ekranie).
+    PO CO: Efekt karaoke (YouTube Shorts / TikTok) — słowa pojawiają się po kolei,
+           max 3 słowa na linię, max 2 linie na ekran (6 słów), potem czyszczenie ekranu.
     JAK: Obsługuje format 'ts' (core/shorts.py) i 'start'/'end' (ogólny VTT).
          1. Filtruje segmenty w oknie klipu i przelicza na czas względny.
          2. Usuwa overlapy czasowe między segmentami i deduplikuje tekst sliding window.
-         3. Dzieli segmenty na krótkie chunki słowne (WORDS_PER_CHUNK = 3).
-         4. Formatuje do standardu SRT.
+         3. Spłaszcza segmenty do listy słów z timingiem (proporcjonalny podział).
+         4. Grupuje krótkie słowa (< 0.35s) w kroki (steps).
+         5. Grupuje kroki w ekrany (screens, max 6 słów) i buduje narastające wpisy SRT.
+         6. Formatuje do standardu SRT.
     """
     def to_srt_ts(sec: float) -> str:
         sec = max(0.0, sec)
@@ -145,6 +147,44 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
             if prev_words[-n:] == curr_words[:n]:
                 return " ".join(curr_words[n:]).strip()
         return curr_text
+
+    def _flush_screen(steps: list, all_chunks: list, words_per_line: int, gap: float) -> None:
+        """
+        Generuje narastające wpisy SRT dla jednego ekranu.
+        Każdy step dodaje słowa do wyświetlanego tekstu.
+        """
+        if not steps:
+            return
+        accumulated_words = []
+        for j, step in enumerate(steps):
+            accumulated_words.extend(step['words'])
+
+            # Formatuj tekst: podział na linie
+            line1 = ' '.join(accumulated_words[:words_per_line])
+            line2_words = accumulated_words[words_per_line:]
+            text = line1
+            if line2_words:
+                text = line1 + '\n' + ' '.join(line2_words)
+
+            # Timing: od startu tego step do startu następnego
+            start = step['start']
+            if j + 1 < len(steps):
+                end = steps[j + 1]['start'] - 0.01  # minimalna przerwa między wpisami
+            else:
+                end = step['end']
+
+            if end - start < 0.1:
+                end = start + 0.15  # minimum widoczności
+
+            all_chunks.append({
+                'text': text,
+                'rel_start': start,
+                'rel_end': end
+            })
+
+        # Przerwa SCREEN_GAP po ostatnim wpisie — obsluży się przez gap między screenami
+        if all_chunks:
+            all_chunks[-1]['rel_end'] = steps[-1]['end'] - gap
 
     clip_duration = clip_end_sec - clip_start_sec
     if clip_duration <= 0 or not vtt_segments:
@@ -211,44 +251,59 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
             'text': text
         })
 
-    # FAZA 3: Podziel na chunki słowne (dynamiczne napisy 2-4 słowa)
-    WORDS_PER_CHUNK = 3  # docelowo 3 słowa na chunk
-    all_chunks = []
+    # PARAMETRY
+    WORDS_PER_LINE = 3      # słowa per linia
+    LINES_PER_SCREEN = 2    # linie per screen (potem clear)
+    WORDS_PER_SCREEN = 6    # = WORDS_PER_LINE * LINES_PER_SCREEN
+    MIN_WORD_DURATION = 0.35  # jeśli słowo krótsze — połącz z następnym w jeden step
+    SCREEN_GAP = 0.05       # przerwa między screenami (s)
 
+    # FAZA 3A: Spłaszcz segmenty do listy słów z timing
+    word_timing = []  # lista {'word': str, 'start': float, 'end': float}
     for seg in clean_segments:
-        rel_start = seg['rel_start']
-        rel_end = seg['rel_end']
-        text = seg['text']
-        words = text.split()
+        words = seg['text'].split()
         if not words:
             continue
-
-        if len(words) <= WORDS_PER_CHUNK:
-            # Krótki segment — zostaw jako jeden wpis SRT
-            all_chunks.append({
-                'text': text,
-                'rel_start': rel_start,
-                'rel_end': rel_end
+        seg_dur = max(0.1, seg['rel_end'] - seg['rel_start'])
+        word_dur = seg_dur / len(words)
+        for i, word in enumerate(words):
+            word_timing.append({
+                'word': word,
+                'start': seg['rel_start'] + i * word_dur,
+                'end': seg['rel_start'] + (i + 1) * word_dur
             })
+
+    # FAZA 3B: Grupuj słowa w steps (1 lub 2 słowa gdy szybko)
+    steps = []  # lista {'words': [str], 'start': float, 'end': float}
+    i = 0
+    while i < len(word_timing):
+        w = word_timing[i]
+        if w['end'] - w['start'] < MIN_WORD_DURATION and i + 1 < len(word_timing):
+            # Połącz z następnym
+            w2 = word_timing[i + 1]
+            steps.append({'words': [w['word'], w2['word']], 'start': w['start'], 'end': w2['end']})
+            i += 2
         else:
-            # Podziel na chunki
-            n_chunks = (len(words) + WORDS_PER_CHUNK - 1) // WORDS_PER_CHUNK  # ceiling division
-            total_dur = max(0.1, rel_end - rel_start)
-            chunk_duration = total_dur / n_chunks
-            for j in range(n_chunks):
-                chunk_words = words[j * WORDS_PER_CHUNK : (j + 1) * WORDS_PER_CHUNK]
-                chunk_start = rel_start + j * chunk_duration
-                chunk_end = rel_start + (j + 1) * chunk_duration
-                # Clamp: ostatni chunk kończy się na rel_end
-                chunk_end = min(chunk_end, rel_end)
-                # Minimum czas trwania
-                if chunk_end - chunk_start < 0.3:
-                    chunk_end = chunk_start + 0.3
-                all_chunks.append({
-                    'text': ' '.join(chunk_words),
-                    'rel_start': chunk_start,
-                    'rel_end': chunk_end
-                })
+            steps.append({'words': [w['word']], 'start': w['start'], 'end': w['end']})
+            i += 1
+
+    # FAZA 3C: Grupuj steps w screens po WORDS_PER_SCREEN słów
+    all_chunks = []
+    screen_steps = []
+    screen_word_count = 0
+
+    for step in steps:
+        screen_steps.append(step)
+        screen_word_count += len(step['words'])
+        if screen_word_count >= WORDS_PER_SCREEN:
+            # Flush screen — generuj narastające wpisy SRT
+            _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
+            screen_steps = []
+            screen_word_count = 0
+
+    # Ostatni niepełny screen
+    if screen_steps:
+        _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
 
     # FAZA 4: Generuj linie SRT z chunków
     lines = []
