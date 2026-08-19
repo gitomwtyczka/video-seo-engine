@@ -220,10 +220,17 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     """
     import subprocess, shutil, tempfile, os
 
-    # Spróbuj dopasowania lokalnego pliku
+    # Sprobuj dopasowania lokalnego pliku
     try:
-        from library_matcher import find_local_match
-        local_match = find_local_match(youtube_url)
+        from library_matcher import find_local_by_yt_id, find_local_match
+
+        # Priorytet 1: szukaj po YouTube ID w nazwie pliku (szybkie, zero sieci)
+        local_match = find_local_by_yt_id(youtube_url)
+
+        # Priorytet 2: fingerprint audio (wymaga pobrania probki z YouTube)
+        if not local_match:
+            local_match = find_local_match(youtube_url)
+
         if local_match:
             log.info("[cut] Using local file: %s", local_match)
             config_copy = CutConfig(
