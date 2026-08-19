@@ -1,12 +1,10 @@
 {
-  "callsign": "vse-dev-01",
+  "callsign": "vse-worker",
   "status": "done",
-  "current_task": "fix(short-machine): find local file by YT ID before fingerprint match",
-  "timestamp": "2026-08-19T14:43:20+02:00",
+  "current_task": "feat(short-machine): organize shorts into video+date subfolders",
+  "timestamp": "2026-08-19T15:13:40+02:00",
   "last_completed": [
-    "library_matcher.py — commit b3a773d86d6efbf31981dd2528f1f1774e670761 (2026-08-19)",
-    "video_cutter.py — commit 948eb86a692795e01016f2e826b63395e572cfa2 (2026-08-19)",
-    "report dual-write (video-seo-engine + sonic-void inbox)"
+    "runner.py — commit b481c74d3491f06f584ae054071bdc8ae6ad8f20 (2026-08-19)"
   ],
   "pending": []
 }
