@@ -1,13 +1,12 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
+  "status": "done",
   "current_task": "fix(short-machine): find local file by YT ID before fingerprint match",
-  "timestamp": "2026-08-19T14:42:00+02:00",
+  "timestamp": "2026-08-19T14:43:20+02:00",
   "last_completed": [
-    "Diagnoza błędu ShortMachine render fragment download"
+    "library_matcher.py — commit b3a773d86d6efbf31981dd2528f1f1774e670761 (2026-08-19)",
+    "video_cutter.py — commit 948eb86a692795e01016f2e826b63395e572cfa2 (2026-08-19)",
+    "report dual-write (video-seo-engine + sonic-void inbox)"
   ],
-  "pending": [
-    "Edycja library_matcher.py i video_cutter.py",
-    "Push do GitHub i weryfikacja"
-  ]
+  "pending": []
 }
