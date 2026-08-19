@@ -1,14 +1,14 @@
 {
-  "callsign": "vse-strateg-01",
+  "callsign": "vse-analyst-01",
   "status": "working",
-  "current_task": "Diagnoza błędu ShortMachine — Failed to download YouTube fragment przy renderowaniu",
-  "timestamp": "2026-08-19T14:32:00+02:00",
+  "current_task": "Research i zbieranie surowych danych: diagnoza błędu ShortMachine render fragment download",
+  "timestamp": "2026-08-19T14:33:00+02:00",
   "last_completed": [
     "Diagnoza błędu invalid_grant na tokenie YT"
   ],
   "pending": [
-    "Analityk: zbadanie root cause ShortMachine render fail",
-    "Backup VPS przed działaniem",
-    "Dispatch do vse-dev — naprawa ShortMachine"
+    "Analiza struktury ShortMachine i kodu pobierania/renderowania",
+    "Analiza logów i diagnostyka yt-dlp",
+    "Raport zebranych danych do rodzica"
   ]
 }
