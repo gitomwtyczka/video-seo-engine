@@ -4398,6 +4398,7 @@ export default function DashboardInner() {
   const [smCountEmotional, setSmCountEmotional] = useState(2);
   const [smCountProfessional, setSmCountProfessional] = useState(2);
   const [smCountCustom, setSmCountCustom] = useState(3);
+  const [shortLocalPath, setShortLocalPath] = useState<string>('');
   const [smCandidates, setSmCandidates] = useState<any[]>([]);
 
   // Auto-load saved candidates from DB
@@ -4790,6 +4791,7 @@ export default function DashboardInner() {
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
           output_dir: 'C:\\VSE\\Shorts',
+          ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -7157,6 +7159,30 @@ export default function DashboardInner() {
                     placeholder="np. dQw4w9WgXcQ"
                     className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                   />
+                </div>
+
+                {/* Local file path for ShortMachine */}
+                <div className="flex items-center gap-2 mt-2 mb-4">
+                  <label className="text-sm text-gray-400 whitespace-nowrap">Plik lokalny</label>
+                  <input
+                    type="text"
+                    value={shortLocalPath}
+                    onChange={e => setShortLocalPath(e.target.value)}
+                    placeholder="C:\\Users\\...\\video.mp4 (opcjonalny)"
+                    className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 placeholder-gray-500"
+                  />
+                  <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 border border-gray-500 rounded px-3 py-1 text-sm text-gray-200 flex items-center gap-1">
+                    📁 Browse
+                    <input
+                      type="file"
+                      accept="video/*,.mp4,.mov,.mkv,.avi"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) setShortLocalPath(file.name);
+                      }}
+                    />
+                  </label>
                 </div>
                 
                 <div>
