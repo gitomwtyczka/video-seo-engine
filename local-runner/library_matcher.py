@@ -415,6 +415,58 @@ def find_local_match(youtube_url: str) -> Optional[str]:
             pass
 
 
+def find_local_by_yt_id(youtube_url: str) -> Optional[str]:
+    """
+    CO: Szuka lokalnego pliku wideo po YouTube ID w nazwie pliku.
+    PO CO: Umożliwia użycie lokalnego pliku bez pobierania audio z YouTube
+           (fingerprint-based match wymaga sieci i pada dla prywatnych filmów).
+    JAK:
+        1. Wyciąga YouTube ID z URL
+        2. Skanuje LOCAL_VIDEO_LIBRARY szukając pliku z ID w nazwie
+        3. Sprawdza też library_index.db po nazwie pliku
+    """
+    yt_id = _extract_yt_id(youtube_url)
+    if not yt_id:
+        log.debug("find_local_by_yt_id: could not extract YT ID from %s", youtube_url)
+        return None
+
+    log.info("find_local_by_yt_id: searching for YT ID '%s' in filenames", yt_id)
+
+    # 1. Skanuj katalogi biblioteki
+    library_dirs_raw = os.environ.get("LOCAL_VIDEO_LIBRARY", r"C:\Users\tomas2\Videos")
+    library_dirs = [d.strip() for d in library_dirs_raw.split(";") if d.strip()]
+
+    for lib_dir in library_dirs:
+        if not os.path.isdir(lib_dir):
+            continue
+        for root, dirs, files in os.walk(lib_dir):
+            for fname in files:
+                ext = Path(fname).suffix.lower()
+                if ext not in VIDEO_EXTENSIONS:
+                    continue
+                if yt_id in fname:
+                    filepath = os.path.join(root, fname)
+                    if os.path.exists(filepath):
+                        log.info("find_local_by_yt_id: MATCH (filename scan) %s -> %s", yt_id, filepath)
+                        return filepath
+
+    # 2. Sprawdz library_index.db po nazwie pliku
+    with _db_lock:
+        conn = _init_db(DB_PATH)
+        row = conn.execute(
+            "SELECT filepath FROM library_index WHERE filename LIKE ?",
+            (f"%{yt_id}%",)
+        ).fetchone()
+        conn.close()
+
+    if row and os.path.exists(row[0]):
+        log.info("find_local_by_yt_id: MATCH (db scan) %s -> %s", yt_id, row[0])
+        return row[0]
+
+    log.debug("find_local_by_yt_id: no local match for YT ID '%s'", yt_id)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Background Indexer Thread
 # ---------------------------------------------------------------------------
