@@ -45,6 +45,7 @@ Aktualna strategia (primary → fallback):
 COOKIES_FILE odnawiany przez Task Scheduler (export_cookies.bat) jako zalogowany user.
 Plik w C:\\ProgramData\\VSELocalRunner\\yt_cookies.txt (dostepny dla LocalSystem).
 """
+import datetime
 import glob
 import logging
 import os
@@ -756,6 +757,48 @@ def _process_short_job(job: dict) -> None:
     render_config = job.get("render_config", {})
     
     source = "youtube" if job.get("youtube_url") else "local"
+
+    # --- Wyznacz podkatalog shorta: {nazwa_wideo}_{data} ---
+    _video_name = ""
+
+    # 1. Z local_path (jeśli plik istnieje)
+    _lp = job.get("local_path", "")
+    if _lp and os.path.exists(_lp):
+        _video_name = Path(_lp).stem
+
+    # 2. Z local_overrides.json (po YouTube ID)
+    if not _video_name:
+        try:
+            import json as _json
+            _ov_file = r"C:\ProgramData\VSELocalRunner\local_overrides.json"
+            if os.path.exists(_ov_file):
+                _ovs = _json.loads(open(_ov_file, encoding='utf-8').read())
+                _yt_raw = job.get("youtube_url", "") or job.get("youtube_id", "")
+                _yt_m = re.search(r'(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})', _yt_raw) \
+                        or re.match(r'^([A-Za-z0-9_-]{11})$', _yt_raw)
+                if _yt_m and _yt_m.group(1) in _ovs:
+                    _video_name = Path(_ovs[_yt_m.group(1)]).stem
+        except Exception:
+            pass
+
+    # 3. Z candidate_data (title wideo)
+    if not _video_name:
+        _cd = job.get("candidate_data") or {}
+        _video_name = _cd.get("video_title") or _cd.get("title") or ""
+
+    # 4. Fallback: YouTube ID
+    if not _video_name:
+        _yt_raw2 = job.get("youtube_url", "") or job.get("youtube_id", "")
+        _yt_m2 = re.search(r'(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})', _yt_raw2) \
+                 or re.match(r'^([A-Za-z0-9_-]{11})$', _yt_raw2)
+        _video_name = _yt_m2.group(1) if _yt_m2 else "short"
+
+    # Sanitize i zbuduj ścieżkę
+    _video_slug = re.sub(r'[<>:"/\\|?*]', '_', _video_name).strip()[:60]
+    _date_str = datetime.date.today().strftime("%Y-%m-%d")
+    _base_out = job.get("output_dir") or render_config.get("output_dir", r"C:\VSE\Shorts")
+    _output_dir = os.path.join(_base_out, f"{_video_slug}_{_date_str}")
+    # --- koniec wyznaczania podkatalogu ---
     
     config = CutConfig(
         source=source,
@@ -763,7 +806,7 @@ def _process_short_job(job: dict) -> None:
         end_sec=float(job["end_sec"]),
         yt_url=job.get("youtube_url", ""),
         local_path=job.get("local_path", ""),
-        output_dir=render_config.get("output_dir", r"C:\VSE\Shorts"),
+        output_dir=_output_dir,
         render_format=render_config.get("format", "9:16"),
         subtitles=render_config.get("subtitles", "none"),
         candidate_data=job.get("candidate_data"),
