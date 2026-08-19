@@ -131,8 +131,20 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         ms = int(round((sec % 1) * 1000))
         return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
+    # Deduplikacja sliding window YouTube auto-captions
+    def _remove_text_overlap(prev_text: str, curr_text: str) -> str:
+        """Usuwa prefix curr_text który pokrywa się z końcem prev_text (YouTube sliding window)."""
+        prev_words = prev_text.split()
+        curr_words = curr_text.split()
+        max_check = min(len(prev_words), len(curr_words), 20)  # max 20 słów overlap
+        for n in range(max_check, 2, -1):  # min 3 słowa overlap żeby nie być agresywnym
+            if prev_words[-n:] == curr_words[:n]:
+                return " ".join(curr_words[n:]).strip()
+        return curr_text
+
     lines = []
     idx = 1
+    prev_seg_text = ""
     clip_duration = clip_end_sec - clip_start_sec
     for seg in vtt_segments:
         # Obsługa obu formatów: 'ts' (core/shorts.py) i 'start' (ogólny VTT)
@@ -151,6 +163,12 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         text = seg.get('text', '').strip()
         if not text:
             continue
+        # Usuń overlap z poprzednim segmentem (YouTube sliding window)
+        if idx > 1 and prev_seg_text:
+            text = _remove_text_overlap(prev_seg_text, text)
+        if not text:
+            continue
+        prev_seg_text = text
         lines.append(str(idx))
         lines.append(f"{to_srt_ts(rel_start)} --> {to_srt_ts(rel_end)}")
         lines.append(text)
