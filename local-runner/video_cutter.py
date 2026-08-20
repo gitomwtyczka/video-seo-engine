@@ -11,6 +11,7 @@ JAK: yt-dlp --download-sections dla YT | ffmpeg -ss -to dla plików lokalnych.
 
 Dependencies: yt-dlp (binary on PATH), ffmpeg (binary on PATH)
 """
+import dataclasses
 import logging
 import json
 import re
@@ -33,7 +34,7 @@ def _load_local_overrides() -> dict:
     PO CO: Pozwala renderować wideo prywatne lub gdy automatyczne dopasowanie
            (fingerprint) nie działa — np. plik nie ma ID YouTube w nazwie.
     JAK: Czyta JSON z OVERRIDES_PATH.
-         Format: {"YOUTUBE_ID": "C:\\ścieżka\\do\\pliku.mp4"}
+         Format: {"YOUTUBE_ID": "C:\\\u015bcieżka\\do\\pliku.mp4"}
          Plik edytowalny przez użytkownika ręcznie lub przez UI.
     """
     if not os.path.exists(OVERRIDES_PATH):
@@ -503,6 +504,16 @@ def cut_video(config: CutConfig) -> dict[str, str]:
             if not ok:
                 raise RuntimeError(f"Failed to download YouTube fragment: {config.yt_url}")
         elif config.source == "local":
+            # Spróbuj zlokalizować plik po samej nazwie jeśli pełna ścieżka nie istnieje
+            if config.local_path and not os.path.exists(config.local_path):
+                from library_matcher import find_local_by_basename
+                resolved = find_local_by_basename(config.local_path)
+                if resolved:
+                    log.info("Resolved local_path by basename: %s -> %s", config.local_path, resolved)
+                    config = dataclasses.replace(config, local_path=resolved)
+                else:
+                    raise FileNotFoundError(f"Local video not found: {config.local_path!r}. "
+                                             f"Provide full path or add to local_overrides.json")
             _cut_local_segment(config, temp_path)
         else:
             raise ValueError(f"Unknown source: {config.source!r}")
@@ -534,7 +545,7 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
       2. find_local_match — audio fingerprint (wymaga YT audio sample)
       3. yt-dlp --download-sections (najszybszy, natywny)
       4. yt-dlp -g + ffmpeg ze streamu
-      5. pełne pobranie + ffmpeg cut (ostatni fallback)
+      5. pełne pobieranie + ffmpeg cut (ostatni fallback)
     """
     import subprocess, shutil, tempfile, os
 
@@ -641,7 +652,7 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     except Exception as e:
         log.warning("download_fragment: method=stream+ffmpeg error: %s", e)
 
-    # --- METODA 3: fallback pełne pobranie + cut ---
+    # --- METODA 3: fallback pełne pobieranie + cut ---
     try:
         log.warning("download_fragment: falling back to full download")
         tmp_dir = tempfile.mkdtemp()
