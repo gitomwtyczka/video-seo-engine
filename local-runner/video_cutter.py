@@ -116,7 +116,7 @@ class CutConfig:
     cookies_path: str = r"C:\ProgramData\VSELocalRunner\yt_cookies.txt"
 
 
-def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float, single_line: bool = False) -> str:
+def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
     """
     CO: Generuje plik SRT z dynamicznymi napisami karaoke (słowa narastają na ekranie).
     PO CO: Efekt karaoke (YouTube Shorts / TikTok) — słowa pojawiają się po kolei,
@@ -142,7 +142,7 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         import re
 
         # 1. Usuń fillery: słowa składające się tylko z liter y/e (np. y, yy, yyy, yyyy, ee, eee)
-        text = re.sub(r'(?<![\w])[yeYE]+(?![\w])', '', text)
+        text = re.sub(r'(?<!\w)[yeYE]+(?!\w)', '', text)
 
         # 2. Usuń powtórzenia kolejnych identycznych słów (tak tak → tak, no no → no)
         # Obsługuje 2+ powtórzeń, case-insensitive
@@ -167,7 +167,7 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
                 return " ".join(curr_words[n:]).strip()
         return curr_text
 
-    def _flush_screen(steps: list, all_chunks: list, words_per_line: int, gap: float, single_line: bool = False) -> None:
+    def _flush_screen(steps: list, all_chunks: list, words_per_line: int, gap: float) -> None:
         """
         Generuje narastające wpisy SRT dla jednego ekranu.
         Każdy step dodaje słowa do wyświetlanego tekstu.
@@ -178,15 +178,12 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         for j, step in enumerate(steps):
             accumulated_words.extend(step['words'])
 
-            # Formatuj tekst: podział na linie
-            if single_line:
-                text = ' '.join(accumulated_words)  # całość w jednej linii
-            else:
-                line1 = ' '.join(accumulated_words[:words_per_line])
-                line2_words = accumulated_words[words_per_line:]
-                text = line1
-                if line2_words:
-                    text = line1 + '\n' + ' '.join(line2_words)
+            # Formatuj tekst: podział na linie (linia1 + \n + linia2)
+            line1 = ' '.join(accumulated_words[:words_per_line])
+            line2_words = accumulated_words[words_per_line:]
+            text = line1
+            if line2_words:
+                text = line1 + '\n' + ' '.join(line2_words)
 
             # Timing: od startu tego step do startu następnego
             start = step['start']
@@ -321,13 +318,13 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         screen_word_count += len(step['words'])
         if screen_word_count >= WORDS_PER_SCREEN:
             # Flush screen — generuj narastające wpisy SRT
-            _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP, single_line)
+            _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
             screen_steps = []
             screen_word_count = 0
 
     # Ostatni niepełny screen
     if screen_steps:
-        _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP, single_line)
+        _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
 
     # FAZA 4: Generuj linie SRT z chunków
     lines = []
@@ -336,6 +333,109 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         lines.append(str(idx))
         lines.append(f"{to_srt_ts(chunk['rel_start'])} --> {to_srt_ts(chunk['rel_end'])}")
         lines.append(chunk['text'])
+        lines.append('')
+        idx += 1
+
+    return '\n'.join(lines)
+
+
+def _generate_submachine_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
+    """
+    CO: Generuje single-line SRT dla SubMachine — jeden wpis na segment VTT, jedna linia tekstu.
+    PO CO: SubMachine wymaga single-line SRT (brak \\n w tekście wpisu). Ma własny silnik animacji.
+    JAK: Filtruje segmenty w oknie klipu, deduplikuje tekst (sliding window YouTube),
+         czyści z fillerów, każdy czysty segment = 1 wpis SRT z 1 linią tekstu.
+    """
+    import re
+
+    def to_srt_ts(sec: float) -> str:
+        sec = max(0.0, sec)
+        h = int(sec // 3600)
+        m = int((sec % 3600) // 60)
+        s = int(sec % 60)
+        ms = int(round((sec % 1) * 1000))
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    def _clean_speech_text(text: str) -> str:
+        text = re.sub(r'(?<!\w)[yeYE]+(?!\w)', '', text)
+        text = re.sub(r'\b(\w+)(\s+\1)+\b', r'\1', text, flags=re.IGNORECASE)
+        text = re.sub(r' +', ' ', text).strip()
+        text = re.sub(r'^[\s,\.]+', '', text).strip()
+        return text
+
+    def _remove_text_overlap(prev_text: str, curr_text: str) -> str:
+        prev_words = prev_text.split()
+        curr_words = curr_text.split()
+        max_check = min(len(prev_words), len(curr_words), 20)
+        for n in range(max_check, 2, -1):
+            if prev_words[-n:] == curr_words[:n]:
+                return " ".join(curr_words[n:]).strip()
+        return curr_text
+
+    clip_duration = clip_end_sec - clip_start_sec
+    if clip_duration <= 0 or not vtt_segments:
+        return ""
+
+    # FAZA 1: Zbierz segmenty w oknie klipu
+    raw_segments = []
+    for seg in vtt_segments:
+        seg_start = seg.get('start') if seg.get('start') is not None else seg.get('ts', 0.0)
+        seg_end = seg.get('end') if seg.get('end') is not None else (seg_start + 3.0)
+        rel_start = seg_start - clip_start_sec
+        rel_end = seg_end - clip_start_sec
+        if rel_end <= 0:
+            continue
+        if rel_start >= clip_duration:
+            break
+        rel_start = max(0.0, rel_start)
+        rel_end = min(rel_end, clip_duration)
+        text = seg.get('text', '').strip()
+        if not text:
+            continue
+        raw_segments.append({'rel_start': rel_start, 'rel_end': rel_end, 'text': text})
+
+    if not raw_segments:
+        return ""
+
+    # FAZA 2: Fix overlapow + deduplikacja tekstu + speech cleanup
+    clean_segments = []
+    prev_text = ""
+    for i, seg in enumerate(raw_segments):
+        rel_start = seg['rel_start']
+        rel_end = seg['rel_end']
+        # Fix timing overlap z kolejnym segmentem
+        if i + 1 < len(raw_segments):
+            next_start = raw_segments[i + 1]['rel_start']
+            if next_start > rel_start:
+                rel_end = min(rel_end, next_start)
+        text = seg['text']
+        # Deduplikacja sliding window (YouTube auto-captions)
+        if prev_text:
+            text = _remove_text_overlap(prev_text, text)
+        if not text:
+            continue
+        prev_text = text
+        # Speech cleanup (fillery, powtorzenia)
+        text = _clean_speech_text(text)
+        if not text:
+            continue
+        # Gwarancja minimalnej dlugosci
+        rel_end = max(rel_start + 0.1, rel_end)
+        clean_segments.append({'rel_start': rel_start, 'rel_end': rel_end, 'text': text})
+
+    if not clean_segments:
+        return ""
+
+    # FAZA 3: Jeden wpis SRT na segment, jeden linia tekstu (bez \n)
+    lines = []
+    idx = 1
+    for seg in clean_segments:
+        text_single_line = seg['text'].replace('\n', ' ').strip()
+        if not text_single_line:
+            continue
+        lines.append(str(idx))
+        lines.append(f"{to_srt_ts(seg['rel_start'])} --> {to_srt_ts(seg['rel_end'])}")
+        lines.append(text_single_line)
         lines.append('')
         idx += 1
 
@@ -378,7 +478,7 @@ def cut_video(config: CutConfig) -> dict[str, str]:
                 log.info('[cut] SRT saved: %s (%d segments)', srt_path, len(vtt_segs))
 
                 # Generuj single-line SRT dla SubMachine
-                srt_sm_content = _generate_srt(vtt_segs, config.start_sec, config.end_sec, single_line=True)
+                srt_sm_content = _generate_submachine_srt(vtt_segs, config.start_sec, config.end_sec)
                 srt_sm_path = str(srt_path).replace('.srt', '_submachine.srt')
                 try:
                     with open(srt_sm_path, 'w', encoding='utf-8') as _f:
