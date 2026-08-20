@@ -53,14 +53,7 @@ def _check_binary(name: str) -> bool:
 
 
 def check_dependencies() -> dict[str, bool]:
-    """Sprawdza dostępność wymaganych binarów.
-
-    CO: Weryfikuje yt-dlp i ffmpeg przy starcie workera.
-    PO CO: Wczesne wykrycie braku narzędzi przed próbą renderowania.
-
-    Returns:
-        Dict {narzędzie: czy_dostępne}
-    """
+    """Sprawdza dostępność wymaganych binarów."""
     deps = {
         "yt-dlp": _check_binary("yt-dlp"),
         "ffmpeg": _check_binary("ffmpeg"),
@@ -113,6 +106,7 @@ class CutConfig:
     local_path: str = ""               # pełna ścieżka na dysku Windows
     render_format: str = "9:16"        # '9:16' | '16:9'
     subtitles: str = "none"           # 'none' | 'srt'
+    output_mode: str = "raw"          # 'raw' = szybki cut bez re-encode | 'short' = 9:16 social
     candidate_data: Optional[dict] = None   # dane kandydata z AI (hook_text, etc.)
     cookies_path: str = r"C:\ProgramData\VSELocalRunner\yt_cookies.txt"
 
@@ -123,12 +117,6 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
     PO CO: Efekt karaoke (YouTube Shorts / TikTok) — słowa pojawiają się po kolei,
            max 3 słowa na linię, max 2 linie na ekran (6 słów), potem czyszczenie ekranu.
     JAK: Obsługuje format 'ts' (core/shorts.py) i 'start'/'end' (ogólny VTT).
-         1. Filtruje segmenty w oknie klipu i przelicza na czas względny.
-         2. Usuwa overlapy czasowe między segmentami i deduplikuje tekst sliding window.
-         3. Spłaszcza segmenty do listy słów z timingiem (proporcjonalny podział).
-         4. Grupuje krótkie słowa (< 0.35s) w kroki (steps).
-         5. Grupuje kroki w ekrany (screens, max 6 słów) i buduje narastające wpisy SRT.
-         6. Formatuje do standardu SRT.
     """
     def to_srt_ts(sec: float) -> str:
         sec = max(0.0, sec)
@@ -141,68 +129,45 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
     def _clean_speech_text(text: str) -> str:
         """Czyści tekst mowy z fillerów i powtórzeń (YouTube auto-captions)."""
         import re
-
-        # 1. Usuń fillery: słowa składające się tylko z liter y/e (np. y, yy, yyy, yyyy, ee, eee)
         text = re.sub(r'(?<!\w)[yeYE]+(?!\w)', '', text)
-
-        # 2. Usuń powtórzenia kolejnych identycznych słów (tak tak → tak, no no → no)
-        # Obsługuje 2+ powtórzeń, case-insensitive
         text = re.sub(r'\b(\w+)(\s+\1)+\b', r'\1', text, flags=re.IGNORECASE)
-
-        # 3. Wyczyść wielokrotne spacje (po usunięciach mogą powstać)
         text = re.sub(r' +', ' ', text).strip()
-
-        # 4. Usuń wiodące przecinki i spacje (jeśli filler był na początku: ", słowo")
         text = re.sub(r'^[\s,\.]+', '', text).strip()
-
         return text
 
-    # Deduplikacja sliding window YouTube auto-captions
     def _remove_text_overlap(prev_text: str, curr_text: str) -> str:
         """Usuwa prefix curr_text który pokrywa się z końcem prev_text (YouTube sliding window)."""
         prev_words = prev_text.split()
         curr_words = curr_text.split()
-        max_check = min(len(prev_words), len(curr_words), 20)  # max 20 słów overlap
-        for n in range(max_check, 2, -1):  # min 3 słowa overlap żeby nie być agresywnym
+        max_check = min(len(prev_words), len(curr_words), 20)
+        for n in range(max_check, 2, -1):
             if prev_words[-n:] == curr_words[:n]:
                 return " ".join(curr_words[n:]).strip()
         return curr_text
 
     def _flush_screen(steps: list, all_chunks: list, words_per_line: int, gap: float) -> None:
-        """
-        Generuje narastające wpisy SRT dla jednego ekranu.
-        Każdy step dodaje słowa do wyświetlanego tekstu.
-        """
         if not steps:
             return
         accumulated_words = []
         for j, step in enumerate(steps):
             accumulated_words.extend(step['words'])
-
-            # Formatuj tekst: podział na linie (linia1 + \n + linia2)
             line1 = ' '.join(accumulated_words[:words_per_line])
             line2_words = accumulated_words[words_per_line:]
             text = line1
             if line2_words:
                 text = line1 + '\n' + ' '.join(line2_words)
-
-            # Timing: od startu tego step do startu następnego
             start = step['start']
             if j + 1 < len(steps):
-                end = steps[j + 1]['start']  # zero gap — płynne przejście między słowami
+                end = steps[j + 1]['start']
             else:
                 end = step['end']
-
             if end - start < 0.1:
-                end = start + 0.15  # minimum widoczności
-
+                end = start + 0.15
             all_chunks.append({
                 'text': text,
                 'rel_start': start,
                 'rel_end': end
             })
-
-        # Przerwa SCREEN_GAP po ostatnim wpisie — obsluży się przez gap między screenami
         if all_chunks:
             all_chunks[-1]['rel_end'] = steps[-1]['end'] - gap
 
@@ -210,29 +175,21 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
     if clip_duration <= 0 or not vtt_segments:
         return ""
 
-    # FAZA 1: Zbierz segmenty w oknie klipu (filtrowanie)
     raw_segments = []
     for seg in vtt_segments:
-        # Obsługa obu formatów: 'ts' (core/shorts.py) i 'start' (ogólny VTT)
         seg_start = seg.get('start') if seg.get('start') is not None else seg.get('ts', 0.0)
         seg_end = seg.get('end') if seg.get('end') is not None else (seg_start + 3.0)
-
-        # Przesuń względem startu klipu
         rel_start = seg_start - clip_start_sec
         rel_end = seg_end - clip_start_sec
-
-        # Pomiń segmenty spoza zakresu klipu
         if rel_end <= 0:
             continue
         if rel_start >= clip_duration:
             break
-
         rel_start = max(0.0, rel_start)
         rel_end = min(rel_end, clip_duration)
         text = seg.get('text', '').strip()
         if not text:
             continue
-
         raw_segments.append({
             'rel_start': rel_start,
             'rel_end': rel_end,
@@ -242,46 +199,37 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
     if not raw_segments:
         return ""
 
-    # FAZA 2: Fix overlapów + deduplikacja tekstu
     clean_segments = []
     prev_seg_text = ""
     for i, seg in enumerate(raw_segments):
         rel_start = seg['rel_start']
         rel_end = seg['rel_end']
-
-        # End nie może przekraczać startu następnego segmentu (eliminacja overlapów)
         if i + 1 < len(raw_segments):
             next_rel_start = raw_segments[i + 1]['rel_start']
             if next_rel_start > rel_start:
                 rel_end = min(rel_end, next_rel_start)
             else:
                 rel_end = max(rel_start + 0.1, rel_end)
-
         text = seg['text']
-        # Usuń overlap z poprzednim segmentem (YouTube sliding window)
         if prev_seg_text:
             text = _remove_text_overlap(prev_seg_text, text)
         if not text:
             continue
         prev_seg_text = text
-
         clean_segments.append({
             'rel_start': rel_start,
             'rel_end': max(rel_start + 0.1, rel_end),
             'text': text
         })
 
-    # PARAMETRY
-    WORDS_PER_LINE = 3      # słowa per linia
-    LINES_PER_SCREEN = 2    # linie per screen (potem clear)
-    WORDS_PER_SCREEN = 6    # = WORDS_PER_LINE * LINES_PER_SCREEN
-    MIN_WORD_DURATION = 0.35  # jeśli słowo krótsze — połącz z następnym w jeden step
-    SCREEN_GAP = 0.05       # przerwa między screenami (s)
+    WORDS_PER_LINE = 3
+    LINES_PER_SCREEN = 2
+    WORDS_PER_SCREEN = 6
+    MIN_WORD_DURATION = 0.35
+    SCREEN_GAP = 0.05
 
-    # FAZA 3A: Spłaszcz segmenty do listy słów z timing
-    word_timing = []  # lista {'word': str, 'start': float, 'end': float}
+    word_timing = []
     for seg in clean_segments:
-        # NOWE: Oczyść tekst z fillerów i powtórzeń
         cleaned_text = _clean_speech_text(seg['text'])
         words = cleaned_text.split()
         if not words:
@@ -295,13 +243,11 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
                 'end': seg['rel_start'] + (i + 1) * word_dur
             })
 
-    # FAZA 3B: Grupuj słowa w steps (1 lub 2 słowa gdy szybko)
-    steps = []  # lista {'words': [str], 'start': float, 'end': float}
+    steps = []
     i = 0
     while i < len(word_timing):
         w = word_timing[i]
         if w['end'] - w['start'] < MIN_WORD_DURATION and i + 1 < len(word_timing):
-            # Połącz z następnym
             w2 = word_timing[i + 1]
             steps.append({'words': [w['word'], w2['word']], 'start': w['start'], 'end': w2['end']})
             i += 2
@@ -309,7 +255,6 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
             steps.append({'words': [w['word']], 'start': w['start'], 'end': w['end']})
             i += 1
 
-    # FAZA 3C: Grupuj steps w screens po WORDS_PER_SCREEN słów
     all_chunks = []
     screen_steps = []
     screen_word_count = 0
@@ -318,16 +263,13 @@ def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float
         screen_steps.append(step)
         screen_word_count += len(step['words'])
         if screen_word_count >= WORDS_PER_SCREEN:
-            # Flush screen — generuj narastające wpisy SRT
             _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
             screen_steps = []
             screen_word_count = 0
 
-    # Ostatni niepełny screen
     if screen_steps:
         _flush_screen(screen_steps, all_chunks, WORDS_PER_LINE, SCREEN_GAP)
 
-    # FAZA 4: Generuj linie SRT z chunków
     lines = []
     idx = 1
     for chunk in all_chunks:
@@ -377,7 +319,6 @@ def _generate_submachine_srt(vtt_segments: list, clip_start_sec: float, clip_end
     if clip_duration <= 0 or not vtt_segments:
         return ""
 
-    # FAZA 1: Zbierz segmenty w oknie klipu
     raw_segments = []
     for seg in vtt_segments:
         seg_start = seg.get('start') if seg.get('start') is not None else seg.get('ts', 0.0)
@@ -398,36 +339,30 @@ def _generate_submachine_srt(vtt_segments: list, clip_start_sec: float, clip_end
     if not raw_segments:
         return ""
 
-    # FAZA 2: Fix overlapow + deduplikacja tekstu + speech cleanup
     clean_segments = []
     prev_text = ""
     for i, seg in enumerate(raw_segments):
         rel_start = seg['rel_start']
         rel_end = seg['rel_end']
-        # Fix timing overlap z kolejnym segmentem
         if i + 1 < len(raw_segments):
             next_start = raw_segments[i + 1]['rel_start']
             if next_start > rel_start:
                 rel_end = min(rel_end, next_start)
         text = seg['text']
-        # Deduplikacja sliding window (YouTube auto-captions)
         if prev_text:
             text = _remove_text_overlap(prev_text, text)
         if not text:
             continue
         prev_text = text
-        # Speech cleanup (fillery, powtorzenia)
         text = _clean_speech_text(text)
         if not text:
             continue
-        # Gwarancja minimalnej dlugosci
         rel_end = max(rel_start + 0.1, rel_end)
         clean_segments.append({'rel_start': rel_start, 'rel_end': rel_end, 'text': text})
 
     if not clean_segments:
         return ""
 
-    # FAZA 3: Jeden wpis SRT na segment, jeden linia tekstu (bez \n)
     lines = []
     idx = 1
     for seg in clean_segments:
@@ -447,20 +382,19 @@ def cut_video(config: CutConfig) -> dict[str, str]:
     """Wycina i eksportuje wideo. Zwraca ścieżki wyeksportowanych plików.
 
     CO: Główna funkcja renderowania shorta.
-    PO CO: Produkuje dwa pliki: surowy (dla edytora) i social (gotowy do publikacji).
+    PO CO: Produkuje pliki: surowy (dla edytora) i opcjonalnie social (gotowy do publikacji).
           Opcjonalnie plik .srt z napisami (do importu w edytorze lub uploadu).
     JAK:
         1. Pobierz/otwórz źródło -> temp_raw.mp4
         2. Generuj .srt jeśli subtitles='srt'
         3. Eksport surowy: -c copy (zero re-encode, dla Premiere/FinalCut)
-        4. Eksport social: libx264 veryfast + scale/crop do 9:16 lub 16:9
+        4. Eksport social (tylko output_mode='short'): libx264 veryfast + scale/crop do 9:16 lub 16:9
 
     Returns:
-        Dict z kluczami: 'raw', 'social', opcjonalnie 'srt'
+        Dict z kluczami: 'raw', opcjonalnie 'social', opcjonalnie 'srt'
     """
     os.makedirs(config.output_dir, exist_ok=True)
 
-    # Auto-nazwa z hooka (czytelna) lub timestamp jako fallback
     if not config.output_name:
         config.output_name = _make_slug(config.candidate_data, config.start_sec, config.end_sec)
 
@@ -478,7 +412,6 @@ def cut_video(config: CutConfig) -> dict[str, str]:
                 result['srt'] = srt_path
                 log.info('[cut] SRT saved: %s (%d segments)', srt_path, len(vtt_segs))
 
-                # Generuj single-line SRT dla SubMachine
                 srt_sm_content = _generate_submachine_srt(vtt_segs, config.start_sec, config.end_sec)
                 srt_sm_path = str(srt_path).replace('.srt', '_submachine.srt')
                 try:
@@ -504,7 +437,6 @@ def cut_video(config: CutConfig) -> dict[str, str]:
             if not ok:
                 raise RuntimeError(f"Failed to download YouTube fragment: {config.yt_url}")
         elif config.source == "local":
-            # Spróbuj zlokalizować plik po samej nazwie jeśli pełna ścieżka nie istnieje
             if config.local_path and not os.path.exists(config.local_path):
                 from library_matcher import find_local_by_basename
                 resolved = find_local_by_basename(config.local_path)
@@ -523,10 +455,13 @@ def cut_video(config: CutConfig) -> dict[str, str]:
         result["raw"] = raw_path
         log.info("[cut] raw export: %s", raw_path)
 
-        # KROK 3: Eksport social (libx264 veryfast + format wideo)
-        _export_social(temp_path, social_path, config.render_format)
-        result["social"] = social_path
-        log.info("[cut] social export: %s", social_path)
+        # KROK 3: Eksport social (libx264 veryfast + format wideo) — tylko w trybie 'short'
+        if config.output_mode != 'raw':
+            _export_social(temp_path, social_path, config.render_format)
+            result["social"] = social_path
+            log.info("[cut] social export: %s", social_path)
+        else:
+            log.info("[cut] output_mode=raw — pomijam eksport social (9:16)")
 
     finally:
         if os.path.exists(temp_path):
@@ -549,7 +484,6 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     """
     import subprocess, shutil, tempfile, os
 
-    # Priorytet 0: local_overrides.json — manualne mapowanie YT ID → plik lokalny
     try:
         _m = re.search(r'(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})', youtube_url) \
              or re.match(r'^([A-Za-z0-9_-]{11})$', youtube_url)
@@ -567,14 +501,11 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     except Exception as _e:
         log.warning("[cut] local_overrides error: %s", _e)
 
-    # Priorytet 1+2: dopasowanie lokalnego pliku przez library_matcher
     try:
         from library_matcher import find_local_by_yt_id, find_local_match
 
-        # Priorytet 1: szukaj po YouTube ID w nazwie pliku (szybkie, zero sieci)
         local_match = find_local_by_yt_id(youtube_url)
 
-        # Priorytet 2: fingerprint audio (wymaga pobrania probki z YouTube)
         if not local_match:
             local_match = find_local_match(youtube_url)
 
@@ -596,7 +527,6 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     buf_start = max(0, start_sec - 2)
     buf_end = end_sec + 2
 
-    # --- METODA 1: --download-sections ---
     try:
         cmd = [
             "yt-dlp",
@@ -614,7 +544,6 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     except Exception as e:
         log.warning("download_fragment: method=download-sections error: %s", e)
 
-    # --- METODA 2: direct stream URL via yt-dlp -g + ffmpeg ---
     try:
         cmd_url = ["yt-dlp", "-g", "--no-playlist",
                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -652,7 +581,6 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
     except Exception as e:
         log.warning("download_fragment: method=stream+ffmpeg error: %s", e)
 
-    # --- METODA 3: fallback pełne pobieranie + cut ---
     try:
         log.warning("download_fragment: falling back to full download")
         tmp_dir = tempfile.mkdtemp()
