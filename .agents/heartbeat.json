@@ -1,12 +1,1 @@
-{
-  "callsign": "vse-dev-01",
-  "status": "done",
-  "current_task": "fix source priority + basename resolution",
-  "timestamp": "2026-08-20T19:31:00+02:00",
-  "last_completed": [
-    "fix: runner.py source priority — commit 3aaf6f7409b0ca75e63d59a03e35ba5235b18429 (2026-08-20)",
-    "fix: library_matcher.py find_local_by_basename() — commit 55733a1bf63cf1f3f5282c373f8a5846ee989e48 (2026-08-20)",
-    "fix: video_cutter.py resolve local_path basename — commit 4dc4613763c33cea53b638e06d0e86aec91c59f9 (2026-08-20)"
-  ],
-  "pending": []
-}
+{"callsign": "vse-dev-02", "status": "working", "current_task": "UI fixes in dashboard-inner.tsx", "timestamp": "2026-08-20T20:44:03+02:00"}
