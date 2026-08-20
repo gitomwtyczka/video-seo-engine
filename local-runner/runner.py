@@ -161,47 +161,18 @@ _YT_ID_PATTERNS = [
 
 
 def extract_video_id(url: str) -> Optional[str]:
-    """Wyodrębnia YouTube video ID z URL lub zwraca None.
-
-    Args:
-        url: YouTube URL lub ID (11 znaków).
-
-    Returns:
-        11-znakowe video ID lub None jeśli nieparsowalne.
-    """
+    """Wyodrębnia YouTube video ID z URL lub zwraca None."""
     for pat in _YT_ID_PATTERNS:
         m = pat.search(url)
         if m:
             return m.group(1)
-    # Bezpośrednio ID (11 znaków)
     if re.match(r'^[a-zA-Z0-9_-]{11}$', url):
         return url
     return None
 
 
 def _format_segments_as_vtt(segments: list) -> str:
-    """Konwertuje segmenty do formatu VTT-like z markerami [MM:SS].
-
-    CO: Zamienia listę [{text, start}] na wieloliniowy string
-    z markerami [MM:SS] co segment.
-
-    PO CO: generator.py (parse_vtt_full) oczekuje pliku .vtt z prawdziwymi
-    timestampami. Jeśli runner wyśle plain text (bez czasów), generator
-    nie może dopasować rozdziałów do rzeczywistych momentów wideo →
-    wszystkie chaptery pokazują czas=0.
-
-    Ten format __VTT__ to "VTT-like" — pipeline.py konwertuje go do
-    prawdziwego WebVTT zanim zapisze do pliku tymczasowego dla generatora.
-
-    Format wyjściowy:
-        __VTT__\n[MM:SS] tekst\n[MM:SS] tekst...\n
-
-    Args:
-        segments: Lista dictów z polami: text (str), start (float).
-
-    Returns:
-        Wieloliniowy string z prefixem __VTT__ i markerami [MM:SS].
-    """
+    """Konwertuje segmenty do formatu VTT-like z markerami [MM:SS]."""
     lines = ["__VTT__"]
     for seg in segments:
         start = seg.get("start", 0.0)
@@ -215,25 +186,8 @@ def _format_segments_as_vtt(segments: list) -> str:
 
 
 def _parse_webvtt_to_segments(vtt_text: str) -> list:
-    """Parsuje WebVTT string (z yt-dlp) do listy segmentów [{text, start}].
-
-    CO: WebVTT z yt-dlp zawiera cue'y w formacie:
-        00:00:01.000 --> 00:00:04.000
-        tekst
-
-    Konwertujemy do [{text: str, start: float}] kompatybilnych z _format_segments_as_vtt.
-
-    Fix v3.2: zamiennik dla _parse_json3_to_segments — yt-dlp zapisuje VTT
-    niezależnie od tego czy to ręczne czy auto-generated napisy.
-
-    Args:
-        vtt_text: Zawartość pliku .vtt z yt-dlp.
-
-    Returns:
-        Lista dictów [{text: str, start: float}] w sekundach.
-    """
+    """Parsuje WebVTT string (z yt-dlp) do listy segmentów [{text, start}]."""
     segments = []
-    # Pattern: HH:MM:SS.mmm --> HH:MM:SS.mmm
     cue_pattern = re.compile(
         r'(\d{2}):(\d{2}):(\d{2})\.\d+ --> \d{2}:\d{2}:\d{2}\.\d+'
     )
@@ -245,11 +199,9 @@ def _parse_webvtt_to_segments(vtt_text: str) -> list:
         if m:
             h, mn, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
             start_sec = h * 3600 + mn * 60 + s
-            # Zbierz linie tekstu po timestampie
             text_parts = []
             i += 1
             while i < len(lines) and lines[i].strip() and not cue_pattern.match(lines[i].strip()):
-                # Pomijamy linie z <c> (color tags) i numer cue
                 clean = re.sub(r'<[^>]+>', '', lines[i]).strip()
                 if clean and not clean.isdigit():
                     text_parts.append(clean)
@@ -272,29 +224,12 @@ def _get_segments_duration(segments: list) -> float:
     return float(last.get("start", 0.0))
 
 def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
-    """Pobiera transkrypt przez yt-dlp z cookies (PRIMARY strategy v3.3).
-
-    CO: Dual-strategy cookies:
-    1. Plik cookies (COOKIES_FILE) — eksportowany przez Task Scheduler jako user.
-       Działa gdy serwis = LocalSystem (brak profilu przeglądarki).
-    2. --cookies-from-browser — fallback gdy plik nie istnieje.
-
-    PO CO: Serwis Windows (LocalSystem) nie ma dostępu do profili przeglądarek.
-    Plik cookies jest eksportowany przez oddzielny Task Scheduler task (jako user)
-    i zapisywany w miejscu dostępnym dla LocalSystem.
-
-    Args:
-        video_url: YouTube URL lub ID.
-
-    Returns:
-        String __VTT__ z timestampami lub None jeśli wszystkie metody zawiodły.
-    """
+    """Pobiera transkrypt przez yt-dlp z cookies (PRIMARY strategy v3.3)."""
     video_id = extract_video_id(video_url)
     if not video_id:
         log.error("Cannot extract video ID from: %s", video_url)
         return None
 
-    # STRATEGY 1: Plik cookies (działa dla LocalSystem)
     cookies_file = Path(COOKIES_FILE)
     if cookies_file.exists() and cookies_file.stat().st_size > 100:
         log.info("Using cookies file: %s (%d bytes)", COOKIES_FILE, cookies_file.stat().st_size)
@@ -305,7 +240,6 @@ def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
     else:
         log.info("Cookies file not found or empty: %s — trying browser cookies", COOKIES_FILE)
 
-    # STRATEGY 2: --cookies-from-browser (działa gdy runner uruchomiony jako user)
     for browser in BROWSER_PRIORITY:
         result = _try_ytdlp_with_browser(video_id, browser)
         if result is not None:
@@ -317,19 +251,7 @@ def fetch_transcript_ytdlp(video_url: str) -> Optional[str]:
 
 
 def _try_ytdlp_with_cookies_file(video_id: str, cookies_path: str) -> Optional[str]:
-    """Próbuje pobrać transkrypt przez yt-dlp z plikiem cookies (Netscape format).
-
-    CO: Używa --cookies FILE zamiast --cookies-from-browser.
-    Działa dla każdego konta serwisu (LocalSystem, NetworkService itd.)
-    bo plik jest dostępny w C:\\ProgramData.
-
-    Args:
-        video_id: YouTube video ID.
-        cookies_path: Ścieżka do pliku cookies (Netscape format).
-
-    Returns:
-        String __VTT__ lub None.
-    """
+    """Próbuje pobrać transkrypt przez yt-dlp z plikiem cookies (Netscape format)."""
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -402,19 +324,7 @@ _BROWSER_UA = {
 
 
 def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
-    """Próbuje pobrać transkrypt przez yt-dlp z konkretną przeglądarką.
-
-    Fix v3.2: używa formatu 'vtt' zamiast 'json3' (json3 był niekompatybilny
-    z yt-dlp --write-auto-sub — plik zapisywany pod inną nazwą niż oczekiwana).
-    Używa glob do znalezienia pliku VTT niezależnie od sufiksu (-auto itp).
-
-    Args:
-        video_id: YouTube video ID (11 znaków).
-        browser: Nazwa przeglądarki (firefox, chrome, edge, chromium).
-
-    Returns:
-        String __VTT__ lub None jeśli się nie powiodło.
-    """
+    """Próbuje pobrać transkrypt przez yt-dlp z konkretną przeglądarką."""
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -447,7 +357,6 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
 
                 if proc.returncode != 0:
                     stderr_short = proc.stderr[:300] if proc.stderr else ""
-                    # Specyficzne błędy wskazujące że przeglądarka niedostępna
                     if any(x in stderr_short for x in [
                         "Could not copy", "Failed to extract", "No cookies",
                         "Cookies from browser",
@@ -456,18 +365,15 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
                             "Browser %s cookies unavailable: %s",
                             browser, stderr_short[:150]
                         )
-                        return None  # Ta przeglądarka niedostępna — stop próbowania
+                        return None
                     log.debug(
                         "yt-dlp %s lang=%s exit=%d: %s",
                         browser, lang_spec, proc.returncode, stderr_short[:150]
                     )
-                    # Kontynuuj — może inny lang zadziała
 
-                # Fix v3.2: glob zamiast hardcoded path
-                # yt-dlp może zapisać jako: {id}.pl.vtt, {id}.pl-auto.vtt itp.
                 vtt_files = glob.glob(str(Path(tmpdir) / f"{video_id}*.vtt"))
                 if vtt_files:
-                    vtt_path = vtt_files[0]  # bierz pierwszy znaleziony
+                    vtt_path = vtt_files[0]
                     vtt_text = Path(vtt_path).read_text(encoding="utf-8")
                     segments = _parse_webvtt_to_segments(vtt_text)
                     if segments:
@@ -506,22 +412,7 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
 
 
 def fetch_transcript_api(video_url: str) -> Optional[str]:
-    """Pobiera transkrypt przez youtube-transcript-api (FALLBACK strategy).
-
-    CO: Bezpośrednie pobieranie transkryptu bez cookies.
-
-    PO CO: Fallback gdy yt-dlp + cookies nie zadziałały.
-    Może być blokowane przez YouTube IP ban — ale warto spróbować.
-
-    ZMIANA v2.0 (2026-06-16): Wysyłamy transkrypt Z TIMESTAMPAMI
-    (format __VTT__) zamiast plain text.
-
-    Args:
-        video_url: YouTube URL lub ID.
-
-    Returns:
-        String z prefixem __VTT__ i timestampami, lub None jeśli brak.
-    """
+    """Pobiera transkrypt przez youtube-transcript-api (FALLBACK strategy)."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
     except ImportError:
@@ -539,11 +430,7 @@ def fetch_transcript_api(video_url: str) -> Optional[str]:
 
     try:
         ytt = YouTubeTranscriptApi()
-
-        # Lista dostępnych transkryptów
         transcript_list = ytt.list(video_id)
-
-        # Próbuj w kolejności priorytetów językowych
         transcript = None
         for lang in LANG_PRIORITY:
             try:
@@ -553,7 +440,6 @@ def fetch_transcript_api(video_url: str) -> Optional[str]:
             except Exception:
                 continue
 
-        # Fallback: pierwszy dostępny
         if transcript is None:
             try:
                 transcript = next(iter(transcript_list))
@@ -561,7 +447,6 @@ def fetch_transcript_api(video_url: str) -> Optional[str]:
             except StopIteration:
                 return None
 
-        # Fetch segmentów Z TIMESTAMPAMI
         segments = transcript.fetch()
 
         seg_dicts = []
@@ -585,33 +470,13 @@ def fetch_transcript_api(video_url: str) -> Optional[str]:
 
 
 def fetch_transcript(video_url: str) -> Optional[str]:
-    """Pobiera transkrypt YouTube — próbuje wszystkie metody po kolei.
-
-    CO: Główna funkcja pobierania transkryptu z full fallback chain.
-
-    Strategia (v3.2 — 2026-06-18):
-    1. yt-dlp + firefox cookies (PRIMARY — najniezawodniejsze)
-    2. yt-dlp + chrome cookies (fallback 1)
-    3. yt-dlp + edge cookies (fallback 2)
-    4. youtube-transcript-api bez cookies (last resort)
-
-    Args:
-        video_url: YouTube URL lub ID.
-
-    Returns:
-        String __VTT__ z timestampami lub None jeśli wszystko zawodzi.
-
-    Raises:
-        ValueError: Gdy URL nieparsowalne.
-    """
+    """Pobiera transkrypt YouTube — próbuje wszystkie metody po kolei."""
     log.info("Fetching transcript for: %s", video_url)
 
-    # PRIMARY: yt-dlp + browser cookies
     result = fetch_transcript_ytdlp(video_url)
     if result:
         return result
 
-    # LAST RESORT: youtube-transcript-api bez cookies
     log.info("yt-dlp failed — trying transcript-api as last resort")
     result = fetch_transcript_api(video_url)
     if result:
@@ -634,11 +499,7 @@ def _headers() -> dict:
 
 
 def get_pending_jobs() -> list:
-    """Pobiera listę pending jobów z API.
-
-    Returns:
-        Lista dictów z job'ami lub pusta lista przy błędzie.
-    """
+    """Pobiera listę pending jobów z API."""
     try:
         r = requests.get(
             f"{API_BASE}/v1/jobs/pending",
@@ -660,16 +521,7 @@ def get_pending_jobs() -> list:
 
 
 def submit_result(job_id: str, transcript: Optional[str], error: Optional[str] = None) -> bool:
-    """Wysyła wynik transkrypcji do API.
-
-    Args:
-        job_id: UUID job'u.
-        transcript: Tekst transkryptu z __VTT__ prefix (None jeśli status=failed).
-        error: Opis błędu (None jeśli OK).
-
-    Returns:
-        True jeśli sukces, False przy błędzie.
-    """
+    """Wysyła wynik transkrypcji do API."""
     status = "fetched" if transcript else "failed"
     payload = {
         "transcript": transcript,
@@ -696,16 +548,7 @@ def submit_result(job_id: str, transcript: Optional[str], error: Optional[str] =
 # ---------------------------------------------------------------------------
 
 def process_job(job: dict) -> None:
-    """Przetwarza pojedyncze zadanie transkrypcji.
-
-    CO: Główna logika przetwarzania — pobierz i wyślij.
-
-    PO CO: Enkapsuluje obsługę jednego job'u — błędy jednego joba
-    nie przerywają pętli głównej.
-
-    Args:
-        job: Dict z polami: id, video_url, status.
-    """
+    """Przetwarza pojedyncze zadanie transkrypcji."""
     job_id = job.get("id")
     video_url = job.get("video_url", "")
 
@@ -756,18 +599,14 @@ def _process_short_job(job: dict) -> None:
     
     render_config = job.get("render_config", {})
     
-    # Jeśli user podał plik lokalny — próbuj lokalnie najpierw (nawet jeśli only basename)
     source = "local" if job.get("local_path") else ("youtube" if job.get("youtube_url") else "local")
 
-    # --- Wyznacz podkatalog shorta: {nazwa_wideo}_{data} ---
     _video_name = ""
 
-    # 1. Z local_path — użyj stem z nazwy pliku (nawet jeśli tylko basename bez pełnej ścieżki)
     _lp = job.get("local_path", "")
     if _lp:
-        _video_name = Path(_lp).stem  # np. "Klimczak Kida konstytucja" z "Klimczak Kida konstytucja.mp4"
+        _video_name = Path(_lp).stem
 
-    # 2. Z local_overrides.json (po YouTube ID)
     if not _video_name:
         try:
             import json as _json
@@ -782,24 +621,20 @@ def _process_short_job(job: dict) -> None:
         except Exception:
             pass
 
-    # 3. Z candidate_data (title wideo)
     if not _video_name:
         _cd = job.get("candidate_data") or {}
         _video_name = _cd.get("video_title") or _cd.get("title") or ""
 
-    # 4. Fallback: YouTube ID
     if not _video_name:
         _yt_raw2 = job.get("youtube_url", "") or job.get("youtube_id", "")
         _yt_m2 = re.search(r'(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})', _yt_raw2) \
                  or re.match(r'^([A-Za-z0-9_-]{11})$', _yt_raw2)
         _video_name = _yt_m2.group(1) if _yt_m2 else "short"
 
-    # Sanitize i zbuduj ścieżkę
     _video_slug = re.sub(r'[<>:"/\\|?*]', '_', _video_name).strip()[:60]
     _date_str = datetime.date.today().strftime("%Y-%m-%d")
     _base_out = job.get("output_dir") or render_config.get("output_dir", r"C:\VSE\Shorts")
     _output_dir = os.path.join(_base_out, f"{_video_slug}_{_date_str}")
-    # --- koniec wyznaczania podkatalogu ---
     
     config = CutConfig(
         source=source,
@@ -810,6 +645,7 @@ def _process_short_job(job: dict) -> None:
         output_dir=_output_dir,
         render_format=render_config.get("format", "9:16"),
         subtitles=render_config.get("subtitles", "none"),
+        output_mode=job.get("format", "raw"),
         candidate_data=job.get("candidate_data"),
     )
     
@@ -849,7 +685,7 @@ def _short_jobs_loop() -> None:
         except Exception as e:
             log.error("[shorts_loop] error: %s", e)
         
-        _stop_requested.wait(5)  # Polling co 5 sekund
+        _stop_requested.wait(5)
     
     log.info("[shorts_loop] stopped")
 
@@ -859,12 +695,7 @@ def _short_jobs_loop() -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    """Główna pętla Local Runner'a.
-
-    Działa w nieskończonej pętli (Windows Service pattern).
-    Zatrzymanie: SIGTERM lub Ctrl+C (SIGINT).
-    Restart po awarii: NSSM automatycznie restartuje po 5s.
-    """
+    """Główna pętla Local Runner'a."""
     if not TOKEN:
         log.error(
             "LOCAL_RUNNER_TOKEN not set! "
@@ -881,11 +712,9 @@ def main() -> None:
     log.info("Transcript strategy: cookies_file -> yt-dlp+browser -> transcript-api")
     log.info("=" * 60)
 
-    # Start ShortMachine worker thread
     shorts_thread = threading.Thread(target=_short_jobs_loop, name="shorts_loop", daemon=True)
     shorts_thread.start()
 
-    # Library indexer (background)
     try:
         from library_matcher import start_background_indexer, FPCALC
         FPCALC_AVAILABLE = FPCALC is not None
@@ -895,7 +724,7 @@ def main() -> None:
     default_library = r"C:\Users\tomas2\Videos"
     library_dirs_raw = os.getenv("LOCAL_VIDEO_LIBRARY", default_library)
     library_dirs = [d.strip() for d in library_dirs_raw.split(";") if d.strip()]
-    if library_dirs and FPCALC_AVAILABLE:  # sprawdz czy fpcalc jest dostępny
+    if library_dirs and FPCALC_AVAILABLE:
         start_background_indexer(library_dirs, stop_event=_stop_requested)
         log.info("Library indexer started for: %s", library_dirs)
     else:
