@@ -1,1 +1,1 @@
-{"callsign": "vse-dev-02", "status": "working", "current_task": "UI fixes in dashboard-inner.tsx", "timestamp": "2026-08-20T20:44:03+02:00"}
+{"callsign": "vse-dev-02", "status": "blocked", "current_task": "UI fixes in dashboard-inner.tsx", "timestamp": "2026-08-20T20:54:30+02:00", "pending": ["Replace file:// link with clipboard copy in dashboard-inner.tsx", "Add select-all checkbox for ShortMachine candidates list", "Deploy on VPS"]}
