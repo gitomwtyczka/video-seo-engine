@@ -4422,6 +4422,8 @@ export default function DashboardInner() {
   const [smExpandedIdx, setSmExpandedIdx] = useState<number | null>(null);
   const [smTrimMode, setSmTrimMode] = useState<'start' | 'end'>('start');
   const [smSelected, setSmSelected] = useState<Set<number>>(new Set());
+  const [smFormat, setSmFormat] = useState<'raw' | 'short'>('raw');
+
   const toggleSmSelected = (idx: number) => setSmSelected(prev => {
     const next = new Set(prev);
     if (next.has(idx)) next.delete(idx); else next.add(idx);
@@ -4788,6 +4790,7 @@ export default function DashboardInner() {
           start_sec: candidate.start_sec,
           end_sec: candidate.end_sec,
           candidate_data: candidate,
+          format: smFormat,
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
           output_dir: 'C:\\VSE\\Shorts',
@@ -7237,9 +7240,46 @@ export default function DashboardInner() {
                 </button>
               </div>
               
+              {/* Format toggle — Raw vs Short */}
+              <div className="flex items-center gap-3 py-2 px-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                <span className="text-xs text-gray-400">Format renderowania:</span>
+                {(['raw', 'short'] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    onClick={() => setSmFormat(fmt)}
+                    className={`px-3 py-1 text-xs rounded border transition-all ${
+                      smFormat === fmt
+                        ? 'bg-violet-600/20 border-violet-500/40 text-violet-400'
+                        : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {fmt === 'raw' ? '📼 Raw (szybki cut)' : '✂️ Short (9:16)'}
+                  </button>
+                ))}
+                <span className="text-xs text-gray-600 ml-auto">
+                  {smFormat === 'raw' ? 'ffmpeg -c copy, bez re-encode' : 'Przetwarzanie 9:16 + SRT'}
+                </span>
+              </div>
+
               {smCandidates.length > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-lg font-medium text-white">Kandydaci ({smCandidates.length})</h3>
+                  {/* Select-all */}
+                  <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-700">
+                    <input
+                      type="checkbox"
+                      id="selectAllCandidates"
+                      checked={smCandidates.length > 0 && smSelected.size === smCandidates.length}
+                      onChange={(e) => {
+                        if (e.target.checked) setSmSelected(new Set(smCandidates.map((_: any, idx: number) => idx)))
+                        else setSmSelected(new Set())
+                      }}
+                      style={{cursor:'pointer',accentColor:'#3b82f6'}}
+                    />
+                    <label htmlFor="selectAllCandidates" className="text-xs text-gray-400 cursor-pointer">
+                      Zaznacz wszystkie ({smCandidates.length})
+                    </label>
+                  </div>
                   {smCandidates.map((c, i) => (
                     <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
                       <div className="flex items-start justify-between">
@@ -7363,15 +7403,19 @@ export default function DashboardInner() {
                             <div className="flex flex-col gap-1">
                               <span>Gotowe: {smJobStatus[i].result_paths?.raw || 'plik zapisany'}</span>
                               {smJobStatus[i].result_paths?.raw && (
-                                <a
-                                  href={'file:///' + (smJobStatus[i].result_paths.raw.includes('\\') ? smJobStatus[i].result_paths.raw.substring(0, smJobStatus[i].result_paths.raw.lastIndexOf('\\')) : smJobStatus[i].result_paths.raw).replace(/\\/g, '/')}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-emerald-400 underline hover:text-emerald-300 text-sm flex items-center gap-1"
-                                  title={smJobStatus[i].result_paths.raw.includes('\\') ? smJobStatus[i].result_paths.raw.substring(0, smJobStatus[i].result_paths.raw.lastIndexOf('\\')) : smJobStatus[i].result_paths.raw}
+                                <button
+                                  onClick={() => {
+                                    const rawPath = smJobStatus[i].result_paths?.raw || '';
+                                    const folderPath = rawPath.includes('\\') || rawPath.includes('/')
+                                      ? rawPath.substring(0, Math.max(rawPath.lastIndexOf('\\'), rawPath.lastIndexOf('/')))
+                                      : rawPath;
+                                    navigator.clipboard.writeText(folderPath).then(() => {});
+                                  }}
+                                  className="mt-1 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded px-2 py-0.5 transition-colors self-start"
+                                  title="Kopiuj ścieżkę folderu do schowka"
                                 >
-                                  📂 Otwórz folder
-                                </a>
+                                  📋 Kopiuj ścieżkę folderu
+                                </button>
                               )}
                             </div>
                           ) : smJobStatus[i].status === 'error' ? (

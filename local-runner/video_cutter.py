@@ -111,6 +111,7 @@ class CutConfig:
     cookies_path: str = r"C:\ProgramData\VSELocalRunner\yt_cookies.txt"
 
 
+
 def _generate_srt(vtt_segments: list, clip_start_sec: float, clip_end_sec: float) -> str:
     """
     CO: Generuje plik SRT z dynamicznymi napisami karaoke (słowa narastają na ekranie).
@@ -468,6 +469,7 @@ def cut_video(config: CutConfig) -> dict[str, str]:
             os.remove(temp_path)
 
     return result
+
 
 
 def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, output_path: str) -> bool:
