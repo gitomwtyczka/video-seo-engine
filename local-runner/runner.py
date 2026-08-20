@@ -762,10 +762,10 @@ def _process_short_job(job: dict) -> None:
     # --- Wyznacz podkatalog shorta: {nazwa_wideo}_{data} ---
     _video_name = ""
 
-    # 1. Z local_path (jeśli plik istnieje)
+    # 1. Z local_path — użyj stem z nazwy pliku (nawet jeśli tylko basename bez pełnej ścieżki)
     _lp = job.get("local_path", "")
-    if _lp and os.path.exists(_lp):
-        _video_name = Path(_lp).stem
+    if _lp:
+        _video_name = Path(_lp).stem  # np. "Klimczak Kida konstytucja" z "Klimczak Kida konstytucja.mp4"
 
     # 2. Z local_overrides.json (po YouTube ID)
     if not _video_name:
