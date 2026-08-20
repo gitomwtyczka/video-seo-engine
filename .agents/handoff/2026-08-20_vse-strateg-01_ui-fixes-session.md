@@ -29,18 +29,29 @@ Sprawdzić czy worker wysłał raport — jeśli tak, zrobić git pull.
 ## Co NIE jest zrobione — PRIORYTETY
 
 ### 🔴 NOWY — Format toggle: Raw vs Short
-**Wymaganie użytkownika (2026-08-20 20:46):**
-- Aktualnie system generuje DWIE wersje naraz (raw + short)
-- Użytkownik chce: domyślnie **raw** (wycięty fragment w formacie oryginału, mp4)
-- Dopiero gdy zmieni w UI na **Short** — generuje short (9:16, napisy, SRT)
-- Innymi słowy: dropdown/radio w ShortMachine z wyborem formatu PRZED kliknięciem Renderuj
+
+**Wymaganie użytkownika (2026-08-20 20:46, doprecyzowane 20:47):**
+
+> "teraz generowane są 2 pliki od razu, chciałbym aby domyślnie był raw [...] a gdy zmienię na short wtedy short"
+> "zmiana dotyczyła jedynie wypuszczenia rawa, ale napisy idą w obydwu formatach od razu"
+
+**Semantyka:**
+- **Toggle Raw/Short** — kontroluje wyłącznie FORMAT WIDEO:
+  - `Raw` = wycięty fragment w formacie oryginału (ffmpeg cut, bez re-encodowania do 9:16)
+  - `Short` = przetworzony short (9:16, SRT, subfolder)
+- **SRT subtitles** — zawsze generowane w OBU trybach (nie zmienia się zależnie od formatu)
+- **Domyślny tryb**: Raw (użytkownik zmienia na Short świadomie)
 
 **Gdzie zmiany:**
-- `dashboard-inner.tsx` — dropdown/toggle "Format: Raw | Short" przy przycisku Renderuj
-- `runner.py` / `video_cutter.py` — obsługa `format: "raw"` (samo ffmpeg cut, bez short pipeline)
+- `dashboard-inner.tsx` — dropdown/radio "Format: Raw | Short" przy przycisku Renderuj (podmiana istniejącego dropdownu, np. zamiast "16:9 (YT)" — sprawdzić co jest)
+- `runner.py` / `video_cutter.py` — obsługa `format: "raw"` (samo ffmpeg cut, SRT zawsze)
 - API endpoint renderu — przyjmowanie parametru `format`
 
-**Uwaga:** Aktualny dropdown w UI to "16:9 (YT) | Export SRT" — sprawdzić co już istnieje.
+**UWAGA dla kolejnej sesji:** Zbadaj przez SSH co aktualnie jest w dropdownie przy Renderuj:
+```bash
+grep -n '16:9\|Export SRT\|format\|dropdown\|select.*render' \
+  /home/ubuntu/video-seo-engine/web/src/app/dashboard/dashboard-inner.tsx | head -20
+```
 
 ### 🔴 Audio fingerprinting — library_matcher.py
 **Problem:** `find_local_match()` pobiera 90s audio od POCZĄTKU → czołówka kanału, identyczna dla każdego odcinka.
@@ -51,14 +62,14 @@ Sprawdzić czy worker wysłał raport — jeśli tak, zrobić git pull.
 Fix `3aaf6f7` nie był przetestowany. Użytkownik nie potwierdził że lokalny plik działa.
 
 ### 🟡 Browse button — pełna ścieżka
-`<input type="file">` nie daje pełnej ścieżki. `find_local_by_basename()` (commit `55733a1`) jest obejściem. Priorytet niski.
+Priorytet niski. `find_local_by_basename()` jest obejściem.
 
 ---
 
 ## Stan PC użytkownika
 
 - `local_overrides.json`: `{"yMY7NC4ZDNQ": "C:\\Users\\tomas2\\Videos\\Prawy\\Płużanski Wernic społecznik.mp4"}`
-- VSELocalRunner: powinien być zrestartowany po ostatnich fixach (user restartuje przez Services.msc)
+- VSELocalRunner: wymaga restartu po każdym commicie do `local-runner/` (Services.msc)
 - Logi: `C:\ProgramData\VSELocalRunner\runner-YYYYMMDDTHHMMSS.sss.log`
 
 ---
@@ -72,4 +83,4 @@ Fix `3aaf6f7` nie był przetestowany. Użytkownik nie potwierdził że lokalny p
 
 ---
 
-*vse-strateg-01 | 2026-08-20 20:47 | V1:57🔴 — handoff zaktualizowany o format toggle*
+*vse-strateg-01 | 2026-08-20 20:48 | V1:59🔴 — handoff zaktualizowany o doprecyzowanie Raw/Short*
