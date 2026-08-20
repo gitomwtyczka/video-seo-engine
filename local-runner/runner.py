@@ -325,7 +325,7 @@ def _try_ytdlp_with_cookies_file(video_id: str, cookies_path: str) -> Optional[s
 
     Args:
         video_id: YouTube video ID.
-        cookies_path: Ŝieżka do pliku cookies (Netscape format).
+        cookies_path: Ścieżka do pliku cookies (Netscape format).
 
     Returns:
         String __VTT__ lub None.
@@ -756,7 +756,8 @@ def _process_short_job(job: dict) -> None:
     
     render_config = job.get("render_config", {})
     
-    source = "youtube" if job.get("youtube_url") else "local"
+    # Jeśli user podał plik lokalny — próbuj lokalnie najpierw (nawet jeśli only basename)
+    source = "local" if job.get("local_path") else ("youtube" if job.get("youtube_url") else "local")
 
     # --- Wyznacz podkatalog shorta: {nazwa_wideo}_{data} ---
     _video_name = ""
