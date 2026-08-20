@@ -7360,7 +7360,20 @@ export default function DashboardInner() {
                           'bg-yellow-900 text-yellow-300'
                         }`}>
                           {smJobStatus[i].status === 'done' ? (
-                            <span>Gotowe: {smJobStatus[i].result_paths?.raw || 'plik zapisany'}</span>
+                            <div className="flex flex-col gap-1">
+                              <span>Gotowe: {smJobStatus[i].result_paths?.raw || 'plik zapisany'}</span>
+                              {smJobStatus[i].result_paths?.raw && (
+                                <a
+                                  href={'file:///' + (smJobStatus[i].result_paths.raw.includes('\\') ? smJobStatus[i].result_paths.raw.substring(0, smJobStatus[i].result_paths.raw.lastIndexOf('\\')) : smJobStatus[i].result_paths.raw).replace(/\\/g, '/')}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-emerald-400 underline hover:text-emerald-300 text-sm flex items-center gap-1"
+                                  title={smJobStatus[i].result_paths.raw.includes('\\') ? smJobStatus[i].result_paths.raw.substring(0, smJobStatus[i].result_paths.raw.lastIndexOf('\\')) : smJobStatus[i].result_paths.raw}
+                                >
+                                  📂 Otwórz folder
+                                </a>
+                              )}
+                            </div>
                           ) : smJobStatus[i].status === 'error' ? (
                             <span>Błąd: {smJobStatus[i].error}</span>
                           ) : (
