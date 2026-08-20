@@ -1,14 +1,12 @@
 {
-  "callsign": "vse-strateg-01",
-  "status": "working",
-  "current_task": "Strategia: test SubMachine SRT + plan audio fingerprinting library_matcher.py",
-  "timestamp": "2026-08-19T23:56:42+02:00",
+  "callsign": "vse-dev-01",
+  "status": "done",
+  "current_task": "fix source priority + basename resolution",
+  "timestamp": "2026-08-20T19:31:00+02:00",
   "last_completed": [
-    "feat: generate _submachine.srt (single-line) — commit 516d9c4 (2026-08-19) [vse-dev-01]",
-    "video_cutter.py SRT speech cleanup — commit cef584b5 (2026-08-19) [vse-dev-01]"
+    "fix: runner.py source priority — commit 3aaf6f7409b0ca75e63d59a03e35ba5235b18429 (2026-08-20)",
+    "fix: library_matcher.py find_local_by_basename() — commit 55733a1bf63cf1f3f5282c373f8a5846ee989e48 (2026-08-20)",
+    "fix: video_cutter.py resolve local_path basename — commit 4dc4613763c33cea53b638e06d0e86aec91c59f9 (2026-08-20)"
   ],
-  "pending": [
-    "Użytkownik: git pull + restart VSELocalRunner + test _submachine.srt w SubMachine",
-    "Audio fingerprinting fix — library_matcher.py (3 próbki ze środka, cookies chrome)"
-  ]
+  "pending": []
 }
