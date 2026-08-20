@@ -18,7 +18,7 @@
 
 ## Worker w toku (nie czekałem na wynik)
 
-**Subagent `b5d9c918`** (vse-dev-02) robi dwa fixy w `dashboard-inner.tsx`:
+**Subagent `c38f7c3a`** (vse-dev-02 retry) robi dwa fixy w `dashboard-inner.tsx`:
 1. Zamiana `file://` link → przycisk "Kopiuj ścieżkę folderu" (clipboard)
 2. Select-all checkbox nad listą kandydatów w ShortMachine
 
@@ -27,6 +27,20 @@ Sprawdzić czy worker wysłał raport — jeśli tak, zrobić git pull.
 ---
 
 ## Co NIE jest zrobione — PRIORYTETY
+
+### 🔴 NOWY — Format toggle: Raw vs Short
+**Wymaganie użytkownika (2026-08-20 20:46):**
+- Aktualnie system generuje DWIE wersje naraz (raw + short)
+- Użytkownik chce: domyślnie **raw** (wycięty fragment w formacie oryginału, mp4)
+- Dopiero gdy zmieni w UI na **Short** — generuje short (9:16, napisy, SRT)
+- Innymi słowy: dropdown/radio w ShortMachine z wyborem formatu PRZED kliknięciem Renderuj
+
+**Gdzie zmiany:**
+- `dashboard-inner.tsx` — dropdown/toggle "Format: Raw | Short" przy przycisku Renderuj
+- `runner.py` / `video_cutter.py` — obsługa `format: "raw"` (samo ffmpeg cut, bez short pipeline)
+- API endpoint renderu — przyjmowanie parametru `format`
+
+**Uwaga:** Aktualny dropdown w UI to "16:9 (YT) | Export SRT" — sprawdzić co już istnieje.
 
 ### 🔴 Audio fingerprinting — library_matcher.py
 **Problem:** `find_local_match()` pobiera 90s audio od POCZĄTKU → czołówka kanału, identyczna dla każdego odcinka.
@@ -58,4 +72,4 @@ Fix `3aaf6f7` nie był przetestowany. Użytkownik nie potwierdził że lokalny p
 
 ---
 
-*vse-strateg-01 | 2026-08-20 20:39 | V1:51🔴 — handoff*
+*vse-strateg-01 | 2026-08-20 20:47 | V1:57🔴 — handoff zaktualizowany o format toggle*
