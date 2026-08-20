@@ -4,7 +4,7 @@ library_matcher.py — dopasowanie lokalnych plików wideo do YouTube URL.
 CO: Skanuje lokalną bibliotekę wideo i matchuje pliki do YouTube URL
     przez porównanie audio fingerprintów (Chromaprint).
 PO CO: Klienci mają oryginalne pliki wideo (wyższa jakość niż YouTube).
-    Zamiast ściągać skompresowane wideo z YT, użycz lokalnego pliku.
+    Zamiast ściągać skompresowane wideo z YT, używaj lokalnego pliku.
     Zero load na VPS, zero opóźnień pobierania.
 JAK: fpcalc.exe generuje fingerprint → SQLite cache → porównanie z YT audio.
 
@@ -464,6 +464,38 @@ def find_local_by_yt_id(youtube_url: str) -> Optional[str]:
         return row[0]
 
     log.debug("find_local_by_yt_id: no local match for YT ID '%s'", yt_id)
+    return None
+
+
+def find_local_by_basename(filename: str, video_dirs: list[str] | None = None) -> str | None:
+    """
+    CO: Szuka pliku wideo po samej nazwie (basename) w znanych katalogach.
+    PO CO: Browse button w UI zwraca tylko nazwę pliku bez ścieżki (ograniczenie przeglądarki).
+           Ta funkcja pozwala znaleźć pełną ścieŽkę po basename.
+    JAK: Skanuje katalogi podane jako argument lub domyślne lokalizacje wideo Windows.
+         Zwraca pełną ścieŽkę pierwszego znalezionego pliku lub None.
+    """
+    if not filename:
+        return None
+    # Jeśli filename to już pełna ścieżka i istnieje — zwróć od razu
+    if os.path.sep in filename or (len(filename) > 2 and filename[1] == ':'):
+        if os.path.exists(filename):
+            return filename
+    target_basename = os.path.basename(filename)
+    search_dirs = video_dirs or [
+        os.path.expanduser(r'~\Videos'),
+        os.path.expanduser(r'~\Videos\Prawy'),
+        r'C:\Users\tomas2\Videos\Prawy',
+        r'D:\Biblioteki\prawy video',
+        os.path.expanduser(r'~\Desktop'),
+    ]
+    for directory in search_dirs:
+        if not os.path.isdir(directory):
+            continue
+        for root, _dirs, files in os.walk(directory):
+            for f in files:
+                if f.lower() == target_basename.lower():
+                    return os.path.join(root, f)
     return None
 
 
