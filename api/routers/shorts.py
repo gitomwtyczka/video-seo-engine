@@ -3,7 +3,7 @@ ShortMachine API Router — endpointy dla propozycji i renderowania shortów.
 
 CO: REST API dla ShortMachine.
 PO CO: Frontend (Next.js) i Local Runner komunikują się przez te endpointy.
-JAK: 5 endpointów: kandydaci, render, pending (dla Local Runner), result, status.
+JAK: 6 endpointów: kandydaci, render, pending (dla Local Runner), result, status, title.
 """
 import logging
 import os
@@ -22,7 +22,7 @@ from api.db import get_db
 from api.models.job import TranscriptJob
 from api.models.short_job import ShortJob
 from api.models.short_candidate import ShortCandidateSet
-from core.shorts import propose_shorts, get_vtt_segments_for_candidate
+from core.shorts import propose_shorts, get_vtt_segments_for_candidate, get_segments_for_range
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/shorts", tags=["shorts"])
@@ -59,6 +59,12 @@ class ResultRequest(BaseModel):
     status: str                          # 'done' | 'error'
     result_paths: Optional[dict] = None  # {raw, social, srt}
     error: Optional[str] = None
+
+
+class TitleRequest(BaseModel):
+    youtube_id: str
+    start_sec: float
+    end_sec: float
 
 
 # --- Helpers ---
@@ -142,6 +148,47 @@ def _convert_transcript_to_webvtt(transcript: str) -> str:
     return "\n".join(webvtt_parts)
 
 
+async def _resolve_vtt_path(youtube_id: str, db: AsyncSession) -> Optional[str]:
+    """
+    CO: Znajduje plik VTT dla danego youtube_id.
+    PO CO: Współdzielona logika szukania VTT — używana przez /candidates i /title.
+    JAK: Sprawdza dysk VPS, potem bazę danych TranscriptJob.
+    
+    Returns:
+        Ścieżka do pliku VTT (może być plikiem tymczasowym) lub None.
+        Jeśli zwrócił plik tymczasowy, caller musi go usuńąć po użyciu.
+    """
+    # 1. Sprawdz dysk VPS
+    candidates_paths = [
+        f"/home/ubuntu/video-seo-engine/data/vtt/{youtube_id}.vtt",
+        f"/tmp/{youtube_id}.vtt",
+    ]
+    for p in candidates_paths:
+        if os.path.exists(p):
+            return p
+
+    # 2. Pobierz z bazy danych
+    query = (
+        select(TranscriptJob)
+        .where(TranscriptJob.transcript.isnot(None))
+        .where(TranscriptJob.video_url.contains(youtube_id))
+        .order_by(desc(TranscriptJob.created_at))
+        .limit(1)
+    )
+    result = await db.execute(query)
+    job = result.scalar_one_or_none()
+
+    if job and job.transcript:
+        webvtt_content = _convert_transcript_to_webvtt(job.transcript)
+        tmp_fd, tmp_file = tempfile.mkstemp(suffix=".vtt", prefix=f"vse_{youtube_id}_title_")
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(webvtt_content)
+        logger.info("_resolve_vtt_path: VTT from DB job %s -> %s", job.id, tmp_file)
+        return tmp_file
+
+    return None
+
+
 # --- Endpoints ---
 
 @router.get("/candidates/{youtube_id}")
@@ -198,7 +245,7 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
     vtt_path = req.vtt_path
     tmp_file = None
 
-    # 1. Sprawdź plik na dysku jeśli podano youtube_id / youtube_url
+    # 1. Sprawdz plik na dysku jeśli podano youtube_id / youtube_url
     if not vtt_path and yt_id:
         candidates_paths = [
             f"/home/ubuntu/video-seo-engine/data/vtt/{yt_id}.vtt",
@@ -292,6 +339,78 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
                 os.remove(tmp_file)
             except Exception as e:
                 logger.warning("Failed to remove temp VTT file %s: %s", tmp_file, e)
+
+
+@router.post("/title")
+async def regenerate_title(req: TitleRequest, db: AsyncSession = Depends(get_db)):
+    """
+    CO: Regeneruje tytuł i tagi dla shorta na podstawie nowych czasów.
+    PO CO: Gdy user zmienia start/end sekund, tytuł powinien odzwierciedlać nowy zakres.
+    JAK: Wyciąga segmenty VTT z pliku/DB, buduje krótki prompt, zwraca title+tags.
+    """
+    import json
+    from core.generator import _call_llm
+
+    yt_id = _extract_youtube_id(req.youtube_id) or req.youtube_id
+    tmp_file = None
+
+    try:
+        vtt_path = await _resolve_vtt_path(yt_id, db)
+        if not vtt_path:
+            raise HTTPException(status_code=404, detail=f"VTT not found for youtube_id={yt_id}. Generate SEO first.")
+
+        # Jeśli _resolve_vtt_path stworzył plik tymczasowy, zapamiętaj go do usunięcia
+        if vtt_path.startswith("/tmp/") and "_title_" in vtt_path:
+            tmp_file = vtt_path
+
+        segments = get_segments_for_range(vtt_path, req.start_sec, req.end_sec, context_sec=3.0)
+        if not segments:
+            raise HTTPException(status_code=404, detail="No segments found for given range")
+
+        vtt_text = "\n".join([
+            f"[{s['time_str']}] {s['text']}" for s in segments if s['in_range']
+        ])
+        if not vtt_text.strip():
+            # Fallback: użyj wszystkich segmentów z kontekstem
+            vtt_text = "\n".join([f"[{s['time_str']}] {s['text']}" for s in segments])
+
+        prompt = f"""Na podstawie tego fragmentu transkryptu wygeneruj:
+1. suggested_title: chwytliwy tytuł shorta (5-9 słów po polsku)
+2. tags: do 10 hashtagów (format #słowo)
+
+Transkrypt:
+{vtt_text}
+
+Odpowiedź TYLKO JSON: {{"suggested_title": "...", "tags": ["#tag1", "#tag2"]}}"""
+
+        provider = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
+        api_key = os.getenv("ANTHROPIC_API_KEY", "") if provider == "claude" else os.getenv("GEMINI_API_KEY", "")
+        if not api_key:
+            if os.getenv("ANTHROPIC_API_KEY"):
+                provider, api_key = "claude", os.getenv("ANTHROPIC_API_KEY", "")
+            elif os.getenv("GEMINI_API_KEY"):
+                provider, api_key = "gemini", os.getenv("GEMINI_API_KEY", "")
+
+        raw = _call_llm(prompt, api_key, provider)
+        raw = raw.strip().lstrip("```json").rstrip("```").strip()
+        try:
+            data = json.loads(raw)
+            return {"title": data.get("suggested_title", ""), "tags": data.get("tags", [])}
+        except Exception:
+            logger.warning("regenerate_title: JSON parse failed, raw=%s", raw[:200])
+            return {"title": "", "tags": []}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("regenerate_title: unexpected error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Internal error: {e}")
+    finally:
+        if tmp_file and os.path.exists(tmp_file):
+            try:
+                os.remove(tmp_file)
+            except Exception as cleanup_err:
+                logger.warning("Failed to remove temp VTT file %s: %s", tmp_file, cleanup_err)
 
 
 @router.post("/render")
