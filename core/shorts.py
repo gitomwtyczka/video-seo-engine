@@ -36,6 +36,8 @@ class ShortCandidate:
     score: float            # 0.0–1.0 jakość kandydata
     rationale: str          # uzasadnienie wyboru przez AI
     query_match: str = ""   # jak pasuje do custom query
+    suggested_title: str = ""  # chwytliwy tytuł shorta (5-9 słów po polsku)
+    tags: list = field(default_factory=list)  # do 10 hashtagów tematycznych
     
     def to_dict(self) -> dict:
         return {
@@ -49,6 +51,8 @@ class ShortCandidate:
             "score": self.score,
             "rationale": self.rationale,
             "query_match": self.query_match,
+            "suggested_title": self.suggested_title,
+            "tags": self.tags,
         }
 
 
@@ -75,6 +79,10 @@ Na podstawie transkryptu z timestampami zaproponuj kandydatury na shorty.
   - POPRAWNE: end_sec = 1141 + 8 + 1.5 = 1150 
   - BŁĘDNE: end_sec = 1141 (to jest POCZĄTEK punchline, nie koniec!)
 
+## TYTUŁ I TAGI:
+- suggested_title: chwytliwy, clickbaitowy tytuł shorta (5-9 słów). Może być pytaniem lub tezą. Po polsku.
+- tags: do 10 hashtagów tematycznych. Mix polskich i angielskich. Format: #słowo (bez spacji).
+
 ## ZASADY DOBORU:
 - start_sec: timestamp VTT początku pierwszego słowa hooka
 - end_sec: timestamp VTT OSTATNIEGO słowa punchline + 1.5s ciszy
@@ -89,7 +97,9 @@ Odpowiedź TYLKO JSON (bez markdown):
 {{"candidates": [
   {{"type": "emotional", "start_sec": 0.0, "end_sec": 0.0,
     "hook_text": "...", "punchline_text": "...", "body_summary": "...",
-    "score": 0.0, "rationale": "...", "query_match": ""}}
+    "score": 0.0, "rationale": "...", "query_match": "",
+    "suggested_title": "Chwytliwy tytuł shorta — 5-9 słów po polsku, bez hashtag",
+    "tags": ["#hashtag1", "#hashtag2"]}}
 ]}}
 """
 
@@ -179,6 +189,8 @@ def propose_shorts(
             score=float(c.get("score", 0.5)),
             rationale=c.get("rationale", ""),
             query_match=c.get("query_match", ""),
+            suggested_title=c.get("suggested_title", ""),
+            tags=c.get("tags", []),
         ))
     
     candidates.sort(key=lambda x: x.score, reverse=True)
@@ -224,6 +236,30 @@ def get_vtt_segments_for_candidate(
             })
     
     return result
+
+
+def get_segments_for_range(
+    vtt_path: str,
+    start_sec: float,
+    end_sec: float,
+    context_sec: float = 3.0,
+) -> list[dict]:
+    """
+    Zwraca segmenty VTT dla zakresu start_sec-end_sec z małym kontekstem.
+    
+    CO: Alias do get_vtt_segments_for_candidate z mniejszym domyślnym kontekstem.
+    PO CO: Używany przez endpoint /v1/shorts/title do regeneracji tytułu.
+    JAK: Parsuje VTT, filtruje segmenty w zakresie +/- context_sec.
+    
+    Returns:
+        Lista dictów: [{"ts": float, "time_str": "MM:SS", "text": str, "in_range": bool}]
+    """
+    return get_vtt_segments_for_candidate(
+        vtt_path=vtt_path,
+        start_sec=start_sec,
+        end_sec=end_sec,
+        context_sec=context_sec,
+    )
 
 
 def extract_srt_segment(
