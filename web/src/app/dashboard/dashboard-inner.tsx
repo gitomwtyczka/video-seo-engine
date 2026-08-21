@@ -4400,6 +4400,13 @@ export default function DashboardInner() {
   const [smCountCustom, setSmCountCustom] = useState(3);
   const [shortLocalPath, setShortLocalPath] = useState<string>('');
   const [smCandidates, setSmCandidates] = useState<any[]>([]);
+  // Preview + Title/Tags state
+  const [smPreviewIdx, setSmPreviewIdx] = useState<number | null>(null)
+  const ytPlayerRef = useRef<any>(null)
+  const ytIntervalRef = useRef<any>(null)
+  const [smTitles, setSmTitles] = useState<Record<number, string>>({})
+  const [smTags, setSmTags] = useState<Record<number, string[]>>({})
+  const [smTitleLoading, setSmTitleLoading] = useState<Record<number, boolean>>({})
 
   // Auto-load saved candidates from DB
   useEffect(() => {
@@ -4432,6 +4439,32 @@ export default function DashboardInner() {
 
   const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`;
   const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) });
+
+  const handleRegenerateTitle = async (i: number, c: any) => {
+    const adj = getAdj(i, c)
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+    setSmTitleLoading(p => ({...p, [i]: true}))
+    try {
+      const res = await fetch(`${apiBase}/v1/shorts/title`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({youtube_id: smYoutubeId, start_sec: adj.start, end_sec: adj.end})
+      })
+      const data = await res.json()
+      if (data.title) setSmTitles(p => ({...p, [i]: data.title}))
+      if (data.tags?.length) setSmTags(p => ({...p, [i]: data.tags}))
+    } finally {
+      setSmTitleLoading(p => ({...p, [i]: false}))
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if ((window as any).YT) return
+    const tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+  }, [])
 
 
 
@@ -4770,6 +4803,14 @@ export default function DashboardInner() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setSmCandidates(data.candidates || []);
+      const newTitles: Record<number, string> = {}
+      const newTags: Record<number, string[]> = {}
+      ;(data.candidates || []).forEach((c: any, i: number) => {
+        newTitles[i] = c.suggested_title || ''
+        newTags[i] = c.tags || []
+      })
+      setSmTitles(newTitles)
+      setSmTags(newTags)
     } catch (e: any) {
       setSmError(e.message);
     } finally {
@@ -7346,6 +7387,88 @@ export default function DashboardInner() {
                           </div>
                         </div>
                       )}
+                      {/* Tytuł shorta */}
+                      <div className="space-y-1 mb-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={smTitles[i] || ''}
+                            onChange={e => setSmTitles(p => ({...p, [i]: e.target.value}))}
+                            placeholder="Tytuł shorta..."
+                            className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500"
+                          />
+                          {(smTrimAdj[i]?.startDelta || smTrimAdj[i]?.endDelta) && (
+                            <button
+                              onClick={() => handleRegenerateTitle(i, c)}
+                              disabled={smTitleLoading[i]}
+                              className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-gray-300 disabled:opacity-50"
+                              title="Odśwież tytuł i tagi na podstawie nowego zakresu"
+                            >
+                              {smTitleLoading[i] ? '...' : '🔄'}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {(smTags[i] || []).map((tag, ti) => (
+                            <span key={ti} className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-700 border border-gray-600 rounded-full text-xs text-gray-300">
+                              {tag}
+                              <button onClick={() => setSmTags(p => ({...p, [i]: (p[i]||[]).filter((_,j)=>j!==ti)}))} className="text-gray-500 hover:text-red-400 leading-none">×</button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Preview YouTube */}
+                      <div className="mb-2">
+                        <button
+                          onClick={() => {
+                            if (smPreviewIdx === i) {
+                              setSmPreviewIdx(null)
+                              if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
+                              return
+                            }
+                            setSmPreviewIdx(i)
+                            const adj2 = getAdj(i, c)
+                            const videoId2 = smYoutubeId.length === 11 ? smYoutubeId : smYoutubeId.match(/[a-zA-Z0-9_-]{11}/)?.[0] || ''
+                            setTimeout(() => {
+                              if (!(window as any).YT?.Player) return
+                              if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()
+                              if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
+                              ytPlayerRef.current = new (window as any).YT.Player(`yt-preview-${i}`, {
+                                height: '180',
+                                width: '320',
+                                videoId: videoId2,
+                                playerVars: { start: Math.floor(adj2.start), autoplay: 1, rel: 0, modestbranding: 1 },
+                                events: {
+                                  onReady: (e: any) => {
+                                    e.target.seekTo(adj2.start, true)
+                                    e.target.playVideo()
+                                    ytIntervalRef.current = setInterval(() => {
+                                      const t = e.target.getCurrentTime()
+                                      if (t >= adj2.end) {
+                                        e.target.pauseVideo()
+                                        clearInterval(ytIntervalRef.current)
+                                      }
+                                    }, 250)
+                                  }
+                                }
+                              })
+                            }, 100)
+                          }}
+                          className="text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                        >
+                          {smPreviewIdx === i ? '▼ Zamknij podgląd' : '▶ Podgląd'}
+                        </button>
+
+                        {smPreviewIdx === i && (
+                          <div className="mt-2 rounded overflow-hidden" style={{width:320}}>
+                            <div id={`yt-preview-${i}`} />
+                            <div className="text-xs text-gray-500 mt-1">
+                              {fmtSec(getAdj(i,c).start)} → {fmtSec(getAdj(i,c).end)} ({Math.round(getAdj(i,c).end-getAdj(i,c).start)}s)
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'8px',fontSize:'12px',color:'#888'}}>
                         <span>✂ Start:</span>
                         {([-5,-2,-1] as number[]).map(d=>(
