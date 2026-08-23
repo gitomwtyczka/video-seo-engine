@@ -51,6 +51,8 @@ async def update_youtube_metadata(
     video_id: str,
     new_description: str,
     new_title: str | None = None,
+    publish_at: str | None = None,
+    privacy_status: str | None = None,
 ) -> dict:
     """
     Aktualizuje metadane wideo na YouTube dla każdego z podanych kanałów.
@@ -74,9 +76,10 @@ async def update_youtube_metadata(
             # 3. Wywołaj videos.update
             youtube = build("youtube", "v3", credentials=creds)
             
-            # Najpierw pobierz snippet, bo videos.update wymaga zachowania categoryId i title.
+            # Pobierz aktualne dane wideo (snippet, i status jeśli ustawiamy harmonogram/widoczność)
+            part_to_fetch = "snippet,status" if (publish_at or privacy_status) else "snippet"
             video_response = youtube.videos().list(
-                part="snippet",
+                part=part_to_fetch,
                 id=video_id
             ).execute()
             
@@ -84,7 +87,8 @@ async def update_youtube_metadata(
                 results[channel_id] = "error: video not found"
                 continue
                 
-            snippet = video_response["items"][0]["snippet"]
+            item = video_response["items"][0]
+            snippet = item["snippet"]
             
             # Zaktualizuj opis
             snippet["description"] = new_description
@@ -93,19 +97,38 @@ async def update_youtube_metadata(
             if new_title:
                 snippet["title"] = new_title
             
+            update_parts = ["snippet"]
+            update_body = {
+                "id": video_id,
+                "snippet": snippet
+            }
+
+            if publish_at or privacy_status:
+                status = item.get("status", {})
+                if publish_at:
+                    status["publishAt"] = publish_at
+                    status["privacyStatus"] = privacy_status or "private"
+                elif privacy_status:
+                    status["privacyStatus"] = privacy_status
+                update_body["status"] = status
+                update_parts.append("status")
+
             # API Update request
             youtube.videos().update(
-                part="snippet",
-                body={
-                    "id": video_id,
-                    "snippet": snippet
-                }
+                part=",".join(update_parts),
+                body=update_body
             ).execute()
             
             results[channel_id] = "ok"
 
         except Exception as e:
             logger.error("Error updating YT metadata for channel %s: %s", channel_id, e)
-            results[channel_id] = f"error: {str(e)}"
+            err_str = str(e)
+            if hasattr(e, "content") and isinstance(e.content, (bytes, str)):
+                err_str += f" {e.content}"
+            if "invalidPublishAt" in err_str:
+                results[channel_id] = "error: Film był już publiczny — harmonogram działa tylko dla nowych niepublikowanych filmów"
+            else:
+                results[channel_id] = f"error: {str(e)}"
 
     return results

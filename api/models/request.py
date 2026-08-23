@@ -127,6 +127,8 @@ class YouTubePublishRequest(BaseModel):
     schema_data: dict  # pełne schema_data z generate — zawiera wszystkie pola YT
     override_description: Optional[str] = None
     wp_article_url: str = ""  # URL artykułu WP (może być pusty jeśli nie opublikowany)
+    publish_at: Optional[str] = None       # ISO 8601 UTC, np. "2026-08-25T18:00:00Z"
+    privacy_status: Optional[str] = None   # "private" | "public" | "unlisted"
 
 
 class YouTubeChannelUpdate(BaseModel):

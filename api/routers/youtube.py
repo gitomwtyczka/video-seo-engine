@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 import httpx
@@ -11,6 +12,8 @@ from api.models.youtube_channel import YouTubeChannel
 from api.models.oauth_state import OAuthState
 from api.auth import get_current_user
 from api.models.request import YouTubePublishRequest, YouTubeChannelUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/youtube", tags=["youtube"])
 
@@ -206,7 +209,74 @@ async def publish_youtube_description(
             video_id=req.video_id,
             new_description=full_description,
             new_title=seo.get("yt_title") or seo.get("post_title"),
+            publish_at=req.publish_at,
+            privacy_status=req.privacy_status,
         )
         results.update(res)
 
     return {"results": results, "video_id": req.video_id}
+
+
+@router.get("/channels/{channel_id}/playlists")
+async def get_channel_playlists(
+    channel_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Zwraca listę playlist kanału YouTube."""
+    from googleapiclient.discovery import build
+    from google.auth.transport.requests import Request
+    from api.core.youtube_publish import _get_channel, _build_credentials, _save_refreshed_token
+
+    # Pobierz kanał z DB
+    channel = await _get_channel(db, current_user.id, channel_id)
+    if not channel and channel_id.isdigit():
+        result = await db.execute(
+            select(YouTubeChannel).where(
+                YouTubeChannel.user_id == current_user.id,
+                YouTubeChannel.id == int(channel_id),
+                YouTubeChannel.is_active == True,
+            )
+        )
+        channel = result.scalar_one_or_none()
+
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found or access denied")
+
+    try:
+        creds = _build_credentials(channel)
+        if not creds.valid:
+            creds.refresh(Request())
+            await _save_refreshed_token(db, channel, creds)
+
+        youtube = build("youtube", "v3", credentials=creds)
+        yt_channel_id = channel.youtube_channel_id
+
+        resp = youtube.playlists().list(
+            part="snippet",
+            channelId=yt_channel_id,
+            maxResults=50,
+        ).execute()
+
+        playlists = []
+        for item in resp.get("items", []):
+            snippet = item.get("snippet", {})
+            thumbnails = snippet.get("thumbnails", {})
+            thumb_url = (
+                thumbnails.get("medium", {}).get("url")
+                or thumbnails.get("default", {}).get("url")
+                or thumbnails.get("high", {}).get("url")
+                or ""
+            )
+            playlists.append({
+                "id": item.get("id"),
+                "title": snippet.get("title", ""),
+                "thumbnail": thumb_url,
+            })
+
+        return playlists
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching playlists for channel %s: %s", channel_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch playlists: {str(e)}")
