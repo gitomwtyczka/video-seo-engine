@@ -610,7 +610,19 @@ function TabBar({
 
 }) {
 
-  const tabs: { key: TabKey; label: string; badge?: number }[] = [\n    { key: 'schema', label: 'Schemat' },\n    { key: 'article', label: 'Artykuł', badge: faqCount > 0 ? faqCount : undefined },\n    { key: 'chapters', label: 'Rozdziały', badge: chaptersCount > 0 ? chaptersCount : undefined },\n    { key: 'youtube', label: 'Opis YouTube' },\n    { key: 'shorts', label: '✂️ ShortMachine' },\n  ]
+  const tabs: { key: TabKey; label: string; badge?: number }[] = [
+
+    { key: 'schema', label: 'Schemat' },
+
+    { key: 'article', label: 'Artykuł', badge: faqCount > 0 ? faqCount : undefined },
+
+    { key: 'chapters', label: 'Rozdziały', badge: chaptersCount > 0 ? chaptersCount : undefined },
+
+    { key: 'youtube', label: 'Opis YouTube' },
+
+    { key: 'shorts', label: '✂️ ShortMachine' },
+
+  ]
 
 
 
@@ -697,6 +709,7 @@ function InjectModal({
   portalName,
 
   portalUrl,
+
   accessToken,
 
   onClose,
@@ -714,6 +727,7 @@ function InjectModal({
   portalName?: string
 
   portalUrl?: string
+
   accessToken?: string
 
   onClose: () => void
@@ -741,10 +755,22 @@ function InjectModal({
   const [publishResult, setPublishResult] = useState<InjectResult | null>(null)
 
   const [selectedYtChannelIds, setSelectedYtChannelIds] = useState<string[]>([])
+
   const [ytDescPreview, setYtDescPreview] = useState<string>('')
+
   const [showYtPreview, setShowYtPreview] = useState<boolean>(false)
 
+
+
   const modalRef = useRef<HTMLDivElement>(null)
+
+
+
+
+
+
+
+
 
 
 
@@ -768,6 +794,10 @@ function InjectModal({
 
 
 
+
+
+
+
   // Close on click outside
 
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -782,23 +812,47 @@ function InjectModal({
 
 
 
+
+
+
+
   const isManual = selectedPortalId === '__manual__' || !selectedPortalId
 
+
+
   // Update YT preview
+
   useEffect(() => {
+
     if (selectedYtChannelIds.length === 0) { setYtDescPreview(''); return }
+
     const parts = []
+
     if (schemaData?.youtube_description_body) parts.push(schemaData.youtube_description_body)
+
     if (schemaData?.youtube_mid_cta) parts.push(schemaData.youtube_mid_cta)
+
     if (schemaData?.youtube_credits) parts.push(schemaData.youtube_credits)
+
     if (schemaData?.youtube_hashtags) parts.push(schemaData.youtube_hashtags)
+
     
+
     // Stopka z pierwszego kanału
+
     const firstCh = ytChannels?.find(ch => selectedYtChannelIds.includes(ch.channel_id))
+
     if (firstCh?.footer_text) parts.push(firstCh.footer_text)
+
     
+
     setYtDescPreview(parts.join('\n\n') || '(brak wygenerowanego opisu)')
+
   }, [selectedYtChannelIds, schemaData, ytChannels])
+
+
+
+
 
 
 
@@ -816,11 +870,19 @@ function InjectModal({
 
 
 
+
+
+
+
     if (isPublishingToWp && isManual) {
 
       saveWpCredentials({ wpUrl, wpUser, wpPassword })
 
     }
+
+
+
+
 
 
 
@@ -845,12 +907,22 @@ function InjectModal({
       }
 
       
+
       if (selectedYtChannelIds.length > 0) {
+
         body.yt_channel_ids = selectedYtChannelIds
+
         if (showYtPreview && ytDescPreview) {
+
           body.yt_override_description = ytDescPreview
+
         }
+
       }
+
+
+
+
 
 
 
@@ -881,6 +953,10 @@ function InjectModal({
         }
 
       }
+
+
+
+
 
 
 
@@ -964,6 +1040,14 @@ function InjectModal({
 
 
 
+
+
+
+
+
+
+
+
   return (
 
     <div
@@ -1026,6 +1110,10 @@ function InjectModal({
 
 
 
+
+
+
+
         {/* Body */}
 
         <div className="px-6 py-5 space-y-4">
@@ -1056,9 +1144,29 @@ function InjectModal({
 
 
 
+
+
+
+
           {/* Selected portal info — visible in portal mode */}
 
-          {!isManual && portalName && (\n            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">\n              <span className="text-xs text-violet-400">🚀</span>\n              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>\n              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>\n            </div>\n          )}
+          {!isManual && portalName && (
+
+            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
+
+              <span className="text-xs text-violet-400">🚀</span>
+
+              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
+
+              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>
+
+            </div>
+
+          )}
+
+
+
+
 
 
 
@@ -1089,6 +1197,10 @@ function InjectModal({
                 />
 
               </div>
+
+
+
+
 
 
 
@@ -1201,40 +1313,78 @@ function InjectModal({
               </div>
 
             )}
+
             
+
             {/* Podgląd opisu YT */}
+
             {selectedYtChannelIds.length > 0 && ytChannels && ytChannels.length > 0 && (
+
               <div className="mt-3">
+
                 {!showYtPreview ? (
+
                   <button
+
                     onClick={() => setShowYtPreview(true)}
+
                     className="text-xs text-violet-400 hover:text-violet-300 underline"
+
                   >
+
                     Pokaż edytowalny podgląd opisu YT
+
                   </button>
+
                 ) : (
+
                   <div className="mt-2 animate-in slide-in-from-top-2">
+
                     <label className="block text-xs text-gray-400 mb-1">
+
                       Podgląd opisu YouTube <span className="text-gray-600">(edytowalny)</span>
+
                     </label>
+
                     <textarea
+
                       value={ytDescPreview}
+
                       onChange={(e) => setYtDescPreview(e.target.value)}
+
                       rows={6}
+
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-violet-500 resize-y font-mono"
+
                     />
+
                     <button
+
                       onClick={() => setShowYtPreview(false)}
+
                       className="mt-1 text-xs text-gray-500 hover:text-gray-400"
+
                     >
+
                       Ukryj podgląd
+
                     </button>
+
                   </div>
+
                 )}
+
               </div>
+
             )}
 
+
+
           </div>
+
+
+
+
 
 
 
@@ -1324,6 +1474,10 @@ function InjectModal({
 
 
 
+
+
+
+
           {/* Format wpisu */}
 
           <div>
@@ -1358,6 +1512,10 @@ function InjectModal({
 
 
 
+
+
+
+
           {/* Publish button */}
 
           <button
@@ -1381,6 +1539,10 @@ function InjectModal({
             )}
 
           </button>
+
+
+
+
 
 
 
@@ -1448,6 +1610,10 @@ function InjectModal({
 
 
 
+
+
+
+
           <p className="text-xs text-gray-600 text-center">
 
             {isManual ? 'Dane logowania zapamiętane w przeglądarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}
@@ -1457,6 +1623,10 @@ function InjectModal({
         </div>
 
       </div>
+
+
+
+
 
 
 
@@ -1484,9 +1654,19 @@ function InjectModal({
 
 
 
+
+
+
+
+
+
 // ─── AddPortalModal ─────────────────────────────────────────────────────────
 
 // D35 (2026-06-30, vse-dev-01): Dynamic profile dropdown + inline profile creation
+
+
+
+
 
 
 
@@ -1510,6 +1690,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
   // Portal fields
 
   const [name, setName] = useState('')
@@ -1525,6 +1709,10 @@ function AddPortalModal({
   const [saving, setSaving] = useState(false)
 
   const [error, setError] = useState('')
+
+
+
+
 
 
 
@@ -1544,7 +1732,15 @@ function AddPortalModal({
 
 
 
+
+
+
+
   const modalRef = useRef<HTMLDivElement>(null)
+
+
+
+
 
 
 
@@ -1559,6 +1755,10 @@ function AddPortalModal({
     }
 
   }, [profiles, profileId])
+
+
+
+
 
 
 
@@ -1580,6 +1780,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
   const handleBackdropClick = (e: React.MouseEvent) => {
 
     if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
@@ -1589,6 +1793,10 @@ function AddPortalModal({
     }
 
   }
+
+
+
+
 
 
 
@@ -1616,6 +1824,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
   const handleProfileDropdownChange = (value: string) => {
 
     if (value === '__new__') {
@@ -1636,6 +1848,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
   const handleSave = async () => {
 
     if (!name || !url || !wpUser || !wpPassword) {
@@ -1645,6 +1861,10 @@ function AddPortalModal({
       return
 
     }
+
+
+
+
 
 
 
@@ -1664,15 +1884,27 @@ function AddPortalModal({
 
 
 
+
+
+
+
     setSaving(true)
 
     setError('')
 
 
 
+
+
+
+
     try {
 
       let finalProfileId: string | null = null
+
+
+
+
 
 
 
@@ -1691,6 +1923,10 @@ function AddPortalModal({
           return
 
         }
+
+
+
+
 
 
 
@@ -1716,6 +1952,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
         if (!newProfile) {
 
           setError('Nie udało się utworzyć profilu. Sprawdź dane.')
@@ -1728,6 +1968,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
         finalProfileId = newProfile.id
 
       } else {
@@ -1735,6 +1979,10 @@ function AddPortalModal({
         finalProfileId = profileId === 'none' ? null : profileId
 
       }
+
+
+
+
 
 
 
@@ -1753,6 +2001,10 @@ function AddPortalModal({
         profile_id: finalProfileId,
 
       })
+
+
+
+
 
 
 
@@ -1780,11 +2032,19 @@ function AddPortalModal({
 
 
 
+
+
+
+
   const selectClass = "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none cursor-pointer appearance-none"
 
-  const selectStyle = { backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }
+  const selectStyle = { backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }
 
   const inputClass = "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+
+
+
+
 
 
 
@@ -1826,6 +2086,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
         <div className="px-6 py-5 space-y-4">
 
           {/* Portal name */}
@@ -1849,6 +2113,10 @@ function AddPortalModal({
             />
 
           </div>
+
+
+
+
 
 
 
@@ -1876,6 +2144,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
           {/* WP Username */}
 
           <div>
@@ -1897,6 +2169,10 @@ function AddPortalModal({
             />
 
           </div>
+
+
+
+
 
 
 
@@ -1924,6 +2200,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
           {/* Profile Assignment Section */}
 
           <div className="pt-2 border-t border-gray-800">
@@ -1935,6 +2215,10 @@ function AddPortalModal({
               <span className="text-gray-500 font-normal ml-1">(opcjonalnie)</span>
 
             </label>
+
+
+
+
 
 
 
@@ -1978,6 +2262,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
           {/* Inline Profile Creation Fields */}
 
           {showNewProfileForm && (
@@ -1985,6 +2273,10 @@ function AddPortalModal({
             <div className="space-y-3 p-3 bg-violet-950/20 border border-violet-800/30 rounded-xl animate-in" style={{ animation: 'fadeInUp 0.2s ease-out' }}>
 
               <p className="text-xs font-medium text-violet-300">Konfiguracja nowego profilu:</p>
+
+
+
+
 
 
 
@@ -2007,6 +2299,10 @@ function AddPortalModal({
                 />
 
               </div>
+
+
+
+
 
 
 
@@ -2072,6 +2368,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
               <div>
 
                 <label className="block text-xs text-gray-400 mb-1">Link zewnętrzny (URL)</label>
@@ -2091,6 +2391,10 @@ function AddPortalModal({
                 />
 
               </div>
+
+
+
+
 
 
 
@@ -2120,6 +2424,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
           {/* Error display */}
 
           {error && (
@@ -2131,6 +2439,10 @@ function AddPortalModal({
             </p>
 
           )}
+
+
+
+
 
 
 
@@ -2190,6 +2502,10 @@ function AddPortalModal({
 
 
 
+
+
+
+
 /**
 
  * CO: ManageSubscriptionLink — link do Stripe Customer Portal
@@ -2207,6 +2523,10 @@ function ManageSubscriptionLink() {
   const [loading, setLoading] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
+
+
+
+
 
 
 
@@ -2254,6 +2574,10 @@ function ManageSubscriptionLink() {
 
 
 
+
+
+
+
   return (
 
     <div className="mt-2">
@@ -2282,7 +2606,13 @@ function ManageSubscriptionLink() {
 
 
 
+
+
+
+
 // ─── Main Component ─────────────────────────────────────────────────────────
+
+
 
 function buildYtDescription(schema: SchemaData | null): string {
   if (!schema) return ''
@@ -2338,6 +2668,10 @@ function buildYtDescription(schema: SchemaData | null): string {
 
 
 
+
+
+
+
 export default function DashboardInner() {
 
   const router = useRouter()
@@ -2362,9 +2696,17 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
   // Portals hook (D34, vse-dev-01)
 
   const { portals, loading: portalsLoading, refresh: refreshPortals } = usePortals()
+
+
+
+
 
 
 
@@ -2384,11 +2726,17 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
   // D34 (2026-06-30): Portal selector state
 
   const [selectedPortalId, setSelectedPortalId] = useState<string>('')
 
   const [showAddPortalModal, setShowAddPortalModal] = useState(false)
+
+
 
   // ShortMachine — stan UI (2026-08-20, shadow-dev-01)
   const [smYoutubeId, setSmYoutubeId] = useState<string>('')
@@ -2458,6 +2806,21 @@ export default function DashboardInner() {
   const [smPlaylists, setSmPlaylists] = useState<{id: string, title: string}[]>([]);
   const [smModalOpenFor, setSmModalOpenFor] = useState<number | null>(null);
 
+  const [ytChannels, setYtChannels] = useState<any[]>([])
+
+  useEffect(() => {
+    const channelId = ytChannels[0]?.channel_id;
+    if (!channelId) {
+      setSmPlaylists([]);
+      return;
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+    fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`)
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setSmPlaylists(data); })
+      .catch(err => console.warn('Failed to load playlists:', err));
+  }, [ytChannels]);
+
 
   const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`;
   const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) });
@@ -2498,10 +2861,6 @@ export default function DashboardInner() {
 
 
 
-  const [ytChannels, setYtChannels] = useState<any[]>([])
-
-
-
   useEffect(() => {
 
 
@@ -2536,21 +2895,6 @@ export default function DashboardInner() {
 
   }, [session?.accessToken])
 
-  useEffect(() => {
-    const channelId = ytChannels[0]?.channel_id;
-    if (!channelId) {
-      setSmPlaylists([]);
-      return;
-    }
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-    fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`, {
-      headers: { ...(session?.accessToken && { Authorization: `Bearer ${session.accessToken}` }) }
-    })
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setSmPlaylists(data); })
-      .catch(err => console.warn('Failed to load playlists:', err));
-  }, [ytChannels, session?.accessToken]);
-
 
 
   // Portal selector + publication type
@@ -2560,6 +2904,10 @@ export default function DashboardInner() {
   const [focusKeywordOverride, setFocusKeywordOverride] = useState<string>('')
 
   const [isRefreshingUsage, setIsRefreshingUsage] = useState<boolean>(false)
+
+
+
+
 
 
 
@@ -2574,6 +2922,10 @@ export default function DashboardInner() {
     }
 
   }, [portals, selectedPortalId])
+
+
+
+
 
 
 
@@ -2594,6 +2946,10 @@ export default function DashboardInner() {
     }
 
   }, [selectedPortalId, portals])
+
+
+
+
 
 
 
@@ -2647,6 +3003,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
   useEffect(() => {
 
     if (status === 'authenticated') {
@@ -2656,6 +3016,10 @@ export default function DashboardInner() {
     }
 
   }, [status, fetchUserProfile])
+
+
+
+
 
 
 
@@ -2676,6 +3040,10 @@ export default function DashboardInner() {
     })
 
   }
+
+
+
+
 
 
 
@@ -2811,6 +3179,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
   // Auth redirect
 
   if (status === 'unauthenticated') {
@@ -2820,6 +3192,10 @@ export default function DashboardInner() {
     return null
 
   }
+
+
+
+
 
 
 
@@ -2839,6 +3215,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
   const schema = result?.schema_data
 
   const chapters = extractChapters(schema)
@@ -2855,6 +3235,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
   return (
 
     <ErrorBoundary>
@@ -2868,6 +3252,10 @@ export default function DashboardInner() {
         <EmailVerificationBanner email={userProfile.email} />
 
       )}
+
+
+
+
 
 
 
@@ -2937,6 +3325,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
       {/* Header */}
 
       <header className="border-b border-gray-800 bg-gray-950/80 backdrop-blur sticky top-0 z-40">
@@ -2965,6 +3357,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
           {/* Center Navigation Links (desktop) */}
 
           <nav className="hidden md:flex items-center gap-1 bg-gray-900/60 border border-gray-800 rounded-xl px-2 py-1">
@@ -2980,6 +3376,10 @@ export default function DashboardInner() {
             <NavItem href="/ustawienia" label="Ustawienia" />
 
           </nav>
+
+
+
+
 
 
 
@@ -3051,6 +3451,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
             <button
 
               onClick={() => signOut({ callbackUrl: '/login' })}
@@ -3068,6 +3472,10 @@ export default function DashboardInner() {
         </div>
 
       </header>
+
+
+
+
 
 
 
@@ -3094,6 +3502,10 @@ export default function DashboardInner() {
             </p>
 
           </div>
+
+
+
+
 
 
 
@@ -3159,6 +3571,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
             {/* D34: Portal selector bar */}
 
             <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
@@ -3219,6 +3635,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
               {/* Publication type dropdown */}
 
               <div className="flex items-center gap-1.5 bg-gray-900/80 border border-gray-800 rounded-lg px-2.5 py-1.5">
@@ -3248,6 +3668,10 @@ export default function DashboardInner() {
                 </select>
 
               </div>
+
+
+
+
 
 
 
@@ -3281,6 +3705,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
           {/* Loading indicator */}
 
           {loading && (
@@ -3307,6 +3735,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
           {/* Error display */}
 
           {error && (
@@ -3328,6 +3760,10 @@ export default function DashboardInner() {
           )}
 
         </div>
+
+
+
+
 
 
 
@@ -3373,6 +3809,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
               {/* WordPress inject button — always visible for Pro/Agency */}
 
               <button
@@ -3393,6 +3833,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
             {/* Tab Bar */}
 
             <TabBar
@@ -3406,6 +3850,10 @@ export default function DashboardInner() {
               faqCount={faq.length}
 
             />
+
+
+
+
 
 
 
@@ -3445,6 +3893,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
                 {/* Post title */}
 
                 {schema.post_title && (
@@ -3468,6 +3920,10 @@ export default function DashboardInner() {
                   </ResultSection>
 
                 )}
+
+
+
+
 
 
 
@@ -3503,6 +3959,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
                 {/* WP slug */}
 
                 {schema.wp_slug && (
@@ -3526,6 +3986,10 @@ export default function DashboardInner() {
                   </ResultSection>
 
                 )}
+
+
+
+
 
 
 
@@ -3554,6 +4018,10 @@ export default function DashboardInner() {
                   </pre>
 
                 </ResultSection>
+
+
+
+
 
 
 
@@ -3587,6 +4055,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
             {/* Tab: Artykuł */}
 
             {activeTab === 'article' && (
@@ -3612,6 +4084,10 @@ export default function DashboardInner() {
                   />
 
                 </div>
+
+
+
+
 
 
 
@@ -3645,6 +4121,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
                 {/* Article body */}
 
                 {schema.article_body && (
@@ -3672,6 +4152,10 @@ export default function DashboardInner() {
                   </ResultSection>
 
                 )}
+
+
+
+
 
 
 
@@ -3727,6 +4211,10 @@ export default function DashboardInner() {
 
 
 
+
+
+
+
                 {/* FAQ */}
 
                 {faq.length > 0 && (
@@ -3778,6 +4266,10 @@ export default function DashboardInner() {
               </div>
 
             )}
+
+
+
+
 
 
 
