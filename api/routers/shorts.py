@@ -3,7 +3,7 @@ ShortMachine API Router — endpointy dla propozycji i renderowania shortów.
 
 CO: REST API dla ShortMachine.
 PO CO: Frontend (Next.js) i Local Runner komunikują się przez te endpointy.
-JAK: 6 endpointów: kandydaci, render, pending (dla Local Runner), result, status, title.
+JAK: 7 endpointów: kandydaci, historia, render, pending (dla Local Runner), result, status, title.
 """
 import logging
 import os
@@ -194,7 +194,9 @@ async def _resolve_vtt_path(youtube_id: str, db: AsyncSession) -> Optional[str]:
 @router.get("/candidates/{youtube_id}")
 async def get_saved_candidates(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Pobiera ostatnio zapisanych kandydatów dla youtube_id z DB."""
-    conditions = [ShortCandidateSet.youtube_id == youtube_id]
+    # Sanitize: extract 11-char ID from full URL if needed [szortownia-4]
+    yt_id = _extract_youtube_id(youtube_id) or youtube_id
+    conditions = [ShortCandidateSet.youtube_id == yt_id]
     if portal_id:
         conditions.append(ShortCandidateSet.portal_id == portal_id)
     
@@ -437,7 +439,7 @@ async def render_short(req: RenderRequest, db: AsyncSession = Depends(get_db)):
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    logger.info("ShortJob created: %s (%.1f–%.1fs)", job.id, req.start_sec, req.end_sec)
+    logger.info("ShortJob created: %s (%.1f-%.1fs)", job.id, req.start_sec, req.end_sec)
     return {"job_id": str(job.id), "status": "pending"}
 
 
@@ -480,6 +482,64 @@ async def submit_short_result(job_id: UUID, req: ResultRequest, db: AsyncSession
     await db.commit()
     logger.info("ShortJob %s: %s paths=%s", job_id, req.status, req.result_paths)
     return {"ok": True}
+
+
+@router.get("/history/{youtube_id}")
+async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Pobiera historię szortów (kandydaci + joby renderowania) dla danego wideo.
+    
+    CO: Endpoint odtwarzania stanu ShortMachine po odświeżeniu strony (F5).
+    PO CO: smJobStatus żyje wyłącznie w RAM przeglądarki — po F5 znika.
+           Ten endpoint pozwala frontendowi odtworzyć stan z bazy danych.
+    JAK: Zwraca ostatni ShortCandidateSet + ostatnie 20 ShortJob dla youtube_id.
+         Frontend dopasowuje joby do kandydatów po start_sec/end_sec.
+    
+    UWAGA: Zadeklarowany przed /{job_id} żeby FastAPI nie próbował parsować
+           "history" jako UUID.
+    """
+    yt_id = _extract_youtube_id(youtube_id) or youtube_id
+
+    # 1. Pobierz ostatni ShortCandidateSet dla tego wideo
+    cand_conditions = [ShortCandidateSet.youtube_id == yt_id]
+    if portal_id:
+        cand_conditions.append(ShortCandidateSet.portal_id == portal_id)
+
+    cand_query = (
+        select(ShortCandidateSet)
+        .where(*cand_conditions)
+        .order_by(desc(ShortCandidateSet.created_at))
+        .limit(1)
+    )
+    cand_res = await db.execute(cand_query)
+    cand_set = cand_res.scalar_one_or_none()
+
+    # 2. Pobierz ostatnie 20 jobów renderowania dla tego wideo
+    jobs_query = (
+        select(ShortJob)
+        .where(ShortJob.youtube_id == yt_id)
+        .order_by(desc(ShortJob.created_at))
+        .limit(20)
+    )
+    jobs_res = await db.execute(jobs_query)
+    jobs = jobs_res.scalars().all()
+
+    return {
+        "youtube_id": yt_id,
+        "candidates": cand_set.candidates if cand_set else [],
+        "candidates_created_at": cand_set.created_at.isoformat() if cand_set else None,
+        "jobs": [
+            {
+                "id": str(j.id),
+                "status": j.status,
+                "start_sec": j.start_sec,
+                "end_sec": j.end_sec,
+                "result_paths": j.result_paths,
+                "error": j.error_message,
+                "created_at": j.created_at.isoformat() if j.created_at else None,
+            }
+            for j in jobs
+        ]
+    }
 
 
 @router.get("/{job_id}")
