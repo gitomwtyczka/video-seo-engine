@@ -4464,6 +4464,27 @@ export default function DashboardInner() {
     return next;
   });
 
+  const [smTargetYtId, setSmTargetYtId] = useState<Record<number, string>>({});
+  const [smPublishAt, setSmPublishAt] = useState<Record<number, string>>({});
+  const [smPrivacyStatus, setSmPrivacyStatus] = useState<Record<number, string>>({});
+  const [smSelectedPlaylist, setSmSelectedPlaylist] = useState<Record<number, string>>({});
+  const [smPlaylists, setSmPlaylists] = useState<{id: string, title: string}[]>([]);
+  const [smModalOpenFor, setSmModalOpenFor] = useState<number | null>(null);
+
+  useEffect(() => {
+    const channelId = selectedYtChannelIds[0];
+    if (!channelId) {
+      setSmPlaylists([]);
+      return;
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+    fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`)
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setSmPlaylists(data); })
+      .catch(err => console.warn('Failed to load playlists:', err));
+  }, [selectedYtChannelIds]);
+
+
   const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`;
   const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) });
 
@@ -7575,6 +7596,52 @@ export default function DashboardInner() {
                           )}
                         </div>
                       )}
+                      
+                      {/* YouTube Inject Block */}
+                      <div className="border-t border-gray-600 pt-3 mt-1">
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">► Wstrzyknij metadane na YouTube</p>
+                        <input
+                          type="text"
+                          placeholder="URL lub ID YouTube (wgrany z Premiere Pro)"
+                          className="w-full bg-gray-700 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none mb-2"
+                          value={smTargetYtId[i] || ''}
+                          onChange={e => setSmTargetYtId(prev => ({...prev, [i]: e.target.value}))}
+                        />
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                          <select
+                            className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                            value={smSelectedPlaylist[i] || ''}
+                            onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
+                          >
+                            <option value="">Playlista (opcj.)</option>
+                            {smPlaylists.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
+                          </select>
+                          <input
+                            type="datetime-local"
+                            className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                            value={smPublishAt[i] || ''}
+                            onChange={e => setSmPublishAt(prev => ({...prev, [i]: e.target.value}))}
+                          />
+                          <select
+                            className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                            value={smPrivacyStatus[i] || 'private'}
+                            onChange={e => setSmPrivacyStatus(prev => ({...prev, [i]: e.target.value}))}
+                          >
+                            <option value="private">Prywatny</option>
+                            <option value="unlisted">Niepubliczny</option>
+                            <option value="public">Publiczny</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setSmModalOpenFor(i)}
+                            disabled={!smTargetYtId[i]}
+                            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
+                          >
+                            ► Podgląd i publikacja
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                   {smSelected.size > 0 && (
@@ -7597,11 +7664,36 @@ export default function DashboardInner() {
         </div>
       </main>
 
+      {/* ShortMachine YouTube Inject Modal */}
+      {smModalOpenFor !== null && smCandidates[smModalOpenFor] && (() => {
+        const i = smModalOpenFor;
+        const c = smCandidates[i];
+        
+        // Mock schema data for short
+        const smSchemaData = {
+          youtube_description_hook: smTitles[i] || c.suggested_title || c.title || '',
+          video_description: c.hook || '',
+          youtube_hashtags: smTags[i] || c.tags || []
+        };
+        const rawInput = smTargetYtId[i] || '';
+        const smVideoId = rawInput.match(/(?:v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})/)?.[1] || rawInput;
 
-
-
-
-
+        return (
+          <YouTubePublishModal
+            isOpen={true}
+            onClose={() => setSmModalOpenFor(null)}
+            videoId={smVideoId}
+            schemaData={smSchemaData}
+            wpUrl=""
+            channels={ytChannels}
+            accessToken={accessToken || ""}
+            apiUrl={process.env.NEXT_PUBLIC_API_URL || ''}
+            publishAt={smPublishAt[i]}
+            privacyStatus={smPrivacyStatus[i]}
+            playlistId={smSelectedPlaylist[i]}
+          />
+        );
+      })()}
 
       {/* Inject Modal — pass selected portal so isManual=false for Pro/Agency users [vse-dev-37 fix] */}
 

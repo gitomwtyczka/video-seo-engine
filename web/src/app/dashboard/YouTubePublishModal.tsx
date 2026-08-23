@@ -26,11 +26,15 @@ interface Props {
 
   apiUrl: string;
 
+  publishAt?: string;
+
+  privacyStatus?: string;
+
+  playlistId?: string;
+
 }
 
-
-
-export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUrl, channels, accessToken, apiUrl }: Props) {
+export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUrl, channels, accessToken, apiUrl, publishAt, privacyStatus, playlistId }: Props) {
 
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -145,6 +149,12 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUr
         bodyPayload.override_description = previewText
 
       }
+
+      if (publishAt) bodyPayload.publish_at = new Date(publishAt).toISOString();
+
+      if (privacyStatus) bodyPayload.privacy_status = privacyStatus;
+
+      if (playlistId) bodyPayload.playlist_id = playlistId;
 
       
 
