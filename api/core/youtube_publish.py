@@ -97,29 +97,42 @@ async def update_youtube_metadata(
             if new_title:
                 snippet["title"] = new_title
             
-            update_parts = ["snippet"]
-            update_body = {
-                "id": video_id,
-                "snippet": snippet
-            }
-
-            if publish_at or privacy_status:
-                status = item.get("status", {})
-                if publish_at:
-                    status["publishAt"] = publish_at
-                    status["privacyStatus"] = privacy_status or "private"
-                elif privacy_status:
-                    status["privacyStatus"] = privacy_status
-                update_body["status"] = status
-                update_parts.append("status")
-
-            # API Update request
+            # Krok 1: Zawsze aktualizuj snippet (opis + tytuł)
             youtube.videos().update(
-                part=",".join(update_parts),
-                body=update_body
+                part="snippet",
+                body={
+                    "id": video_id,
+                    "snippet": snippet
+                }
             ).execute()
-            
-            results[channel_id] = "ok"
+
+            # Krok 2: Aktualizuj status (harmonogram/widoczność) osobnym callem
+            if publish_at or privacy_status:
+                try:
+                    status = item.get("status", {})
+                    if publish_at:
+                        status["publishAt"] = publish_at
+                        status["privacyStatus"] = privacy_status or "private"
+                    elif privacy_status:
+                        status["privacyStatus"] = privacy_status
+                    youtube.videos().update(
+                        part="status",
+                        body={
+                            "id": video_id,
+                            "status": status
+                        }
+                    ).execute()
+                    results[channel_id] = "ok"
+                except Exception as status_err:
+                    se_str = str(status_err)
+                    if hasattr(status_err, "content"):
+                        se_str += f" {status_err.content}"
+                    if "invalidPublishAt" in se_str:
+                        results[channel_id] = "warning: opis zaktualizowany, harmonogram odrzucony — film był już publiczny"
+                    else:
+                        results[channel_id] = f"warning: opis zaktualizowany, błąd statusu: {str(status_err)}"
+            else:
+                results[channel_id] = "ok"
 
         except Exception as e:
             logger.error("Error updating YT metadata for channel %s: %s", channel_id, e)
