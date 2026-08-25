@@ -285,7 +285,8 @@ export default function DashboardInner() {
 
   useEffect(() => {
     apiGet<any[]>('/v1/youtube/channels')
-      .then((data) => setYtChannels(Array.isArray(data) ? data : []))\n      .catch(() => setYtChannels([]))
+      .then((data) => setYtChannels(Array.isArray(data) ? data : []))
+      .catch(() => setYtChannels([]))
   }, [])
 
 
@@ -298,7 +299,8 @@ export default function DashboardInner() {
   }, [])
 
   // Portals hook
-  const { portals, loading: portalsLoading } = usePortals()\n  const [selectedPortalId, setSelectedPortalId] = useState<string>('')
+  const { portals, loading: portalsLoading } = usePortals()
+  const [selectedPortalId, setSelectedPortalId] = useState<string>('')
   const [publicationType, setPublicationType] = useState<string>('analiza')
   const [showAddPortalModal, setShowAddPortalModal] = useState(false)
 
@@ -340,7 +342,8 @@ export default function DashboardInner() {
         // silent
       }
     }
-    fetchProfile()\n  }, [])
+    fetchProfile()
+  }, [])
 
   const isPro =
     (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
