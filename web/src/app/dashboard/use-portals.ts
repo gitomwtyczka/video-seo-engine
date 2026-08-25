@@ -6,7 +6,7 @@
  *      przez GET /v1/portals/{id}/credentials gdy user wybierze portal.
  */
 import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
+import { apiGet, apiPost, apiDelete } from '../lib/api-client'
 
 export interface Portal {
   id: string
@@ -31,28 +31,15 @@ export interface PortalCreatePayload {
 }
 
 export function usePortals() {
-  const { data: session } = useSession()
   const [portals, setPortals] = useState<Portal[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-  const token = session?.accessToken as string | undefined
-
   const fetchPortals = useCallback(async () => {
-    if (!token) {
-      // Defer setState to avoid React #310 — updating state during another component's render
-      Promise.resolve().then(() => setLoading(false))
-      return
-    }
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${apiUrl}/v1/portals`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const data = await apiGet<{ portals: Portal[] }>('/v1/portals')
       setPortals(data.portals ?? [])
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Błąd pobierania portali')
@@ -60,64 +47,41 @@ export function usePortals() {
     } finally {
       setLoading(false)
     }
-  }, [apiUrl, token])
+  }, [])
 
   useEffect(() => { fetchPortals() }, [fetchPortals])
 
   /** Fetch full credentials (incl. password) for a specific portal. */
   const getCredentials = useCallback(async (portalId: string): Promise<PortalWithPassword | null> => {
-    if (!token) return null
     try {
-      const res = await fetch(`${apiUrl}/v1/portals/${portalId}/full`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) return null
-      return await res.json()
+      return await apiGet<PortalWithPassword>(`/v1/portals/${portalId}/full`)
     } catch {
       return null
     }
-  }, [apiUrl, token])
+  }, [])
 
   /** Create a new portal and refresh the list. */
   const createPortal = useCallback(async (payload: PortalCreatePayload): Promise<Portal | null> => {
-    if (!token) return null
     try {
-      const res = await fetch(`${apiUrl}/v1/portals`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || `HTTP ${res.status}`)
-      }
-      const created = await res.json()
-      await fetchPortals() // refresh list
+      const created = await apiPost<Portal>('/v1/portals', payload)
+      await fetchPortals()
       return created
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Błąd tworzenia portalu')
       return null
     }
-  }, [apiUrl, token, fetchPortals])
+  }, [fetchPortals])
 
   /** Delete a portal and refresh the list. */
   const deletePortal = useCallback(async (portalId: string): Promise<boolean> => {
-    if (!token) return false
     try {
-      const res = await fetch(`${apiUrl}/v1/portals/${portalId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok && res.status !== 204) return false
-      await fetchPortals() // refresh list
-      return true
+      const ok = await apiDelete(`/v1/portals/${portalId}`)
+      if (ok) await fetchPortals()
+      return ok
     } catch {
       return false
     }
-  }, [apiUrl, token, fetchPortals])
+  }, [fetchPortals])
 
   return {
     portals,
