@@ -20,34 +20,230 @@ import EmailVerificationBanner from './email-verification-banner'
 import { ErrorBoundary } from './error-boundary'
 import { YouTubePublishModal } from './YouTubePublishModal'
 
-// ─── Types (wydzielone do ./types) ─────────────────────────────────────────
-import type {
-  GenerateResponse,
-  SchemaData,
-  ChapterItem,
-  FaqItem,
-  QuoteItem,
-  UserPlan,
-  UserProfile,
-  InjectResult,
-  CopiedKey,
-  TabKey,
-} from './types'
+// ─── Types ──────────────────────────────────────────────────────────────────
 
-// ─── Utils (wydzielone do ./utils) ──────────────────────────────────────────
-import {
-  extractChapters,
-  extractFaq,
-  secToTimestamp,
-  chaptersToText,
-  faqToHtml,
-  schemaToScriptTag,
-  articleToText,
-  loadWpCredentials,
-  saveWpCredentials,
-  extractVideoId,
-  buildYtDescription,
-} from './utils'
+interface GenerateResponse {
+  status: string
+  video_id: string
+  processing_time_s?: number
+  schema_data?: SchemaData | null
+  error?: string | null
+}
+
+interface SchemaData {
+  focus_keyphrase?: string
+  post_title?: string
+  meta_description?: string
+  wp_slug?: string
+  lead?: string
+  article_body?: string
+  chapters?: ChapterItem[]
+  faq?: FaqItem[]
+  quotes?: QuoteItem[]
+  youtube_description_body?: string
+  youtube_description_hook?: string
+  youtube_description?: string
+  video_description?: string
+  youtube_mid_cta?: string
+  youtube_credits?: string
+  youtube_hashtags?: string[] | string
+  wp_article_url?: string
+  published_url?: string
+  wp_url?: string
+  [key: string]: unknown
+}
+
+interface ChapterItem {
+  name?: string
+  startOffset?: number
+  endOffset?: number
+  label?: string
+  time?: number
+}
+
+interface FaqItem {
+  question?: string
+  answer?: string
+}
+
+interface QuoteItem {
+  text?: string
+  author?: string
+}
+
+interface UserPlan {
+  id: string
+  display_name: string
+  monthly_quota: number
+}
+
+interface UserProfile {
+  email: string
+  is_verified?: boolean
+  plan: UserPlan
+  usage: { used_this_month: number; quota: number; percent: number }
+}
+
+interface InjectResult {
+  status?: string
+  wp_post_id?: number
+  post_url?: string
+  created?: boolean
+  error?: string
+  yt_results?: Record<string, string>
+}
+
+type CopiedKey = string | null
+type TabKey = 'schema' | 'article' | 'chapters' | 'youtube' | 'shorts'
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function extractChapters(schema: SchemaData | null | undefined): ChapterItem[] {
+  if (!schema) return []
+  const graph = schema['@graph']
+  if (Array.isArray(graph)) {
+    const clips = (graph as Record<string, unknown>[]).filter(
+      (n) => n['@type'] === 'Clip'
+    )
+    if (clips.length > 0)
+      return clips.map((c) => ({
+        name: c.name as string | undefined,
+        startOffset: c.startOffset as number | undefined,
+        endOffset: c.endOffset as number | undefined,
+      }))
+  }
+  if (Array.isArray(schema.chapters)) {
+    return schema.chapters.map((c: ChapterItem) => ({
+      name: c.name ?? c.label,
+      startOffset: c.startOffset ?? c.time,
+      endOffset: c.endOffset,
+    }))
+  }
+  return []
+}
+
+function extractFaq(schema: SchemaData | null | undefined): FaqItem[] {
+  if (!schema) return []
+  const graph = schema['@graph']
+  if (Array.isArray(graph)) {
+    const faqPage = (graph as Record<string, unknown>[]).find(
+      (n) => n['@type'] === 'FAQPage'
+    )
+    if (faqPage) {
+      const items = faqPage['mainEntity']
+      if (Array.isArray(items))
+        return (items as Record<string, unknown>[]).map((q) => ({
+          question: q['name'] as string | undefined,
+          answer: ((q['acceptedAnswer'] as Record<string, unknown>)?.['text']) as string | undefined,
+        }))
+    }
+  }
+  if (Array.isArray(schema.faq)) return schema.faq
+  return []
+}
+
+function secToTimestamp(sec?: number): string {
+  if (sec == null) return '?'
+  const m = Math.floor(sec / 60)
+  const s = Math.floor(sec % 60)
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function chaptersToText(chapters: ChapterItem[]): string {
+  return chapters
+    .map((c) => `${secToTimestamp(c.startOffset ?? c.time)} — ${c.name ?? c.label ?? '(bez tytułu)'}`)
+    .join('\n')
+}
+
+function faqToHtml(faq: FaqItem[]): string {
+  const items = faq
+    .map(
+      (f) =>
+        `<details><summary>${f.question ?? ''}</summary>\n${f.answer ?? ''}\n</details>`
+    )
+    .join('\n')
+  return `<h3>Często zadawane pytania</h3>\n${items}`
+}
+
+function schemaToScriptTag(schema: SchemaData | null): string {
+  return `<script type="application/ld+json">\n${JSON.stringify(schema ?? {}, null, 2)}\n</script>`
+}
+
+function articleToText(schema: SchemaData | null, faq: FaqItem[]): string {
+  const parts: string[] = []
+  if (schema?.post_title) parts.push(`# ${schema.post_title}\n`)
+  if (schema?.lead) parts.push(`${schema.lead}\n`)
+  if (schema?.article_body) parts.push(`${schema.article_body}\n`)
+  if (faq.length > 0) {
+    parts.push('## FAQ\n')
+    faq.forEach((f) => {
+      parts.push(`**${f.question ?? ''}**\n${f.answer ?? ''}\n`)
+    })
+  }
+  return parts.join('\n')
+}
+
+function loadWpCredentials(): { wpUrl: string; wpUser: string; wpPassword: string } {
+  if (typeof window === 'undefined') return { wpUrl: 'https://', wpUser: '', wpPassword: '' }
+  try {
+    const saved = localStorage.getItem('vse_wp_credentials')
+    if (saved) return JSON.parse(saved)
+  } catch { /* ignore */ }
+  return { wpUrl: 'https://', wpUser: '', wpPassword: '' }
+}
+
+function saveWpCredentials(creds: { wpUrl: string; wpUser: string; wpPassword: string }): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem('vse_wp_credentials', JSON.stringify(creds))
+  } catch { /* ignore */ }
+}
+
+function extractVideoId(url: string): string {
+  if (!url) return ''
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\s]{11})/)
+  return match ? match[1] : (url.length === 11 ? url : '')
+}
+
+function buildYtDescription(schema: SchemaData | null | undefined, wpUrl?: string): string {
+  if (!schema) return ''
+  const parts: string[] = []
+
+  const body = schema?.youtube_description_body ?? schema?.youtube_description_hook ?? schema?.video_description ?? ''
+  if (body) parts.push(body as string)
+
+  if (wpUrl) parts.push(`🔗 Artykuł: ${wpUrl}`)
+
+  if (schema.youtube_mid_cta) parts.push(schema.youtube_mid_cta as string)
+
+  const rawChapters = schema.chapters
+  if (Array.isArray(rawChapters) && rawChapters.length > 0) {
+    const lines = rawChapters.map((c: ChapterItem) => {
+      const sec = c.time ?? c.startOffset ?? 0
+      const m = Math.floor(sec / 60).toString().padStart(2, '0')
+      const s = Math.floor(sec % 60).toString().padStart(2, '0')
+      const title = c.label ?? c.name ?? ''
+      return `${m}:${s} ${title}`.trim()
+    })
+    parts.push('ROZDZIAŁY:\n' + lines.join('\n'))
+  }
+
+  if (schema.youtube_credits) parts.push(schema.youtube_credits as string)
+
+  const hashtags = schema.youtube_hashtags
+  if (hashtags) {
+    if (Array.isArray(hashtags)) {
+      const tags = (hashtags as string[])
+        .map(t => t.startsWith('#') ? t : `#${t}`)
+        .join(', ')
+      if (tags) parts.push(tags)
+    } else if (typeof hashtags === 'string') {
+      parts.push(hashtags)
+    }
+  }
+
+  return parts.join('\n\n')
+}
 
 // ─── Subcomponents (wydzielone do ./components) ──────────────────────────────────
 // UWAGA: InjectModal i AddPortalModal zostają tutaj — ETAP 2 je wydzieli
@@ -243,4 +439,1909 @@ function InjectModal({
             <p className="text-sm font-medium text-white truncate">
               {schemaData.post_title ?? '(brak tytułu)'}
             </p>
-            {schemaData.meta_description && (\n              <p className="text-xs text-gray-400 mt-1 line-clamp-2">\n                {schemaData.meta_description}\n              </p>\n            )}\n          </div>\n\n          {!isManual && portalName && (\n            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">\n              <span className="text-xs text-violet-400">🚀</span>\n              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>\n              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>\n            </div>\n          )}\n\n          {isManual && (\n            <>\n              <div>\n                <label className="block text-xs text-gray-400 mb-1.5">URL portalu WordPress</label>\n                <input\n                  type="text"\n                  value={wpUrl}\n                  onChange={(e) => setWpUrl(e.target.value)}\n                  placeholder="https://twojportal.pl"\n                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"\n                />\n              </div>\n\n              <div className="grid grid-cols-2 gap-3">\n                <div>\n                  <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>\n                  <input\n                    type="text"\n                    value={wpUser}\n                    onChange={(e) => setWpUser(e.target.value)}\n                    placeholder="admin"\n                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"\n                  />\n                </div>\n                <div>\n                  <label className="block text-xs text-gray-400 mb-1.5">Application Password</label>\n                  <input\n                    type="password"\n                    value={wpPassword}\n                    onChange={(e) => setWpPassword(e.target.value)}\n                    placeholder="xxxx xxxx xxxx xxxx"\n                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"\n                  />\n                </div>\n              </div>\n            </>\n          )}\n\n          <div className="mb-4">\n            <label className="block text-xs text-gray-400 mb-1.5">Dodatkowo: Opublikuj opis na YouTube</label>\n            {ytChannels && ytChannels.length > 0 ? (\n              <div className="space-y-2 max-h-32 overflow-y-auto bg-gray-800/50 p-2 rounded-lg border border-gray-700">\n                {ytChannels.map(ch => (\n                  <label key={ch.channel_id} className="flex items-center gap-2 cursor-pointer">\n                    <input\n                      type="checkbox"\n                      checked={selectedYtChannelIds.includes(ch.channel_id)}\n                      onChange={(e) => {\n                        if (e.target.checked) setSelectedYtChannelIds(p => [...p, ch.channel_id])\n                        else setSelectedYtChannelIds(p => p.filter(id => id !== ch.channel_id))\n                      }}\n                      className="accent-violet-500 rounded"\n                    />\n                    <span className="text-sm text-gray-300">{ch.channel_title}</span>\n                  </label>\n                ))}\n              </div>\n            ) : (\n              <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">\n                <p className="text-xs text-amber-500/90 flex items-center gap-1.5">\n                  ⚠️ Brak podłączonych kanałów YouTube.\n                  <a href="/ustawienia" target="_blank" rel="noreferrer" className="underline hover:text-amber-400 transition-colors ml-1">\n                    Przejdź do ustawień\n                  </a>\n                </p>\n              </div>\n            )}\n\n            {selectedYtChannelIds.length > 0 && ytChannels && ytChannels.length > 0 && (\n              <div className="mt-3">\n                {!showYtPreview ? (\n                  <button\n                    onClick={() => setShowYtPreview(true)}\n                    className="text-xs text-violet-400 hover:text-violet-300 underline"\n                  >\n                    Pokaż edytowalny podgląd opisu YT\n                  </button>\n                ) : (\n                  <div className="mt-2 animate-in slide-in-from-top-2">\n                    <label className="block text-xs text-gray-400 mb-1">\n                      Podgląd opisu YouTube <span className="text-gray-600">(edytowalny)</span>\n                    </label>\n                    <textarea\n                      value={ytDescPreview}\n                      onChange={(e) => setYtDescPreview(e.target.value)}\n                      rows={6}\n                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-violet-500 resize-y font-mono"\n                    />\n                    <button\n                      onClick={() => setShowYtPreview(false)}\n                      className="mt-1 text-xs text-gray-500 hover:text-gray-400"\n                    >\n                      Ukryj podgląd\n                    </button>\n                  </div>\n                )}\n              </div>\n            )}\n          </div>\n\n          <div className="grid grid-cols-2 gap-3">\n            <div>\n              <label className="block text-xs text-gray-400 mb-1.5">\n                ID posta WP <span className="text-gray-600">(puste = nowy post)</span>\n              </label>\n              <input\n                type="number"\n                value={wpPostId}\n                onChange={(e) => setWpPostId(e.target.value)}\n                placeholder="Puste = nowy artykuł"\n                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"\n              />\n            </div>\n            <div>\n              <label className="block text-xs text-gray-400 mb-1.5">Status publikacji</label>\n              <div className="flex gap-4 h-[42px] items-center">\n                <label className="flex items-center gap-2 cursor-pointer">\n                  <input\n                    type="radio"\n                    name="modal_post_status"\n                    value="draft"\n                    checked={postStatus === 'draft'}\n                    onChange={() => setPostStatus('draft')}\n                    className="accent-violet-500"\n                  />\n                  <span className="text-sm text-gray-300">Szkic</span>\n                </label>\n                <label className="flex items-center gap-2 cursor-pointer">\n                  <input\n                    type="radio"\n                    name="modal_post_status"\n                    value="publish"\n                    checked={postStatus === 'publish'}\n                    onChange={() => setPostStatus('publish')}\n                    className="accent-violet-500"\n                  />\n                  <span className="text-sm text-gray-300">Publikuj</span>\n                </label>\n              </div>\n            </div>\n          </div>\n\n          <div>\n            <label className="block text-xs text-gray-400 mb-1.5">Format wpisu WordPress</label>\n            <select\n              value={postFormat}\n              onChange={(e) => setPostFormat(e.target.value)}\n              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"\n              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n            >\n              <option value="video">🎬 Film (video)</option>\n              <option value="standard">📄 Standard</option>\n              <option value="gallery">🖼️ Galeria (gallery)</option>\n              <option value="quote">💬 Cytat (quote)</option>\n            </select>\n            <p className="text-xs text-gray-600 mt-1">Domyślnie: Film — optymalny dla treści video SEO</p>\n          </div>\n\n          <button\n            onClick={handlePublish}\n            disabled={publishing || (!isManual && !selectedPortalId && selectedYtChannelIds.length === 0) || (isManual && !wpUrl && selectedYtChannelIds.length === 0)}\n            className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"\n          >\n            {publishing ? (\n              <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Publikowanie...</>\n            ) : (\n              <>🚀 Opublikuj na portalu</>\n            )}\n          </button>\n\n          {publishResult && (\n            <div\n              className={`p-4 rounded-xl text-sm ${\n                publishResult.error\n                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'\n                  : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'\n              }`}\n            >\n              {publishResult.error ? (\n                <><span className="font-medium">⚠️ Błąd:</span> {publishResult.error}</>\n              ) : (\n                <div className="space-y-1">\n                  <p><span className="font-medium">✔️ Sukces!</span>\n                    {publishResult.created ? ' Utworzono nowy artykuł' : ' Zaktualizowano artykuł'}\n                    {publishResult.wp_post_id && ` (ID: ${publishResult.wp_post_id})`}\n                  </p>\n                  {publishResult.post_url && (\n                    <a\n                      href={publishResult.post_url}\n                      target="_blank"\n                      rel=\"noopener noreferrer\"\n                      className=\"inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200 underline underline-offset-2\"\n                    >\n                      Otwórz artykuł na portalu →\n                    </a>\n                  )}\n                </div>\n              )}\n            </div>\n          )}\n\n          <p className="text-xs text-gray-600 text-center">\n            {isManual ? 'Dane logowania zapamiętane w przeglądarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}\n          </p>\n        </div>\n      </div>\n    </div>\n  )\n}\n\nfunction AddPortalModal({\n  onClose,\n  onSuccess\n}: {\n  onClose: () => void\n  onSuccess: (portalId: string) => void\n}) {\n  const { createPortal } = usePortals()\n  const { profiles, loading: profilesLoading, createProfile } = useProfiles()\n\n  const [name, setName] = useState('')\n  const [url, setUrl] = useState('https://')\n  const [wpUser, setWpUser] = useState('')\n  const [wpPassword, setWpPassword] = useState('')\n  const [profileId, setProfileId] = useState('')\n  const [saving, setSaving] = useState(false)\n  const [error, setError] = useState('')\n\n  const [showNewProfileForm, setShowNewProfileForm] = useState(false)\n  const [newProfileBrand, setNewProfileBrand] = useState('')\n  const [newProfileType, setNewProfileType] = useState('analiza')\n  const [newProfileLang, setNewProfileLang] = useState('pl')\n  const [newProfileExtUrl, setNewProfileExtUrl] = useState('')\n  const [newProfileExtAnchor, setNewProfileExtAnchor] = useState('')\n\n  const modalRef = useRef<HTMLDivElement>(null)\n\n  useEffect(() => {\n    if (profiles.length > 0 && !profileId) {\n      setProfileId(profiles[0].id)\n    }\n  }, [profiles, profileId])\n\n  useEffect(() => {\n    const handler = (e: KeyboardEvent) => {\n      if (e.key === 'Escape') onClose()\n    }\n    window.addEventListener('keydown', handler)\n    return () => window.removeEventListener('keydown', handler)\n  }, [onClose])\n\n  const handleBackdropClick = (e: React.MouseEvent) => {\n    if (modalRef.current && !modalRef.current.contains(e.target as Node))\n    {\n      onClose()\n    }\n  }\n\n  const slugify = (text: string): string =>\n    text.toLowerCase()\n      .replace(/[ąàáâãäå]/g, 'a').replace(/[ćčç]/g, 'c')\n      .replace(/[ęèéêë]/g, 'e').replace(/[ìíîï]/g, 'i')\n      .replace(/[łľ]/g, 'l').replace(/[ńñň]/g, 'n')\n      .replace(/[óòôõöő]/g, 'o').replace(/[śšş]/g, 's')\n      .replace(/[ùúûüű]/g, 'u').replace(/[ýÿ]/g, 'y')\n      .replace(/[źżž]/g, 'z').replace(/[đð]/g, 'd')\n      .replace(/[^\\w-]/g, '-').replace(/-+/g, '-')\n      .replace(/^-|-$/g, '')\n\n  const handleProfileDropdownChange = (value: string) => {\n    if (value === '__new__') {\n      setShowNewProfileForm(true)\n      setProfileId('__new__')\n    } else {\n      setShowNewProfileForm(false)\n      setProfileId(value)\n    }\n  }\n\n  const handleSave = async () => {\n    if (!name || !url || !wpUser || !wpPassword) {\n      setError('Uzupełnij wszystkie pola.')\n      return\n    }\n\n    if (showNewProfileForm) {\n      if (!newProfileBrand.trim()) {\n        setError('Podaj nazwę brandu dla nowego profilu.')\n        return\n      }\n    }\n\n    setSaving(true)\n    setError('')\n\n    try {\n      let finalProfileId: string | null = null\n\n      if (showNewProfileForm) {\n        const portalSlug = slugify(name)\n        if (!portalSlug || portalSlug.length < 3) {\n          setError('Nazwa portalu jest za krótka (min. 3 znaki).')\n          setSaving(false)\n          return\n        }\n\n        const newProfile = await createProfile({\n          portal_id: portalSlug,\n          display_name: name.trim(),\n          site_brand: newProfileBrand.trim(),\n          wp_base_url: url.trim(),\n          default_type: newProfileType,\n          seo_language: newProfileLang,\n          seo_external_link_url: newProfileExtUrl.trim() || undefined,\n          seo_external_link_anchor: newProfileExtAnchor.trim() || undefined,\n        })\n\n        if (!newProfile) {\n          setError('Nie udało się utworzyć profilu. Sprawdź dane.')\n          setSaving(false)\n          return\n        }\n\n        finalProfileId = newProfile.id\n      } else {\n        finalProfileId = profileId === 'none' ? null : profileId\n      }\n\n      const created = await createPortal({\n        name,\n        url,\n        wp_username: wpUser,\n        wp_app_password: wpPassword,\n        profile_id: finalProfileId,\n      })\n\n      if (created) {\n        onSuccess(created.id)\n      } else {\n        setError('Nie udało się utworzyć portalu.')\n      }\n    } catch (e: unknown) {\n      setError(e instanceof Error ? e.message : 'Błąd podczas zapisu')\n    } finally {\n      setSaving(false)\n    }\n  }\n\n  const selectClass = \"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none cursor-pointer appearance-none\"\n  const selectStyle = { backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }\n  const inputClass = \"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none\"\n\n  return (\n    <div\n      className=\"fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm\"\n      onClick={handleBackdropClick}\n    >\n      <div\n        ref={modalRef}\n        className=\"w-full max-w-md bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden animate-in\"\n        style={{ animation: 'fadeInUp 0.25s ease-out', maxHeight: '90vh', overflowY: 'auto' }}\n      >\n        <div className=\"flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gradient-to-r from-violet-950/50 to-fuchsia-950/30\">\n          <h3 className=\"font-semibold text-white\">Dodaj nowy portal</h3>\n          <button onClick={onClose} className=\"text-gray-400 hover:text-white transition-colors p-1\">\n            <svg className=\"w-5 h-5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n              <path strokeLinecap=\"round\" strokeLinejoin=\"round\" strokeWidth={2} d=\"M6 18L18 6M6 6l12 12\" />\n            </svg>\n          </button>\n        </div>\n\n        <div className=\"px-6 py-5 space-y-4\">\n          <div>\n            <label className=\"block text-xs text-gray-400 mb-1.5\">Nazwa portalu</label>\n            <input\n              type=\"text\"\n              value={name}\n              onChange={(e) => setName(e.target.value)}\n              placeholder=\"np. BiznesCiti.com\"\n              className={inputClass}\n            />\n          </div>\n\n          <div>\n            <label className=\"block text-xs text-gray-400 mb-1.5\">URL WordPress</label>\n            <input\n              type=\"url\"\n              value={url}\n              onChange={(e) => setUrl(e.target.value)}\n              placeholder=\"https://biznesciti.com\"\n              className={inputClass}\n            />\n          </div>\n\n          <div className=\"grid grid-cols-2 gap-3\">\n            <div>\n              <label className=\"block text-xs text-gray-400 mb-1.5\">Użytkownik WP</label>\n              <input\n                type=\"text\"\n                value={wpUser}\n                onChange={(e) => setWpUser(e.target.value)}\n                placeholder=\"admin\"\n                className={inputClass}\n              />\n            </div>\n            <div>\n              <label className=\"block text-xs text-gray-400 mb-1.5\">App Password</label>\n              <input\n                type=\"password\"\n                value={wpPassword}\n                onChange={(e) => setWpPassword(e.target.value)}\n                placeholder=\"xxxx xxxx xxxx xxxx\"\n                className={inputClass}\n              />\n            </div>\n          </div>\n\n          <div>\n            <label className=\"block text-xs text-gray-400 mb-1.5\">Profil treści</label>\n            {profilesLoading ? (\n              <div className=\"text-gray-500 text-xs py-2\">Ładowanie profili...</div>\n            ) : (\n              <select\n                value={profileId}\n                onChange={(e) => handleProfileDropdownChange(e.target.value)}\n                className={selectClass}\n                style={selectStyle}\n              >\n                {profiles.map((p: Profile) => (\n                  <option key={p.id} value={p.id}>\n                    {p.display_name}{p.site_brand ? ` (${p.site_brand})` : ''}\n                  </option>\n                ))}\n                <option value=\"none\">(brak profilu)</option>\n                <option value=\"__new__\">+ Utwórz nowy profil</option>\n              </select>\n            )}\n          </div>\n\n          {showNewProfileForm && (\n            <div className=\"space-y-3 pl-3 border-l-2 border-violet-500/30\">\n              <p className=\"text-xs text-violet-400 font-medium\">Nowy profil treści</p>\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1\">Site brand</label>\n                <input\n                  type=\"text\"\n                  value={newProfileBrand}\n                  onChange={(e) => setNewProfileBrand(e.target.value)}\n                  placeholder=\"np. BiznesCiti\"\n                  className={inputClass}\n                />\n              </div>\n\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1\">Domyślny typ publikacji</label>\n                <select\n                  value={newProfileType}\n                  onChange={(e) => setNewProfileType(e.target.value)}\n                  className={selectClass}\n                  style={selectStyle}\n                >\n                  <optgroup label=\"-- Informacyjne --\">\n                    <option value=\"news\">News (depesza)</option>\n                  </optgroup>\n                  <optgroup label=\"-- Publicystyczne --\">\n                    <option value=\"analiza\">Analiza pogłębiona</option>\n                    <option value=\"felieton\">Felieton</option>\n                  </optgroup>\n                  <optgroup label=\"-- Narracyjne --\">\n                    <option value=\"wywiad\">Wywiad Q&A</option>\n                    <option value=\"reportaz\">Reportaż</option>\n                  </optgroup>\n                  <optgroup label=\"-- Użytkowe --\">\n                    <option value=\"explainer\">Explainer (wyjaśniamy)</option>\n                    <option value=\"poradnik\">Poradnik / How-To</option>\n                  </optgroup>\n                  <optgroup label=\"-- Legacy (zachowane) --\">\n                    <option value=\"full_analysis\">Pełna analiza (stary)</option>\n                    <option value=\"watching_page\">Strona oglądania</option>\n                    <option value=\"discover\">Google Discover</option>\n                  </optgroup>\n                </select>\n              </div>\n\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1\">Język SEO</label>\n                <select\n                  value={newProfileLang}\n                  onChange={(e) => setNewProfileLang(e.target.value)}\n                  className={selectClass}\n                  style={selectStyle}\n                >\n                  <option value=\"pl\">Polski</option>\n                  <option value=\"en\">English</option>\n                  <option value=\"de\">Deutsch</option>\n                </select>\n              </div>\n\n              <div className=\"grid grid-cols-2 gap-3\">\n                <div>\n                  <label className=\"block text-xs text-gray-400 mb-1\">Link zewn. SEO</label>\n                  <input\n                    type=\"url\"\n                    value={newProfileExtUrl}\n                    onChange={(e) => setNewProfileExtUrl(e.target.value)}\n                    placeholder=\"https://youtube.com\"\n                    className={inputClass}\n                  />\n                </div>\n                <div>\n                  <label className=\"block text-xs text-gray-400 mb-1\">Anchor linku</label>\n                  <input\n                    type=\"text\"\n                    value={newProfileExtAnchor}\n                    onChange={(e) => setNewProfileExtAnchor(e.target.value)}\n                    placeholder=\"Źródło wideo\"\n                    className={inputClass}\n                  />\n                </div>\n              </div>\n            </div>\n          )}\n\n          {error && <p className=\"text-red-400 text-xs mt-2\">{error}</p>}\n\n          <div className=\"flex gap-3 pt-2\">\n            <button\n              onClick={onClose}\n              disabled={saving}\n              className=\"flex-1 py-2 bg-gray-800 text-white rounded-lg font-medium hover:bg-gray-700 transition-colors\"\n            >\n              Anuluj\n            </button>\n            <button\n              onClick={handleSave}\n              disabled={saving}\n              className=\"flex-1 py-2 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-500 transition-colors\"\n            >\n              {saving ? 'Zapisywanie...' : showNewProfileForm ? '✨ Utwórz profil i portal' : 'Zapisz portal'}\n            </button>\n          </div>\n        </div>\n      </div>\n    </div>\n  )\n}\n\n// ─── Main Component ─────────────────────────────────────────────────────────\n\nexport default function DashboardInner() {\n  const { data: session, status } = useSession()\n  const router = useRouter()\n\n  const [url, setUrl] = useState('')\n  const [loading, setLoading] = useState(false)\n  const [result, setResult] = useState<{ raw: SchemaData; videoId: string; time?: number; inputUrl: string } | null>(null)\n  const [error, setError] = useState('')\n  const [copiedKey, setCopiedKey] = useState<CopiedKey>(null)\n  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)\n  const [activeTab, setActiveTab] = useState<TabKey>('article')\n\n  // ShortMachine state\n  const [smYoutubeId, setSmYoutubeId] = useState('')\n  const [smCustomQuery, setSmCustomQuery] = useState('')\n  const [smCountEmotional, setSmCountEmotional] = useState(2)\n  const [smCountProfessional, setSmCountProfessional] = useState(2)\n  const [smCountCustom, setSmCountCustom] = useState(3)\n  const [shortLocalPath, setShortLocalPath] = useState<string>('')\n  const [smCandidates, setSmCandidates] = useState<any[]>([])\n  const [smPreviewIdx, setSmPreviewIdx] = useState<number | null>(null)\n  const ytPlayerRef = useRef<any>(null)\n  const ytIntervalRef = useRef<any>(null)\n  const [smTitles, setSmTitles] = useState<Record<number, string>>({})\n  const [smTags, setSmTags] = useState<Record<number, string[]>>({})\n  const [smTitleLoading, setSmTitleLoading] = useState<Record<number, boolean>>({})\n\n  // Auto-populate smYoutubeId from current video URL\n  useEffect(() => {\n    if (!smYoutubeId) {\n      const urlParams = new URLSearchParams(window.location.search)\n      const jobVideoUrl = url || urlParams.get('video_url') || ''\n      if (jobVideoUrl) {\n        const match = jobVideoUrl.match(/(?:v=|youtu\\.be\\/|shorts\\/)([a-zA-Z0-9_-]{11})/)\n        if (match) setSmYoutubeId(match[1])\n        else if (jobVideoUrl.length === 11) setSmYoutubeId(jobVideoUrl)\n      }\n    }\n  }, [url, smYoutubeId])\n\n  const extractYoutubeId = (urlOrId: string): string => {\n    if (/^[A-Za-z0-9_-]{11}$/.test(urlOrId)) return urlOrId\n    const match = urlOrId.match(/(?:v=|youtu\\.be\\/|\\/shorts\\/)([A-Za-z0-9_-]{11})/)\n    return match ? match[1] : urlOrId\n  }\n\n  useEffect(() => {\n    if (!smYoutubeId) return\n    const cleanId = extractYoutubeId(smYoutubeId)\n    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''\n    fetch(`${apiBase}/v1/shorts/history/${cleanId}`)\n      .then(r => r.json())\n      .then(data => {\n        if (data.candidates?.length > 0 && smCandidates.length === 0) {\n          setSmCandidates(data.candidates)\n        }\n        if (data.jobs?.length > 0 && data.candidates?.length > 0) {\n          const restoredStatus: Record<number, any> = {}\n          data.jobs.forEach((job: any) => {\n            const idx = data.candidates.findIndex(\n              (c: any) => Math.abs(c.start_sec - job.start_sec) < 1 &&\n                          Math.abs(c.end_sec - job.end_sec) < 1\n            )\n            if (idx >= 0) {\n              restoredStatus[idx] = {\n                status: job.status,\n                result_paths: job.result_paths,\n                job_id: job.id,\n                error: job.error,\n              }\n            }\n          })\n          if (Object.keys(restoredStatus).length > 0) {\n            setSmJobStatus(prev => ({ ...restoredStatus, ...prev }))\n          }\n        }\n      })\n      .catch(err => console.warn('Failed to restore ShortMachine state:', err))\n  }, [smYoutubeId])\n\n  const [smLoading, setSmLoading] = useState(false)\n  const [smError, setSmError] = useState<string | null>(null)\n  const [smRenderConfig, setSmRenderConfig] = useState<Record<number, {format: string, subtitles: string}>>({})\n  const [smJobStatus, setSmJobStatus] = useState<Record<number, any>>({})\n  const [smTrimAdj, setSmTrimAdj] = useState<Record<number, {startDelta: number; endDelta: number}>>({})\n  const [smExpandedIdx, setSmExpandedIdx] = useState<number | null>(null)\n  const [smTrimMode, setSmTrimMode] = useState<'start' | 'end'>('start')\n  const [smSelected, setSmSelected] = useState<Set<number>>(new Set())\n  const [smFormat, setSmFormat] = useState<'raw' | 'short'>('raw')\n\n  const toggleSmSelected = (idx: number) => setSmSelected(prev => {\n    const next = new Set(prev)\n    if (next.has(idx)) next.delete(idx); else next.add(idx)\n    return next\n  })\n\n  const [smTargetYtId, setSmTargetYtId] = useState<Record<number, string>>({})\n  const [smGlobalChannelId, setSmGlobalChannelId] = useState<string>('')\n  const [smChannelOverride, setSmChannelOverride] = useState<Record<number, string>>({})\n  const [smPublishAt, setSmPublishAt] = useState<Record<number, string>>({})\n  const [smPrivacyStatus, setSmPrivacyStatus] = useState<Record<number, string>>({})\n  const [smSelectedPlaylist, setSmSelectedPlaylist] = useState<Record<number, string>>({})\n  const [smPlaylists, setSmPlaylists] = useState<{id: string, title: string}[]>([])\n  const [smModalOpenFor, setSmModalOpenFor] = useState<number | null>(null)\n\n  const [showInjectModal, setShowInjectModal] = useState(false)\n  const [ytModalOpen, setYtModalOpen] = useState(false)\n  const [ytChannels, setYtChannels] = useState<any[]>([])\n  const [ytDescription, setYtDescription] = useState<string>('')\n\n  useEffect(() => {\n    if (!session?.accessToken) return\n    fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/youtube/channels`, {\n      headers: { Authorization: `Bearer ${session.accessToken}` }\n    })\n      .then((r) => r.ok ? r.json() : [])\n      .then((data) => setYtChannels(Array.isArray(data) ? data : []))\n      .catch(() => setYtChannels([]))\n  }, [session?.accessToken])\n\n  useEffect(() => {\n    const defaultCh = ytChannels.find((ch: any) => ch.is_default) ?? ytChannels[0]\n    if (defaultCh && !smGlobalChannelId) {\n      setSmGlobalChannelId(defaultCh.channel_id)\n    }\n    const channelId = ytChannels[0]?.channel_id\n    if (!channelId) {\n      setSmPlaylists([])\n      return\n    }\n    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''\n    fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`)\n      .then(r => r.json())\n      .then(data => { if (Array.isArray(data)) setSmPlaylists(data) })\n      .catch(err => console.warn('Failed to load playlists:', err))\n  }, [ytChannels])\n\n  const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`\n  const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) })\n\n  const handleRegenerateTitle = async (i: number, c: any) => {\n    const adj = getAdj(i, c)\n    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''\n    setSmTitleLoading(p => ({...p, [i]: true}))\n    try {\n      const res = await fetch(`${apiBase}/v1/shorts/title`, {\n        method: 'POST',\n        headers: {'Content-Type': 'application/json'},\n        body: JSON.stringify({youtube_id: smYoutubeId, start_sec: adj.start, end_sec: adj.end})\n      })\n      const data = await res.json()\n      if (data.title) setSmTitles(p => ({...p, [i]: data.title}))\n      if (data.tags?.length) setSmTags(p => ({...p, [i]: data.tags}))\n    } finally {\n      setSmTitleLoading(p => ({...p, [i]: false}))\n    }\n  }\n\n  useEffect(() => {\n    if (typeof window === 'undefined') return\n    if ((window as any).YT) return\n    const tag = document.createElement('script')\n    tag.src = 'https://www.youtube.com/iframe_api'\n    document.head.appendChild(tag)\n  }, [])\n\n  // Portals hook\n  const { portals, loading: portalsLoading } = usePortals()\n  const [selectedPortalId, setSelectedPortalId] = useState<string>('')\n  const [publicationType, setPublicationType] = useState<string>('analiza')\n  const [showAddPortalModal, setShowAddPortalModal] = useState(false)\n\n  useEffect(() => {\n    if (portals.length > 0 && !selectedPortalId) {\n      const defaultPortal = portals.find((p) => p.is_default) ?? portals[0]\n      if (defaultPortal) {\n        setSelectedPortalId(defaultPortal.id)\n      }\n    }\n  }, [portals, selectedPortalId])\n\n  const accessToken = (session as any)?.accessToken as string | undefined\n  const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken)\n\n  useEffect(() => {\n    if (jobData?.schema_data) {\n      const videoId = jobData.video_id || ''\n      setResult({\n        raw: jobData.schema_data as SchemaData,\n        videoId,\n        inputUrl: jobData.video_url,\n      })\n      setUrl(jobData.video_url)\n      setActiveTab('article')\n    }\n  }, [jobData])\n\n  useEffect(() => {\n    if (status === 'unauthenticated') router.push('/login')\n  }, [status, router])\n\n  useEffect(() => {\n    const fetchProfile = async () => {\n      if (!session?.accessToken) return\n      try {\n        const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''\n        const res = await fetch(`${apiUrl}/v1/users/me`, {\n          headers: { Authorization: `Bearer ${session.accessToken as string}` },\n        })\n        if (res.ok) setUserProfile(await res.json())\n      } catch {\n        // silent\n      }\n    }\n    fetchProfile()\n  }, [session?.accessToken])\n\n  const isPro = \n    (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||\n    (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))\n\n  const handleCopy = useCallback(async (text: string, id: string) => {\n    try {\n      await navigator.clipboard.writeText(text)\n      setCopiedKey(id)\n      setTimeout(() => setCopiedKey(null), 2000)\n    } catch {\n      // silent\n    }\n  }, [])\n\n  useEffect(() => {\n    if (result?.raw) {\n      const wpLink = result.raw?.wp_url as string | undefined\n      setYtDescription(buildYtDescription(result.raw as SchemaData, wpLink))\n    }\n  }, [result])\n\n  const handleGetCandidates = async () => {\n    setSmLoading(true)\n    setSmError(null)\n    setSmCandidates([])\n    try {\n      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''\n      const res = await fetch(`${apiUrl}/v1/shorts/candidates`, {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) },\n        body: JSON.stringify({\n          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,\n          youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : undefined,\n          custom_query: smCustomQuery,\n          count_emotional: smCountEmotional,\n          count_professional: smCountProfessional,\n          count_custom: smCustomQuery ? smCountCustom : 0,\n        }),\n      })\n      if (!res.ok) throw new Error(`HTTP ${res.status}`)\n      const data = await res.json()\n      setSmCandidates(data.candidates || [])\n      const newTitles: Record<number, string> = {}\n      const newTags: Record<number, string[]> = {}\n      ;(data.candidates || []).forEach((c: any, i: number) => {\n        newTitles[i] = c.suggested_title || ''\n        newTags[i] = c.tags || []\n      })\n      setSmTitles(newTitles)\n      setSmTags(newTags)\n    } catch (e: any) {\n      setSmError(e.message)\n    } finally {\n      setSmLoading(false)\n    }\n  }\n\n  const handleRenderShort = async (candidate: any, index: number) => {\n    try {\n      const cfg = smRenderConfig[index] || {}\n      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''\n      const res = await fetch(`${apiUrl}/v1/shorts/render`, {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) },\n        body: JSON.stringify({\n          youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : `https://www.youtube.com/watch?v=${smYoutubeId}`,\n          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,\n          start_sec: candidate.start_sec,\n          end_sec: candidate.end_sec,\n          candidate_data: candidate,\n          format: smFormat,\n          render_format: cfg.format || '9:16',\n          subtitles: cfg.subtitles || 'srt',\n          output_dir: 'C:\\\\VSE\\\\Shorts',\n          ...(shortLocalPath ? { local_path: shortLocalPath } : {}),\n        }),\n      })\n      if (!res.ok) throw new Error(`HTTP ${res.status}`)\n      const data = await res.json()\n      const renderJobId = data.job_id\n      setSmJobStatus(prev => ({...prev, [index]: {status: 'pending'}}))\n      \n      let attempts = 0\n      const poll = setInterval(async () => {\n        attempts++\n        if (attempts > 40) { clearInterval(poll); return }\n        try {\n          const statusRes = await fetch(`${apiUrl}/v1/shorts/${renderJobId}`, {\n            headers: { ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) }\n          })\n          const statusData = await statusRes.json()\n          setSmJobStatus(prev => ({...prev, [index]: statusData}))\n          if (statusData.status === 'done' || statusData.status === 'error') {\n            clearInterval(poll)\n          }\n        } catch {}\n      }, 3000)\n    } catch (e: any) {\n      setSmError(`Render error: ${e.message}`)\n    }\n  }\n\n  const handleGenerate = async (e: React.FormEvent) => {\n    e.preventDefault()\n    if (!url.trim()) return\n\n    setLoading(true)\n    setError('')\n    setResult(null)\n\n    try {\n      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''\n      const res = await fetch(`${apiUrl}/v1/generate`, {\n        method: 'POST',\n        headers: {\n          'Content-Type': 'application/json',\n          ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),\n        },\n        body: JSON.stringify({\n          video_url: url.trim(),\n          llm_provider: 'claude',\n          lang: 'pl',\n          publication_type: publicationType,\n          portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : selectedPortalId.trim(),\n        }),\n      })\n\n      let data: GenerateResponse | null = null\n      try { data = await res.json() } catch {\n        throw new Error(`Serwer zwrócił nieprawidłową odpowiedź (HTTP ${res.status})`)\n      }\n\n      if (!res.ok) {\n        const detail = (data as unknown as { detail?: string | { msg: string }[] })?.detail\n        if (Array.isArray(detail)) throw new Error(detail.map((d) => d.msg).join(', '))\n        throw new Error(typeof detail === 'string' ? detail : `Błąd serwera: HTTP ${res.status}`)\n      }\n\n      if (!data) throw new Error('Pusta odpowiedź serwera')\n      if (data.error) throw new Error(data.error)\n\n      const schema = data.schema_data ?? null\n      if (!schema) throw new Error('Serwer nie zwrócił schema_data')\n\n      setResult({ raw: schema, videoId: data.video_id, time: data.processing_time_s, inputUrl: url.trim() })\n      setActiveTab('article')\n    } catch (err: unknown) {\n      setError(err instanceof Error ? err.message : 'Nieznany błąd')\n    } finally {\n      setLoading(false)\n    }\n  }\n\n  if (status === 'loading') {\n    return (\n      <div className=\"min-h-screen bg-gray-950 flex items-center justify-center\">\n        <div className=\"animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-500\" />\n      </div>\n    )\n  }\n\n  const schema = result?.raw ?? null\n  const chapters = extractChapters(schema)\n  const faq = extractFaq(schema)\n  const planLabel = userProfile?.plan?.display_name ?? 'Free'\n  const usageUsed = userProfile?.usage?.used_this_month ?? 0\n  const usageQuota = userProfile?.usage?.quota ?? 5\n\n  return (\n    <ErrorBoundary>\n      <div className=\"min-h-screen bg-gray-950 text-white\">\n        {/* Sidebar */}\n        <aside className=\"fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-20\">\n          <div className=\"p-6 border-b border-gray-800\">\n            <div className=\"flex items-center gap-3\">\n              <div className=\"w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center\">\n                <svg className=\"w-5 h-5 text-white\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n                  <path strokeLinecap=\"round\" strokeLinejoin=\"round\" strokeWidth={2} d=\"M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z\" />\n                </svg>\n              </div>\n              <div>\n                <span className=\"font-bold text-white block\">VSE</span>\n                <span className=\"text-xs text-gray-500\">Video SEO Engine</span>\n              </div>\n            </div>\n          </div>\n\n          <nav className=\"flex-1 p-4 space-y-1\">\n            <NavItem icon=\"grid\" label=\"Dashboard\" href=\"/dashboard\" active />\n            <NavItem icon=\"clock\" label=\"Historia\" href=\"/historia\" />\n            <NavItem icon=\"settings\" label=\"Ustawienia\" href=\"/ustawienia\" />\n          </nav>\n\n          {/* User info + plan */}\n          <div className=\"p-4 border-t border-gray-800\">\n            <div className=\"mb-3\">\n              <div className=\"flex justify-between text-xs text-gray-500 mb-1\">\n                <span>Użyto</span>\n                <span>{usageUsed}/{usageQuota}</span>\n              </div>\n              <div className=\"h-1.5 bg-gray-800 rounded-full overflow-hidden\">\n                <div\n                  className=\"h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all\"\n                  style={{ width: `${Math.min(100, (usageUsed / usageQuota) * 100)}%` }}\n                />\n              </div>\n            </div>\n\n            <div className=\"flex items-center gap-3 mb-3\">\n              <div className=\"w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center text-xs font-bold flex-shrink-0\">\n                {session?.user?.email?.[0]?.toUpperCase() || 'U'}\n              </div>\n              <div className=\"flex-1 min-w-0\">\n                <p className=\"text-sm text-white truncate\">{session?.user?.email}</p>\n                <p className=\"text-xs text-violet-400\">{planLabel}</p>\n              </div>\n            </div>\n\n            <div className=\"flex flex-col gap-1 mb-3\">\n              <a\n                href=\"/cennik\"\n                className=\"text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5\"\n              >\n                ↑ Zmień plan\n              </a>\n              {userProfile?.plan?.id !== 'free' && (\n                <ManageSubscriptionLink accessToken={(session as { accessToken?: string })?.accessToken} />\n              )}\n            </div>\n\n            <button\n              onClick={() => signOut({ callbackUrl: '/login' })}\n              className=\"w-full text-left text-sm text-gray-400 hover:text-white transition-colors py-1\"\n            >\n              → Wyloguj się\n            </button>\n          </div>\n        </aside>\n\n        {/* Main content */}\n        <main className=\"ml-64 p-8\">\n          <div className=\"max-w-3xl\">\n            <EmailVerificationBanner\n              isVerified={userProfile?.is_verified}\n              accessToken={(session as { accessToken?: string })?.accessToken}\n            />\n\n            <h1 className=\"text-2xl font-bold text-white mb-1\">Video SEO Engine</h1>\n            <p className=\"text-gray-400 mb-8\">\n              Wklej URL YouTube — AI wygeneruje schema VideoObject + Clip + FAQPage.\n            </p>\n\n            {jobLoading && (\n              <div className=\"mb-6 flex items-center gap-3 p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl\">\n                <span className=\"animate-spin inline-block w-4 h-4 border-2 border-violet-300/30 border-t-violet-400 rounded-full\" />\n                <span className=\"text-sm text-violet-300\">Ładowanie wyników z historii...</span>\n              </div>\n            )}\n\n            {jobError && (\n              <div className=\"mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm\">\n                ⚠️ {jobError}\n              </div>\n            )}\n\n            {jobId && result && (\n              <div className=\"mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl\">\n                <span className=\"text-xs text-blue-400\">📋 Wyniki załadowane z historii</span>\n                <Link href=\"/historia\" className=\"text-xs text-gray-500 hover:text-white ml-auto transition-colors\">\n                  ← Wróć do historii\n                </Link>\n              </div>\n            )}\n\n            {/* Portal & Publication Type Selector */}\n            <div className=\"grid grid-cols-2 gap-3 mb-5\">\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1.5\">Portal docelowy</label>\n                {portalsLoading ? (\n                  <div className=\"flex items-center gap-2 h-[42px] text-sm text-gray-500\">\n                    <span className=\"animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full\" />\n                    Ładowanie...\n                  </div>\n                ) : portals.length === 0 ? (\n                  <select\n                    value=\"\"\n                    onChange={(e) => {\n                      const val = e.target.value\n                      if (val === '__add__') {\n                        setShowAddPortalModal(true)\n                      } else if (val === '__manual__') {\n                        setSelectedPortalId('__manual__')\n                      }\n                    }}\n                    className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                  >\n                    <option value=\"\" disabled>Brak portali — dodaj pierwszy portal</option>\n                    <option value=\"__add__\">+ Dodaj nowy portal...</option>\n                    <option value=\"__manual__\">✏️ Wpisz ręcznie...</option>\n                  </select>\n                ) : (\n                  <select\n                    id=\"portal-selector\"\n                    value={selectedPortalId}\n                    onChange={(e) => {\n                      const val = e.target.value\n                      if (val === '__add__') {\n                        setShowAddPortalModal(true)\n                      } else if (val === '__manual__') {\n                        setSelectedPortalId('__manual__')\n                      } else {\n                        setSelectedPortalId(val)\n                      }\n                    }}\n                    className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                  >\n                    {portals.map((p) => (\n                      <option key={p.id} value={p.id}>\n                        {p.name}\n                      </option>\n                    ))}\n                    <option value=\"__add__\">+ Dodaj nowy portal...</option>\n                    <option value=\"__manual__\">✏️ Wpisz ręcznie...</option>\n                  </select>\n                )}\n              </div>\n\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1.5\">Typ publikacji</label>\n                <select\n                  id=\"publication-type-selector\"\n                  value={publicationType}\n                  onChange={(e) => setPublicationType(e.target.value)}\n                  className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                >\n                  <option value=\"full_analysis\">📝 Pełna analiza</option>\n                  <option value=\"watching_page\">🎬 Strona z filmem</option>\n                  <option value=\"discover\">🔍 Discover</option>\n                </select>\n              </div>\n            </div>\n\n            {/* URL Form */}\n            <form onSubmit={handleGenerate} className=\"mb-8\">\n              <div className=\"flex gap-3\">\n                <input\n                  id=\"youtube-url-input\"\n                  type=\"text\"\n                  value={url}\n                  onChange={(e) => setUrl(e.target.value)}\n                  placeholder=\"https://www.youtube.com/watch?v=...\"\n                  className=\"flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors\"\n                />\n                <button\n                  id=\"generate-btn\"\n                  type=\"submit\"\n                  disabled={loading || !url.trim()}\n                  className=\"px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap\"\n                >\n                  {loading ? (\n                    <><span className=\"animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full\" /> Generuję...</>\n                  ) : (\n                    <>✦ Generuj SEO</>\n                  )}\n                </button>\n              </div>\n\n              {loading && (\n                <div className=\"mt-3 flex items-center gap-2 text-sm text-gray-400\">\n                  <span className=\"animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full\" />\n                  Pobieranie transkryptu i generowanie schema... (~50s)\n                </div>\n              )}\n\n              {error && (\n                <div className=\"mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2\">\n                  <span className=\"flex-shrink-0 mt-0.5\">⚠️</span>\n                  <div>\n                    <p className=\"font-medium mb-0.5\">Wystąpił błąd</p>\n                    <p className=\"text-red-300/80\">{error}</p>\n                  </div>\n                </div>\n              )}\n            </form>\n\n            {!result && !loading && (\n              <>\n                <div className=\"grid grid-cols-3 gap-4 mb-8\">\n                  {[\n                    { label: 'Filmy w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },\n                    { label: 'Benchmark score', value: '8/10', sub: 'vs 2—3/10 konkurencja' },\n                    { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },\n                  ].map((stat) => (\n                    <div key={stat.label} className=\"bg-gray-900 border border-gray-800 rounded-xl p-5\">\n                      <p className=\"text-gray-400 text-sm mb-1\">{stat.label}</p>\n                      <p className=\"text-2xl font-bold text-white\">{stat.value}</p>\n                      <p className=\"text-xs text-gray-500 mt-1\">{stat.sub}</p>\n                    </div>\n                  ))}\n                </div>\n                <WpQuickPanel />\n              </>\n            )}\n\n            {/* Results */}\n            {result && (\n              <div>\n                <div className=\"flex items-center justify-between mb-5\">\n                  <div>\n                    <h2 className=\"text-lg font-semibold text-white\">Wyniki SEO</h2>\n                    <p className=\"text-xs text-gray-500 mt-0.5\">\n                      Video: <span className=\"font-mono\">{result.videoId}</span>\n                      {result.time && <> • {result.time.toFixed(1)}s</>}\n                    </p>\n                  </div>\n                  <div className=\"flex items-center gap-2\">\n                    <span className=\"px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20\">\n                      ✔️ Wygenerowano\n                    </span>\n                    {isPro && (\n                      <button\n                        onClick={() => setShowInjectModal(true)}\n                        className=\"px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5\"\n                      >\n                        🚀 Wyślij do portalu\n                      </button>\n                    )}\n                    {ytChannels.length > 0 && (\n                      <button\n                        onClick={() => setYtModalOpen(true)}\n                        className=\"px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2\"\n                      >\n                        ▶️ Wyślij na YouTube\n                      </button>\n                    )}\n                  </div>\n                </div>\n\n                <TabBar\n                  active={activeTab}\n                  onChange={setActiveTab}\n                  chaptersCount={chapters.length}\n                  faqCount={faq.length}\n                />\n\n                {/* Tab: Schemat */}\n                {activeTab === 'schema' && (\n                  <div>\n                    <ResultSection\n                      title=\"Tytuł artykułu\"\n                      copyText={schema?.post_title ?? ''}\n                      copyId=\"post_title\"\n                      copiedKey={copiedKey}\n                      onCopy={handleCopy}\n                    >\n                      <p className=\"text-white font-medium\">{schema?.post_title ?? '(brak tytułu)'}</p>\n                      {schema?.focus_keyphrase && (\n                        <p className=\"text-xs text-gray-500 mt-1\">\n                          Focus: <span className=\"text-violet-400\">{schema.focus_keyphrase}</span>\n                        </p>\n                      )}\n                    </ResultSection>\n\n                    <ResultSection\n                      title=\"Meta description\"\n                      copyText={schema?.meta_description ?? ''}\n                      copyId=\"meta_description\"\n                      copiedKey={copiedKey}\n                      onCopy={handleCopy}\n                    >\n                      <p className=\"text-gray-300 text-sm leading-relaxed\">\n                        {schema?.meta_description ?? '(brak meta description)'}\n                      </p>\n                    </ResultSection>\n\n                    <ResultSection\n                      title=\"Schema JSON-LD\"\n                      copyText={schemaToScriptTag(schema)}\n                      copyId=\"schema_jsonld\"\n                      copiedKey={copiedKey}\n                      onCopy={handleCopy}\n                      badge=\"Wklej do <head>\"\n                    >\n                      <pre className=\"text-xs text-emerald-400 font-mono overflow-auto max-h-72 leading-relaxed\">\n{`<script type="application/ld+json">\n${JSON.stringify(schema ?? {}, null, 2)}\n</script>`}\n                      </pre>\n                    </ResultSection>\n                  </div>\n                )}\n\n                {/* Tab: Artykuł */}\n                {activeTab === 'article' && (\n                  <div>\n                    <div className=\"flex justify-end mb-4\">\n                      <CopyButton\n                        text={articleToText(schema, faq)}\n                        id=\"article_all\"\n                        copiedKey={copiedKey}\n                        onCopy={handleCopy}\n                        label=\"Kopiuj cały artykuł\"\n                      />\n                    </div>\n\n                    <ResultSection\n                      title=\"Lead artykułu\"\n                      copyText={schema?.lead ?? ''}\n                      copyId=\"lead\"\n                      copiedKey={copiedKey}\n                      onCopy={handleCopy}\n                    >\n                      <p className=\"text-gray-300 text-sm leading-relaxed whitespace-pre-wrap\">\n                        {schema?.lead ?? '(brak leadu)'}\n                      </p>\n                    </ResultSection>\n\n                    <ResultSection\n                      title=\"Treść artykułu\"\n                      copyText={schema?.article_body ?? ''}\n                      copyId=\"article_body\"\n                      copiedKey={copiedKey}\n                      onCopy={handleCopy}\n                    >\n                      <div className=\"text-gray-300 text-sm leading-relaxed whitespace-pre-wrap\">\n                        {schema?.article_body ?? '(brak treści)'}\n                      </div>\n                    </ResultSection>\n\n                    {faq.length > 0 && (\n                      <ResultSection\n                        title=\"Sekcja FAQ (HTML)\"\n                        copyText={faqToHtml(faq)}\n                        copyId=\"faq\"\n                        copiedKey={copiedKey}\n                        onCopy={handleCopy}\n                        badge={`${faq.length} pytań`}\n                      >\n                        <div className=\"space-y-3 text-sm\">\n                          {faq.map((item, idx) => (\n                            <details key={idx} className=\"bg-gray-800/50 rounded-lg p-3 border border-gray-700/50\">\n                              <summary className=\"font-medium text-violet-300 cursor-pointer\">{item.question}</summary>\n                              <p className=\"mt-2 text-gray-400 text-xs leading-relaxed\">{item.answer}</p>\n                            </details>\n                          ))}\n                        </div>\n                      </ResultSection>\n                    )}\n                  </div>\n                )}\n\n                {/* Tab: Rozdziały */}\n                {activeTab === 'chapters' && (\n                  <div>\n                    <ResultSection\n                      title=\"Rozdziały YouTube\"\n                      copyText={chaptersToText(chapters)}\n                      copyId=\"chapters\"\n                      copiedKey={copiedKey}\n                      onCopy={handleCopy}\n                      badge={`${chapters.length} rozdziałów`}\n                    >\n                      <pre className=\"text-xs text-gray-300 font-mono overflow-auto max-h-60 leading-relaxed\">\n                        {chaptersToText(chapters)}\n                      </pre>\n                    </ResultSection>\n                  </div>\n                )}\n\n                {/* Tab: Opis YouTube */}\n                {activeTab === 'youtube' && (\n                  <div>\n                    <ResultSection\n                      title=\"Wygenerowany opis YouTube\"\n                      copyText={ytDescription}\n                      copyId=\"yt_desc\"\n                      copiedKey={copiedKey}\n                      onCopy={handleCopy}\n                    >\n                      <pre className=\"text-xs text-gray-300 font-mono overflow-auto max-h-96 whitespace-pre-wrap leading-relaxed\">\n                        {ytDescription}\n                      </pre>\n                    </ResultSection>\n                  </div>\n                )}\n\n                {/* Tab: ShortMachine */}\n                {activeTab === 'shorts' && (\n                  <div className=\"space-y-6\">\n                    <h2 className=\"text-xl font-semibold text-white\">✂️ ShortMachine</h2>\n                    \n                    <div className=\"bg-gray-800 rounded-xl p-6 space-y-4\">\n                      <h3 className=\"text-lg font-medium text-white\">Propozycje kandydatów</h3>\n                      \n                      <div>\n                        <label className=\"block text-sm text-gray-400 mb-1\">YouTube ID lub URL</label>\n                        <input\n                          id=\"sm-youtube-id\"\n                          type=\"text\"\n                          value={smYoutubeId}\n                          onChange={e => setSmYoutubeId(e.target.value)}\n                          placeholder=\"np. dQw4w9WgXcQ\"\n                          className=\"w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500\"\n                        />\n                      </div>\n\n                      <div className=\"flex items-center gap-2 mt-2 mb-4\">\n                        <label className=\"text-sm text-gray-400 whitespace-nowrap\">Plik lokalny</label>\n                        <input\n                          type=\"text\"\n                          value={shortLocalPath}\n                          onChange={e => setShortLocalPath(e.target.value)}\n                          placeholder=\"C:\\\\Users\\\\...\\\\video.mp4 (opcjonalny)\"\n                          className=\"flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 placeholder-gray-500\"\n                        />\n                        <label className=\"cursor-pointer bg-gray-700 hover:bg-gray-600 border border-gray-500 rounded px-3 py-1 text-sm text-gray-200 flex items-center gap-1\">\n                          📁 Browse\n                          <input\n                            type=\"file\"\n                            accept=\"video/*,.mp4,.mov,.mkv,.avi\"\n                            className=\"hidden\"\n                            onChange={e => {\n                              const file = e.target.files?.[0]\n                              if (file) setShortLocalPath(file.name)\n                            }}\n                          />\n                        </label>\n                      </div>\n                      \n                      <div>\n                        <label className=\"block text-sm text-gray-400 mb-1\">Custom query (opcjonalny)</label>\n                        <input\n                          id=\"sm-custom-query\"\n                          type=\"text\"\n                          value={smCustomQuery}\n                          onChange={e => setSmCustomQuery(e.target.value)}\n                          placeholder=\"np. Niemcy teściową Europy\"\n                          className=\"w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500\"\n                        />\n                      </div>\n                      \n                      <div className=\"grid grid-cols-3 gap-3\">\n                        <div>\n                          <label className=\"block text-sm text-gray-400 mb-1\">Emotional</label>\n                          <input id=\"sm-count-emotional\" type=\"number\" min=\"0\" max=\"5\" value={smCountEmotional}\n                            onChange={e => setSmCountEmotional(Number(e.target.value))}\n                            className=\"w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm\" />\n                        </div>\n                        <div>\n                          <label className=\"block text-sm text-gray-400 mb-1\">Professional</label>\n                          <input id=\"sm-count-professional\" type=\"number\" min=\"0\" max=\"5\" value={smCountProfessional}\n                            onChange={e => setSmCountProfessional(Number(e.target.value))}\n                            className=\"w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm\" />\n                        </div>\n                        <div>\n                          <label className=\"block text-sm text-gray-400 mb-1\">Custom</label>\n                          <input id=\"sm-count-custom\" type=\"number\" min=\"0\" max=\"5\" value={smCountCustom}\n                            onChange={e => setSmCountCustom(Number(e.target.value))}\n                            className=\"w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm\" />\n                        </div>\n                      </div>\n                      \n                      <style>{`@keyframes sm-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>\n                      <button\n                        id=\"sm-get-candidates-btn\"\n                        onClick={handleGetCandidates}\n                        disabled={smLoading || !smYoutubeId}\n                        className=\"w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors\"\n                      >\n                        {smLoading ? (\n                          <>\n                            <svg style={{display:'inline-block',width:'16px',height:'16px',animation:'sm-spin 0.8s linear infinite',marginRight:'8px',verticalAlign:'middle'}} viewBox=\"0 0 24 24\" fill=\"none\">\n                              <circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"rgba(255,255,255,0.3)\" strokeWidth=\"3\"/>\n                              <path d=\"M12 2a10 10 0 0 1 10 10\" stroke=\"white\" strokeWidth=\"3\" strokeLinecap=\"round\"/>\n                            </svg>\n                            Analizuję transkrypt AI...\n                          </>\n                        ) : '🎯 Analizuj wideo'}\n                      </button>\n                    </div>\n                    \n                    <div className=\"flex items-center gap-3 py-2 px-3 bg-gray-800/50 rounded-lg border border-gray-700/50\">\n                      <span className=\"text-xs text-gray-400\">Format renderowania:</span>\n                      {(['raw', 'short'] as const).map((fmt) => (\n                        <button\n                          key={fmt}\n                          onClick={() => setSmFormat(fmt)}\n                          className={`px-3 py-1 text-xs rounded border transition-all ${\n                            smFormat === fmt\n                              ? 'bg-violet-600/20 border-violet-500/40 text-violet-400'\n                              : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'\n                          }`}\n                        >\n                          {fmt === 'raw' ? '📼 Raw (szybki cut)' : '✂️ Short (9:16)'}\n                        </button>\n                      ))}\n                      <span className=\"text-xs text-gray-600 ml-auto\">\n                        {smFormat === 'raw' ? 'ffmpeg -c copy, bez re-encode' : 'Przetwarzanie 9:16 + SRT'}\n                      </span>\n                    </div>\n\n                    {/* Globalny selektor kanału YT */}\n                    {ytChannels.length > 0 && (\n                      <div className=\"flex items-center gap-3 mb-4 px-1\">\n                        <span className=\"text-xs text-gray-400 whitespace-nowrap\">Kanał YT:</span>\n                        <select\n                          className=\"flex-1 bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500\"\n                          value={smGlobalChannelId}\n                          onChange={e => setSmGlobalChannelId(e.target.value)}\n                        >\n                          {ytChannels.map((ch: any) => (\n                            <option key={ch.channel_id} value={ch.channel_id}>\n                              {ch.is_default ? '★ ' : ''}{ch.channel_title}\n                            </option>\n                          ))}\n                        </select>\n                      </div>\n                    )}\n                    {smCandidates.length > 0 && (\n                      <div className=\"space-y-3\">\n                        <h3 className=\"text-lg font-medium text-white\">Kandydaci ({smCandidates.length})</h3>\n                        <div className=\"flex items-center gap-2 mb-2 pb-2 border-b border-gray-700\">\n                          <input\n                            type=\"checkbox\"\n                            id=\"selectAllCandidates\"\n                            checked={smCandidates.length > 0 && smSelected.size === smCandidates.length}\n                            onChange={(e) => {\n                              if (e.target.checked) setSmSelected(new Set(smCandidates.map((_: any, idx: number) => idx)))\n                              else setSmSelected(new Set())\n                            }}\n                            style={{cursor:'pointer',accentColor:'#3b82f6'}}\n                          />\n                          <label htmlFor=\"selectAllCandidates\" className=\"text-xs text-gray-400 cursor-pointer\">\n                            Zaznacz wszystkie ({smCandidates.length})\n                          </label>\n                        </div>\n                        {smCandidates.map((c, i) => (\n                          <div key={i} className=\"bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3\">\n                            <div className=\"flex items-start justify-between\">\n                              <div className=\"flex items-center gap-2\">\n                                <input type=\"checkbox\" checked={smSelected.has(i)} onChange={() => toggleSmSelected(i)} style={{cursor:'pointer',accentColor:'#3b82f6'}} />\n                                <span className={`text-xs px-2 py-1 rounded-full font-medium ${\n                                  c.type === 'emotional' ? 'bg-red-900 text-red-300' :\n                                  c.type === 'professional' ? 'bg-blue-900 text-blue-300' :\n                                  'bg-purple-900 text-purple-300'\n                                }`}>{c.type}</span>\n                                <span className=\"text-sm text-gray-400\">\n                                  {Math.floor(c.start_sec / 60)}:{String(Math.floor(c.start_sec % 60)).padStart(2,'0')} - \n                                  {Math.floor(c.end_sec / 60)}:{String(Math.floor(c.end_sec % 60)).padStart(2,'0')}\n                                  &nbsp;({c.duration_sec}s)\n                                </span>\n                              </div>\n                              <div style={{display:'flex', gap:'8px', alignItems:'center'}}>\n                                <span className=\"text-yellow-400 text-sm\">\n                                  {'★'.repeat(Math.round(c.score * 5))}{'☆'.repeat(5 - Math.round(c.score * 5))}\n                                </span>\n                                <button onClick={() => setSmExpandedIdx(smExpandedIdx === i ? null : i)} style={{padding:'2px 8px',fontSize:'11px',background: smExpandedIdx===i ? '#1e40af' : '#1e293b',border:'1px solid '+(smExpandedIdx===i?'#3b82f6':'#334155'),borderRadius:'4px',color: smExpandedIdx===i?'#93c5fd':'#94a3b8',cursor:'pointer'}}>\n                                  {smExpandedIdx === i ? '▲ Transkrypt' : '✏ Transkrypt'}\n                                </button>\n                              </div>\n                            </div>\n                            \n                            <div className=\"text-sm space-y-1\">\n                              <p><span className=\"text-gray-400\">Hook:</span> <span className=\"text-white\">{c.hook_text}</span></p>\n                              <p><span className=\"text-gray-400\">Puenta:</span> <span className=\"text-white\">{c.punchline_text}</span></p>\n                              {c.query_match && (\n                                <p><span className=\"text-gray-400\">Match:</span> <span className=\"text-green-400\">{c.query_match}</span></p>\n                              )}\n                            </div>\n                            \n                            {smExpandedIdx === i && (\n                              <div style={{marginBottom:'12px',border:'1px solid #334155',borderRadius:'8px',overflow:'hidden',background:'#0f172a'}}>\n                                {(() => {\n                                  const ytMatch = (c.youtube_url||'').match(/(?:v=|youtu\\.be\\/)([a-zA-Z0-9_-]{11})/)\n                                  const ytId = ytMatch ? ytMatch[1] : null\n                                  const adjStart = getAdj(i, c).start\n                                  return ytId ? (\n                                    <div style={{position:'relative',paddingBottom:'56.25%',height:0,overflow:'hidden'}}>\n                                      <iframe key={`yt-${i}-${Math.floor(adjStart)}`} src={`https://www.youtube.com/embed/${ytId}?start=${Math.floor(adjStart)}&autoplay=0&rel=0`} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:'none'}} allowFullScreen />\n                                    </div>\n                                  ) : <div style={{padding:'8px',color:'#64748b',fontSize:'12px'}}>Brak YouTube URL dla podglądu</div>\n                                })()}\n                                <div style={{maxHeight:'220px',overflowY:'auto',padding:'8px'}}>\n                                  <div style={{display:'flex',gap:'6px',marginBottom:'8px',alignItems:'center'}}>\n                                    <span style={{fontSize:'11px',color:'#94a3b8'}}>Klik ustawia:</span>\n                                    <button onClick={()=>setSmTrimMode('start')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='start'?'#3b82f6':'#1e293b',color:smTrimMode==='start'?'#fff':'#94a3b8'}}>◀ Start</button>\n                                    <button onClick={()=>setSmTrimMode('end')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='end'?'#f59e0b':'#1e293b',color:smTrimMode==='end'?'#fff':'#94a3b8'}}>Koniec ▶</button>\n                                    <span style={{marginLeft:'auto',fontSize:'11px',color:'#64748b'}}>{(c.vtt_segments||[]).length} segmentów</span>\n                                  </div>\n                                  {(c.vtt_segments||[]).map((seg: any, si: number) => {\n                                    const adj = getAdj(i, c)\n                                    const isInRange = seg.ts >= adj.start && seg.ts <= adj.end\n                                    return (\n                                      <div key={si} onClick={() => { if (smTrimMode === 'start') { setSmTrimAdj((p: any) => ({...p, [i]: {startDelta: seg.ts - (c.start_sec??0), endDelta: p[i]?.endDelta??0}})); } else { setSmTrimAdj((p: any) => ({...p, [i]: {startDelta: p[i]?.startDelta??0, endDelta: seg.ts - (c.end_sec??0) + 2}})); } }} style={{padding:'4px 8px',marginBottom:'2px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',lineHeight:'1.4',background: isInRange ? 'rgba(59,130,246,0.15)' : 'transparent',borderLeft: isInRange ? '3px solid #3b82f6' : '3px solid transparent',color: isInRange ? '#e2e8f0' : '#64748b',transition: 'background 0.1s'}}>\n                                        <span style={{color:'#475569',marginRight:'8px',fontFamily:'monospace',fontSize:'11px'}}>{seg.time_str}</span>\n                                        {seg.text}\n                                      </div>\n                                    )\n                                  })}\n                                </div>\n                              </div>\n                            )}\n\n                            <div className=\"space-y-1 mb-2\">\n                              <div className=\"flex items-center gap-2\">\n                                <input\n                                  type=\"text\"\n                                  value={smTitles[i] || ''}\n                                  onChange={e => setSmTitles(p => ({...p, [i]: e.target.value}))}\n                                  placeholder=\"Tytuł shorta...\"\n                                  className=\"flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500\"\n                                />\n                                {(smTrimAdj[i]?.startDelta || smTrimAdj[i]?.endDelta) && (\n                                  <button\n                                    onClick={() => handleRegenerateTitle(i, c)}\n                                    disabled={smTitleLoading[i]}\n                                    className=\"px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-gray-300 disabled:opacity-50\"\n                                    title=\"Odśwież tytuł i tagi na podstawie nowego zakresu\"\n                                  >\n                                    {smTitleLoading[i] ? '...' : '🔄'}\n                                  </button>\n                                )}\n                              </div>\n                              <div className=\"flex flex-wrap gap-1\">\n                                {(smTags[i] || []).map((tag, ti) => (\n                                  <span key={ti} className=\"inline-flex items-center gap-1 px-2 py-0.5 bg-gray-700 border border-gray-600 rounded-full text-xs text-gray-300\">\n                                    {tag}\n                                    <button onClick={() => setSmTags(p => ({...p, [i]: (p[i]||[]).filter((_,j)=>j!==ti)}))} className=\"text-gray-500 hover:text-red-400 leading-none\">×</button>\n                                  </span>\n                                ))}\n                              </div>\n                            </div>\n\n                            <div className=\"mb-2\">\n                              <button\n                                onClick={() => {\n                                  if (smPreviewIdx === i) {\n                                    setSmPreviewIdx(null)\n                                    if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)\n                                    return\n                                  }\n                                  setSmPreviewIdx(i)\n                                  const adj2 = getAdj(i, c)\n                                  const videoId2 = smYoutubeId.length === 11 ? smYoutubeId : smYoutubeId.match(/[a-zA-Z0-9_-]{11}/)?.[0] || ''\n                                  setTimeout(() => {\n                                    if (!(window as any).YT?.Player) return\n                                    if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()\n                                    if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)\n                                    ytPlayerRef.current = new (window as any).YT.Player(`yt-preview-${i}`, {\n                                      height: '180',\n                                      width: '320',\n                                      videoId: videoId2,\n                                      playerVars: { start: Math.floor(adj2.start), autoplay: 1, rel: 0, modestbranding: 1 },\n                                      events: {\n                                        onReady: (e: any) => {\n                                          e.target.seekTo(adj2.start, true)\n                                          e.target.playVideo()\n                                          ytIntervalRef.current = setInterval(() => {\n                                            const t = e.target.getCurrentTime()\n                                            if (t >= adj2.end) {\n                                              e.target.pauseVideo()\n                                              clearInterval(ytIntervalRef.current)\n                                            }\n                                          }, 250)\n                                        }\n                                      }\n                                    })\n                                  }, 100)\n                                }}\n                                className=\"text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer\"\n                              >\n                                {smPreviewIdx === i ? '▼ Zamknij podgląd' : '▶ Podgląd'}\n                              </button>\n\n                              {smPreviewIdx === i && (\n                                <div className=\"mt-2 rounded overflow-hidden\" style={{width:320}}>\n                                  <div id={`yt-preview-${i}`} />\n                                  <div className=\"text-xs text-gray-500 mt-1\">\n                                    {fmtSec(getAdj(i,c).start)} → {fmtSec(getAdj(i,c).end)} ({Math.round(getAdj(i,c).end-getAdj(i,c).start)}s)\n                                  </div>\n                                </div>\n                              )}\n                            </div>\n                            <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'8px',fontSize:'12px',color:'#888'}}>\n                              <span>✂ Start:</span>\n                              {([-5,-2,-1] as number[]).map(d=>(\n                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>\n                              ))}\n                              <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).start)}</span>\n                              {([1,2,5] as number[]).map(d=>(\n                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>\n                              ))}\n                              <span style={{marginLeft:'8px'}}>Koniec:</span>\n                              {([-5,-2,-1] as number[]).map(d=>(\n                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>\n                              ))}\n                              <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).end)}</span>\n                              {([1,2,5] as number[]).map(d=>(\n                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>\n                              ))}\n                              <span style={{marginLeft:'6px',color:'#64748b'}}>{Math.round(getAdj(i,c).end-getAdj(i,c).start)}s</span>\n                              {(smTrimAdj[i]?.startDelta||smTrimAdj[i]?.endDelta)?<button onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:0,endDelta:0}}))} style={{padding:'1px 5px',fontSize:'10px',background:'transparent',border:'1px solid #475569',borderRadius:'3px',color:'#64748b',cursor:'pointer',marginLeft:'auto'}}>↺</button>:null}\n                            </div>\n\n                            <div className=\"grid grid-cols-3 gap-2 pt-2 border-t border-gray-700\">\n                              <select\n                                value={smRenderConfig[i]?.format || '9:16'}\n                                onChange={e => setSmRenderConfig(prev => ({...prev, [i]: {...(prev[i]||{}), format: e.target.value}}))}\n                                className=\"bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs\"\n                              >\n                                <option value=\"9:16\">9:16 (Shorts)</option>\n                                <option value=\"16:9\">16:9 (YT)</option>\n                              </select>\n                              <select\n                                value={smRenderConfig[i]?.subtitles || 'srt'}\n                                onChange={e => setSmRenderConfig(prev => ({...prev, [i]: {...(prev[i]||{}), subtitles: e.target.value}}))}\n                                className=\"bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs\"\n                              >\n                                <option value=\"none\">Bez napisów</option>\n                                <option value=\"srt\">Export SRT</option>\n                              </select>\n                              <button\n                                id={`sm-render-btn-${i}`}\n                                onClick={() => { const a = getAdj(i, c); handleRenderShort({ ...c, start_sec: a.start, end_sec: a.end }, i); }}\n                                className=\"bg-green-700 hover:bg-green-600 text-white text-xs font-medium px-3 py-1 rounded transition-colors\"\n                              >\n                                ▶ Renderuj\n                              </button>\n                            </div>\n                            \n                            {smJobStatus[i] && (\n                              <div className={`text-xs px-2 py-1 rounded ${\n                                smJobStatus[i].status === 'done' ? 'bg-green-900 text-green-300' :\n                                smJobStatus[i].status === 'error' ? 'bg-red-900 text-red-300' :\n                                'bg-yellow-900 text-yellow-300'\n                              }`}>\n                                {smJobStatus[i].status === 'done' ? (\n                                  <div className=\"flex flex-col gap-1\">\n                                    <span>Gotowe: {smJobStatus[i].result_paths?.raw || 'plik zapisany'}</span>\n                                    {smJobStatus[i].result_paths?.raw && (\n                                      <button\n                                        onClick={() => {\n                                          const rawPath = smJobStatus[i].result_paths?.raw || ''\n                                          const folderPath = rawPath.includes('\\\\') || rawPath.includes('/')\n                                            ? rawPath.substring(0, Math.max(rawPath.lastIndexOf('\\\\'), rawPath.lastIndexOf('/')))\n                                            : rawPath\n                                          navigator.clipboard.writeText(folderPath).then(() => {})\n                                        }}\n                                        className=\"mt-1 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded px-2 py-0.5 transition-colors self-start\"\n                                        title=\"Kopiuj ścieżkę folderu do schowka\"\n                                      >\n                                        📋 Kopiuj ścieżkę folderu\n                                      </button>\n                                    )}\n                                  </div>\n                                ) : smJobStatus[i].status === 'error' ? (\n                                  <span>Błąd: {smJobStatus[i].error}</span>\n                                ) : (\n                                  <span>Przetwarzam... ({smJobStatus[i].status})</span>\n                                )}\n                              </div>\n                            )}\n                            \n                            {/* YouTube Inject Block */}\n                            <div className=\"border-t border-gray-600 pt-3 mt-1\">\n                              <p className=\"text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2\">► Wstrzyknij metadane na YouTube</p>\n                              {ytChannels.length > 1 && (\n                                <select\n                                  className=\"w-full bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 mb-2\"\n                                  value={smChannelOverride[i] ?? ''}\n                                  onChange={e => setSmChannelOverride(prev => ({...prev, [i]: e.target.value}))}\n                                >\n                                  <option value=\"\">🌐 {ytChannels.find((ch: any) => ch.channel_id === smGlobalChannelId)?.channel_title || 'Kanał globalny'}</option>\n                                  {ytChannels.filter((ch: any) => ch.channel_id !== smGlobalChannelId).map((ch: any) => (\n                                    <option key={ch.channel_id} value={ch.channel_id}>{ch.channel_title}</option>\n                                  ))}\n                                </select>\n                              )}\n                              <input\n                                type=\"text\"\n                                placeholder=\"URL lub ID YouTube (wgrany z Premiere Pro)\"\n                                className=\"w-full bg-gray-700 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none mb-2\"\n                                value={smTargetYtId[i] || ''}\n                                onChange={e => setSmTargetYtId(prev => ({...prev, [i]: e.target.value}))}\n                              />\n                              <div className=\"grid grid-cols-3 gap-2 mb-2\">\n                                <select\n                                  className=\"bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600\"\n                                  value={smSelectedPlaylist[i] || ''}\n                                  onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}\n                                >\n                                  <option value=\"\">Playlista (opcj.)</option>\n                                  {smPlaylists.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}\n                                </select>\n                                <input\n                                  type=\"datetime-local\"\n                                  className=\"bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600\"\n                                  value={smPublishAt[i] || ''}\n                                  onChange={e => setSmPublishAt(prev => ({...prev, [i]: e.target.value}))}\n                                />\n                                <select\n                                  className=\"bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600\"\n                                  value={smPrivacyStatus[i] || 'private'}\n                                  onChange={e => setSmPrivacyStatus(prev => ({...prev, [i]: e.target.value}))}\n                                >\n                                  <option value=\"private\">Prywatny</option>\n                                  <option value=\"unlisted\">Niepubliczny</option>\n                                  <option value=\"public\">Publiczny</option>\n                                </select>\n                              </div>\n                              <div className=\"flex items-center gap-3\">\n                                <button\n                                  onClick={() => setSmModalOpenFor(i)}\n                                  disabled={!smTargetYtId[i]}\n                                  className=\"bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded transition-colors\"\n                                >\n                                  ► Podgląd i publikacja\n                                </button>\n                              </div>\n                            </div>\n                          </div>\n                        ))}\n                        {smSelected.size > 0 && (\n                          <div style={{position:'sticky',bottom:'8px',textAlign:'center',marginTop:'8px',zIndex:10}}>\n                            <button onClick={() => { smSelected.forEach((selIdx: number) => { const c = smCandidates[selIdx]; const a = getAdj(selIdx, c); handleRenderShort({...c, start_sec: a.start, end_sec: a.end}, selIdx); }); setSmSelected(new Set()); }} style={{padding:'10px 24px',background:'linear-gradient(135deg,#059669,#10b981)',border:'none',borderRadius:'8px',color:'#fff',fontWeight:'600',fontSize:'14px',cursor:'pointer',boxShadow:'0 4px 12px rgba(16,185,129,0.3)'}}>\n                              ► Renderuj zaznaczone ({smSelected.size})\n                            </button>\n                          </div>\n                        )}\n                      </div>\n                    )}\n                    \n                    {smError && (\n                      <div className=\"bg-red-900 border border-red-700 text-red-300 rounded-lg p-3 text-sm\">\n                        {smError}\n                      </div>\n                    )}\n                  </div>\n                )}\n              </div>\n            )}\n          </div>\n        </main>\n\n        {/* ShortMachine YouTube Inject Modal */}\n        {smModalOpenFor !== null && smCandidates[smModalOpenFor] && (() => {\n          const i = smModalOpenFor\n          const c = smCandidates[i]\n          const smSchemaData = {\n            youtube_description_hook: smTitles[i] || c.suggested_title || c.title || '',\n            video_description: c.hook || '',\n            youtube_hashtags: smTags[i] || c.tags || []\n          }\n          const rawInput = smTargetYtId[i] || ''\n          const smVideoId = rawInput.match(/(?:v=|youtu\\.be\\/|\\/shorts\\/)([A-Za-z0-9_-]{11})/)?.[1] || rawInput\n\n          return (\n            <YouTubePublishModal\n              isOpen={true}\n              onClose={() => setSmModalOpenFor(null)}\n              videoId={smVideoId}\n              schemaData={smSchemaData}\n              wpUrl=\"\"\n              channels={(smChannelOverride[i] || smGlobalChannelId) ? [ytChannels.find((ch: any) => ch.channel_id === (smChannelOverride[i] || smGlobalChannelId)) ?? ytChannels[0]].filter(Boolean) : ytChannels}\n              accessToken={accessToken || \"\"}\n              apiUrl={process.env.NEXT_PUBLIC_API_URL || ''}\n              publishAt={smPublishAt[i]}\n              privacyStatus={smPrivacyStatus[i]}\n              playlistId={smSelectedPlaylist[i]}\n            />\n          )\n        })()}\n\n        {/* Inject Modal */}\n        {showInjectModal && result && (() => {\n          const selectedPortal = portals.find((p) => p.id === selectedPortalId)\n          return (\n            <InjectModal\n              schemaData={result.raw}\n              videoUrl={result.inputUrl}\n              accessToken={accessToken}\n              onClose={() => setShowInjectModal(false)}\n              selectedPortalId={selectedPortalId}\n              portalName={selectedPortal?.name}\n              portalUrl={selectedPortal?.url}\n              ytChannels={ytChannels}\n            />\n          )\n        })()}\n\n        {ytModalOpen && result && (() => {\n          const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || \"\"\n          const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''\n\n          return (\n            <YouTubePublishModal\n              overrideDescription={ytDescription}\n              isOpen={ytModalOpen}\n              onClose={() => setYtModalOpen(false)}\n              videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || \"\"}\n              schemaData={result.raw ?? {}}\n              wpUrl={wpUrl}\n              channels={ytChannels}\n              accessToken={accessToken || \"\"}\n              apiUrl={apiUrl}\n            />\n          )\n        })()}\n\n        {showAddPortalModal && (\n          <AddPortalModal\n            onClose={() => setShowAddPortalModal(false)}\n            onSuccess={(portalId) => {\n              setShowAddPortalModal(false)\n              setSelectedPortalId(portalId)\n            }}\n          />\n        )}\n      </div>\n    </ErrorBoundary>\n  )\n}
+            {schemaData.meta_description && (
+              <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                {schemaData.meta_description}
+              </p>
+            )}
+          </div>
+
+          {!isManual && portalName && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
+              <span className="text-xs text-violet-400">🚀</span>
+              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
+              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>
+            </div>
+          )}
+
+          {isManual && (
+            <>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">URL portalu WordPress</label>
+                <input
+                  type="text"
+                  value={wpUrl}
+                  onChange={(e) => setWpUrl(e.target.value)}
+                  placeholder="https://twojportal.pl"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+                  <input
+                    type="text"
+                    value={wpUser}
+                    onChange={(e) => setWpUser(e.target.value)}
+                    placeholder="admin"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Application Password</label>
+                  <input
+                    type="password"
+                    value={wpPassword}
+                    onChange={(e) => setWpPassword(e.target.value)}
+                    placeholder="xxxx xxxx xxxx xxxx"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="mb-4">
+            <label className="block text-xs text-gray-400 mb-1.5">Dodatkowo: Opublikuj opis na YouTube</label>
+            {ytChannels && ytChannels.length > 0 ? (
+              <div className="space-y-2 max-h-32 overflow-y-auto bg-gray-800/50 p-2 rounded-lg border border-gray-700">
+                {ytChannels.map(ch => (
+                  <label key={ch.channel_id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedYtChannelIds.includes(ch.channel_id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedYtChannelIds(p => [...p, ch.channel_id])
+                        else setSelectedYtChannelIds(p => p.filter(id => id !== ch.channel_id))
+                      }}
+                      className="accent-violet-500 rounded"
+                    />
+                    <span className="text-sm text-gray-300">{ch.channel_title}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                <p className="text-xs text-amber-500/90 flex items-center gap-1.5">
+                  ⚠️ Brak podłączonych kanałów YouTube.
+                  <a href="/ustawienia" target="_blank" rel="noreferrer" className="underline hover:text-amber-400 transition-colors ml-1">
+                    Przejdź do ustawień
+                  </a>
+                </p>
+              </div>
+            )}
+
+            {selectedYtChannelIds.length > 0 && ytChannels && ytChannels.length > 0 && (
+              <div className="mt-3">
+                {!showYtPreview ? (
+                  <button
+                    onClick={() => setShowYtPreview(true)}
+                    className="text-xs text-violet-400 hover:text-violet-300 underline"
+                  >
+                    Pokaż edytowalny podgląd opisu YT
+                  </button>
+                ) : (
+                  <div className="mt-2 animate-in slide-in-from-top-2">
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Podgląd opisu YouTube <span className="text-gray-600">(edytowalny)</span>
+                    </label>
+                    <textarea
+                      value={ytDescPreview}
+                      onChange={(e) => setYtDescPreview(e.target.value)}
+                      rows={6}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-violet-500 resize-y font-mono"
+                    />
+                    <button
+                      onClick={() => setShowYtPreview(false)}
+                      className="mt-1 text-xs text-gray-500 hover:text-gray-400"
+                    >
+                      Ukryj podgląd
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">
+                ID posta WP <span className="text-gray-600">(puste = nowy post)</span>
+              </label>
+              <input
+                type="number"
+                value={wpPostId}
+                onChange={(e) => setWpPostId(e.target.value)}
+                placeholder="Puste = nowy artykuł"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Status publikacji</label>
+              <div className="flex gap-4 h-[42px] items-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modal_post_status"
+                    value="draft"
+                    checked={postStatus === 'draft'}
+                    onChange={() => setPostStatus('draft')}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-gray-300">Szkic</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modal_post_status"
+                    value="publish"
+                    checked={postStatus === 'publish'}
+                    onChange={() => setPostStatus('publish')}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-gray-300">Publikuj</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Format wpisu WordPress</label>
+            <select
+              value={postFormat}
+              onChange={(e) => setPostFormat(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+            >
+              <option value="video">🎬 Film (video)</option>
+              <option value="standard">📄 Standard</option>
+              <option value="gallery">🖼️ Galeria (gallery)</option>
+              <option value="quote">💬 Cytat (quote)</option>
+            </select>
+            <p className="text-xs text-gray-600 mt-1">Domyślnie: Film — optymalny dla treści video SEO</p>
+          </div>
+
+          <button
+            onClick={handlePublish}
+            disabled={publishing || (!isManual && !selectedPortalId && selectedYtChannelIds.length === 0) || (isManual && !wpUrl && selectedYtChannelIds.length === 0)}
+            className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+          >
+            {publishing ? (
+              <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Publikowanie...</>
+            ) : (
+              <>🚀 Opublikuj na portalu</>
+            )}
+          </button>
+
+          {publishResult && (
+            <div
+              className={`p-4 rounded-xl text-sm ${
+                publishResult.error
+                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                  : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+              }`}
+            >
+              {publishResult.error ? (
+                <><span className="font-medium">⚠️ Błąd:</span> {publishResult.error}</>
+              ) : (
+                <div className="space-y-1">
+                  <p><span className="font-medium">✔️ Sukces!</span>
+                    {publishResult.created ? ' Utworzono nowy artykuł' : ' Zaktualizowano artykuł'}
+                    {publishResult.wp_post_id && ` (ID: ${publishResult.wp_post_id})`}
+                  </p>
+                  {publishResult.post_url && (
+                    <a
+                      href={publishResult.post_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200 underline underline-offset-2"
+                    >
+                      Otwórz artykuł na portalu →
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-gray-600 text-center">
+            {isManual ? 'Dane logowania zapamiętane w przeglądarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AddPortalModal({
+  onClose,
+  onSuccess
+}: {
+  onClose: () => void
+  onSuccess: (portalId: string) => void
+}) {
+  const { createPortal } = usePortals()
+  const { profiles, loading: profilesLoading, createProfile } = useProfiles()
+
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('https://')
+  const [wpUser, setWpUser] = useState('')
+  const [wpPassword, setWpPassword] = useState('')
+  const [profileId, setProfileId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const [showNewProfileForm, setShowNewProfileForm] = useState(false)
+  const [newProfileBrand, setNewProfileBrand] = useState('')
+  const [newProfileType, setNewProfileType] = useState('analiza')
+  const [newProfileLang, setNewProfileLang] = useState('pl')
+  const [newProfileExtUrl, setNewProfileExtUrl] = useState('')
+  const [newProfileExtAnchor, setNewProfileExtAnchor] = useState('')
+
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (profiles.length > 0 && !profileId) {
+      setProfileId(profiles[0].id)
+    }
+  }, [profiles, profileId])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+      onClose()
+    }
+  }
+
+  const slugify = (text: string): string =>
+    text.toLowerCase()
+      .replace(/[ąàáâãäå]/g, 'a').replace(/[ćčç]/g, 'c')
+      .replace(/[ęèéêë]/g, 'e').replace(/[ìíîï]/g, 'i')
+      .replace(/[łľ]/g, 'l').replace(/[ńñň]/g, 'n')
+      .replace(/[óòôõöő]/g, 'o').replace(/[śšş]/g, 's')
+      .replace(/[ùúûüű]/g, 'u').replace(/[ýÿ]/g, 'y')
+      .replace(/[źżž]/g, 'z').replace(/[đð]/g, 'd')
+      .replace(/[^\w-]/g, '-').replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+
+  const handleProfileDropdownChange = (value: string) => {
+    if (value === '__new__') {
+      setShowNewProfileForm(true)
+      setProfileId('__new__')
+    } else {
+      setShowNewProfileForm(false)
+      setProfileId(value)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!name || !url || !wpUser || !wpPassword) {
+      setError('Uzupełnij wszystkie pola.')
+      return
+    }
+
+    if (showNewProfileForm) {
+      if (!newProfileBrand.trim()) {
+        setError('Podaj nazwę brandu dla nowego profilu.')
+        return
+      }
+    }
+
+    setSaving(true)
+    setError('')
+
+    try {
+      let finalProfileId: string | null = null
+
+      if (showNewProfileForm) {
+        const portalSlug = slugify(name)
+        if (!portalSlug || portalSlug.length < 3) {
+          setError('Nazwa portalu jest za krótka (min. 3 znaki).')
+          setSaving(false)
+          return
+        }
+
+        const newProfile = await createProfile({
+          portal_id: portalSlug,
+          display_name: name.trim(),
+          site_brand: newProfileBrand.trim(),
+          wp_base_url: url.trim(),
+          default_type: newProfileType,
+          seo_language: newProfileLang,
+          seo_external_link_url: newProfileExtUrl.trim() || undefined,
+          seo_external_link_anchor: newProfileExtAnchor.trim() || undefined,
+        })
+
+        if (!newProfile) {
+          setError('Nie udało się utworzyć profilu. Sprawdź dane.')
+          setSaving(false)
+          return
+        }
+
+        finalProfileId = newProfile.id
+      } else {
+        finalProfileId = profileId === 'none' ? null : profileId
+      }
+
+      const created = await createPortal({
+        name,
+        url,
+        wp_username: wpUser,
+        wp_app_password: wpPassword,
+        profile_id: finalProfileId,
+      })
+
+      if (created) {
+        onSuccess(created.id)
+      } else {
+        setError('Nie udało się utworzyć portalu.')
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Błąd podczas zapisu')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const selectClass = "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none cursor-pointer appearance-none"
+  const selectStyle = { backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }
+  const inputClass = "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500 focus:outline-none"
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={handleBackdropClick}
+    >
+      <div
+        ref={modalRef}
+        className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden animate-in"
+        style={{ animation: 'fadeInUp 0.25s ease-out', maxHeight: '90vh', overflowY: 'auto' }}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gradient-to-r from-violet-950/50 to-fuchsia-950/30">
+          <h3 className="font-semibold text-white">Dodaj nowy portal</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-1">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Nazwa portalu</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="np. BiznesCiti.com"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">URL WordPress</label>
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://biznesciti.com"
+              className={inputClass}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+              <input
+                type="text"
+                value={wpUser}
+                onChange={(e) => setWpUser(e.target.value)}
+                placeholder="admin"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">App Password</label>
+              <input
+                type="password"
+                value={wpPassword}
+                onChange={(e) => setWpPassword(e.target.value)}
+                placeholder="xxxx xxxx xxxx xxxx"
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Profil treści</label>
+            {profilesLoading ? (
+              <div className="text-gray-500 text-xs py-2">Ładowanie profili...</div>
+            ) : (
+              <select
+                value={profileId}
+                onChange={(e) => handleProfileDropdownChange(e.target.value)}
+                className={selectClass}
+                style={selectStyle}
+              >
+                {profiles.map((p: Profile) => (
+                  <option key={p.id} value={p.id}>
+                    {p.display_name}{p.site_brand ? ` (${p.site_brand})` : ''}
+                  </option>
+                ))}
+                <option value="none">(brak profilu)</option>
+                <option value="__new__">+ Utwórz nowy profil</option>
+              </select>
+            )}
+          </div>
+
+          {showNewProfileForm && (
+            <div className="space-y-3 pl-3 border-l-2 border-violet-500/30">
+              <p className="text-xs text-violet-400 font-medium">Nowy profil treści</p>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Site brand</label>
+                <input
+                  type="text"
+                  value={newProfileBrand}
+                  onChange={(e) => setNewProfileBrand(e.target.value)}
+                  placeholder="np. BiznesCiti"
+                  className={inputClass}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Domyślny typ publikacji</label>
+                <select
+                  value={newProfileType}
+                  onChange={(e) => setNewProfileType(e.target.value)}
+                  className={selectClass}
+                  style={selectStyle}
+                >
+                  <optgroup label="-- Informacyjne --">
+                    <option value="news">News (depesza)</option>
+                  </optgroup>
+                  <optgroup label="-- Publicystyczne --">
+                    <option value="analiza">Analiza pogłębiona</option>
+                    <option value="felieton">Felieton</option>
+                  </optgroup>
+                  <optgroup label="-- Narracyjne --">
+                    <option value="wywiad">Wywiad Q&A</option>
+                    <option value="reportaz">Reportaż</option>
+                  </optgroup>
+                  <optgroup label="-- Użytkowe --">
+                    <option value="explainer">Explainer (wyjaśniamy)</option>
+                    <option value="poradnik">Poradnik / How-To</option>
+                  </optgroup>
+                  <optgroup label="-- Legacy (zachowane) --">
+                    <option value="full_analysis">Pełna analiza (stary)</option>
+                    <option value="watching_page">Strona oglądania</option>
+                    <option value="discover">Google Discover</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Język SEO</label>
+                <select
+                  value={newProfileLang}
+                  onChange={(e) => setNewProfileLang(e.target.value)}
+                  className={selectClass}
+                  style={selectStyle}
+                >
+                  <option value="pl">Polski</option>
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Link zewn. SEO</label>
+                  <input
+                    type="url"
+                    value={newProfileExtUrl}
+                    onChange={(e) => setNewProfileExtUrl(e.target.value)}
+                    placeholder="https://youtube.com"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Anchor linku</label>
+                  <input
+                    type="text"
+                    value={newProfileExtAnchor}
+                    onChange={(e) => setNewProfileExtAnchor(e.target.value)}
+                    placeholder="Źródło wideo"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="flex-1 py-2 bg-gray-800 text-white rounded-lg font-medium hover:bg-gray-700 transition-colors"
+            >
+              Anuluj
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 py-2 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-500 transition-colors"
+            >
+              {saving ? 'Zapisywanie...' : showNewProfileForm ? '✨ Utwórz profil i portal' : 'Zapisz portal'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Main Component ─────────────────────────────────────────────────────────
+
+export default function DashboardInner() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
+
+  const [url, setUrl] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<{ raw: SchemaData; videoId: string; time?: number; inputUrl: string } | null>(null)
+  const [error, setError] = useState('')
+  const [copiedKey, setCopiedKey] = useState<CopiedKey>(null)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [activeTab, setActiveTab] = useState<TabKey>('article')
+
+  // ShortMachine state
+  const [smYoutubeId, setSmYoutubeId] = useState('')
+  const [smCustomQuery, setSmCustomQuery] = useState('')
+  const [smCountEmotional, setSmCountEmotional] = useState(2)
+  const [smCountProfessional, setSmCountProfessional] = useState(2)
+  const [smCountCustom, setSmCountCustom] = useState(3)
+  const [shortLocalPath, setShortLocalPath] = useState<string>('')
+  const [smCandidates, setSmCandidates] = useState<any[]>([])
+  const [smPreviewIdx, setSmPreviewIdx] = useState<number | null>(null)
+  const ytPlayerRef = useRef<any>(null)
+  const ytIntervalRef = useRef<any>(null)
+  const [smTitles, setSmTitles] = useState<Record<number, string>>({})
+  const [smTags, setSmTags] = useState<Record<number, string[]>>({})
+  const [smTitleLoading, setSmTitleLoading] = useState<Record<number, boolean>>({})
+
+  // Auto-populate smYoutubeId from current video URL
+  useEffect(() => {
+    if (!smYoutubeId) {
+      const urlParams = new URLSearchParams(window.location.search)
+      const jobVideoUrl = url || urlParams.get('video_url') || ''
+      if (jobVideoUrl) {
+        const match = jobVideoUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)
+        if (match) setSmYoutubeId(match[1])
+        else if (jobVideoUrl.length === 11) setSmYoutubeId(jobVideoUrl)
+      }
+    }
+  }, [url, smYoutubeId])
+
+  const extractYoutubeId = (urlOrId: string): string => {
+    if (/^[A-Za-z0-9_-]{11}$/.test(urlOrId)) return urlOrId
+    const match = urlOrId.match(/(?:v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})/)
+    return match ? match[1] : urlOrId
+  }
+
+  useEffect(() => {
+    if (!smYoutubeId) return
+    const cleanId = extractYoutubeId(smYoutubeId)
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+    fetch(`${apiBase}/v1/shorts/history/${cleanId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.candidates?.length > 0 && smCandidates.length === 0) {
+          setSmCandidates(data.candidates)
+        }
+        if (data.jobs?.length > 0 && data.candidates?.length > 0) {
+          const restoredStatus: Record<number, any> = {}
+          data.jobs.forEach((job: any) => {
+            const idx = data.candidates.findIndex(
+              (c: any) => Math.abs(c.start_sec - job.start_sec) < 1 &&
+                          Math.abs(c.end_sec - job.end_sec) < 1
+            )
+            if (idx >= 0) {
+              restoredStatus[idx] = {
+                status: job.status,
+                result_paths: job.result_paths,
+                job_id: job.id,
+                error: job.error,
+              }
+            }
+          })
+          if (Object.keys(restoredStatus).length > 0) {
+            setSmJobStatus(prev => ({ ...restoredStatus, ...prev }))
+          }
+        }
+      })
+      .catch(err => console.warn('Failed to restore ShortMachine state:', err))
+  }, [smYoutubeId])
+
+  const [smLoading, setSmLoading] = useState(false)
+  const [smError, setSmError] = useState<string | null>(null)
+  const [smRenderConfig, setSmRenderConfig] = useState<Record<number, {format: string, subtitles: string}>>({})
+  const [smJobStatus, setSmJobStatus] = useState<Record<number, any>>({})
+  const [smTrimAdj, setSmTrimAdj] = useState<Record<number, {startDelta: number; endDelta: number}>>({})
+  const [smExpandedIdx, setSmExpandedIdx] = useState<number | null>(null)
+  const [smTrimMode, setSmTrimMode] = useState<'start' | 'end'>('start')
+  const [smSelected, setSmSelected] = useState<Set<number>>(new Set())
+  const [smFormat, setSmFormat] = useState<'raw' | 'short'>('raw')
+
+  const toggleSmSelected = (idx: number) => setSmSelected(prev => {
+    const next = new Set(prev)
+    if (next.has(idx)) next.delete(idx); else next.add(idx)
+    return next
+  })
+
+  const [smTargetYtId, setSmTargetYtId] = useState<Record<number, string>>({})
+  const [smGlobalChannelId, setSmGlobalChannelId] = useState<string>('')
+  const [smChannelOverride, setSmChannelOverride] = useState<Record<number, string>>({})
+  const [smPublishAt, setSmPublishAt] = useState<Record<number, string>>({})
+  const [smPrivacyStatus, setSmPrivacyStatus] = useState<Record<number, string>>({})
+  const [smSelectedPlaylist, setSmSelectedPlaylist] = useState<Record<number, string>>({})
+  const [smPlaylists, setSmPlaylists] = useState<{id: string, title: string}[]>([])
+  const [smModalOpenFor, setSmModalOpenFor] = useState<number | null>(null)
+
+  const [showInjectModal, setShowInjectModal] = useState(false)
+  const [ytModalOpen, setYtModalOpen] = useState(false)
+  const [ytChannels, setYtChannels] = useState<any[]>([])
+  const [ytDescription, setYtDescription] = useState<string>('')
+
+  useEffect(() => {
+    if (!session?.accessToken) return
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/youtube/channels`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` }
+    })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setYtChannels(Array.isArray(data) ? data : []))
+      .catch(() => setYtChannels([]))
+  }, [session?.accessToken])
+
+  useEffect(() => {
+    const defaultCh = ytChannels.find((ch: any) => ch.is_default) ?? ytChannels[0]
+    if (defaultCh && !smGlobalChannelId) {
+      setSmGlobalChannelId(defaultCh.channel_id)
+    }
+    const channelId = ytChannels[0]?.channel_id
+    if (!channelId) {
+      setSmPlaylists([])
+      return
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+    fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`)
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setSmPlaylists(data) })
+      .catch(err => console.warn('Failed to load playlists:', err))
+  }, [ytChannels])
+
+  const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`
+  const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) })
+
+  const handleRegenerateTitle = async (i: number, c: any) => {
+    const adj = getAdj(i, c)
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+    setSmTitleLoading(p => ({...p, [i]: true}))
+    try {
+      const res = await fetch(`${apiBase}/v1/shorts/title`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({youtube_id: smYoutubeId, start_sec: adj.start, end_sec: adj.end})
+      })
+      const data = await res.json()
+      if (data.title) setSmTitles(p => ({...p, [i]: data.title}))
+      if (data.tags?.length) setSmTags(p => ({...p, [i]: data.tags}))
+    } finally {
+      setSmTitleLoading(p => ({...p, [i]: false}))
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if ((window as any).YT) return
+    const tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+  }, [])
+
+  // Portals hook
+  const { portals, loading: portalsLoading } = usePortals()
+  const [selectedPortalId, setSelectedPortalId] = useState<string>('')
+  const [publicationType, setPublicationType] = useState<string>('analiza')
+  const [showAddPortalModal, setShowAddPortalModal] = useState(false)
+
+  useEffect(() => {
+    if (portals.length > 0 && !selectedPortalId) {
+      const defaultPortal = portals.find((p) => p.is_default) ?? portals[0]
+      if (defaultPortal) {
+        setSelectedPortalId(defaultPortal.id)
+      }
+    }
+  }, [portals, selectedPortalId])
+
+  const accessToken = (session as any)?.accessToken as string | undefined
+  const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken)
+
+  useEffect(() => {
+    if (jobData?.schema_data) {
+      const videoId = jobData.video_id || ''
+      setResult({
+        raw: jobData.schema_data as SchemaData,
+        videoId,
+        inputUrl: jobData.video_url,
+      })
+      setUrl(jobData.video_url)
+      setActiveTab('article')
+    }
+  }, [jobData])
+
+  useEffect(() => {
+    if (status === 'unauthenticated') router.push('/login')
+  }, [status, router])
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!session?.accessToken) return
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+        const res = await fetch(`${apiUrl}/v1/users/me`, {
+          headers: { Authorization: `Bearer ${session.accessToken as string}` },
+        })
+        if (res.ok) setUserProfile(await res.json())
+      } catch {
+        // silent
+      }
+    }
+    fetchProfile()
+  }, [session?.accessToken])
+
+  const isPro =
+    (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
+    (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))
+
+  const handleCopy = useCallback(async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(id)
+      setTimeout(() => setCopiedKey(null), 2000)
+    } catch {
+      // silent
+    }
+  }, [])
+
+  useEffect(() => {
+    if (result?.raw) {
+      const wpLink = result.raw?.wp_url as string | undefined
+      setYtDescription(buildYtDescription(result.raw as SchemaData, wpLink))
+    }
+  }, [result])
+
+  const handleGetCandidates = async () => {
+    setSmLoading(true)
+    setSmError(null)
+    setSmCandidates([])
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/shorts/candidates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) },
+        body: JSON.stringify({
+          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,
+          youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : undefined,
+          custom_query: smCustomQuery,
+          count_emotional: smCountEmotional,
+          count_professional: smCountProfessional,
+          count_custom: smCustomQuery ? smCountCustom : 0,
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setSmCandidates(data.candidates || [])
+      const newTitles: Record<number, string> = {}
+      const newTags: Record<number, string[]> = {}
+      ;(data.candidates || []).forEach((c: any, i: number) => {
+        newTitles[i] = c.suggested_title || ''
+        newTags[i] = c.tags || []
+      })
+      setSmTitles(newTitles)
+      setSmTags(newTags)
+    } catch (e: any) {
+      setSmError(e.message)
+    } finally {
+      setSmLoading(false)
+    }
+  }
+
+  const handleRenderShort = async (candidate: any, index: number) => {
+    try {
+      const cfg = smRenderConfig[index] || {}
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/shorts/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) },
+        body: JSON.stringify({
+          youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : `https://www.youtube.com/watch?v=${smYoutubeId}`,
+          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,
+          start_sec: candidate.start_sec,
+          end_sec: candidate.end_sec,
+          candidate_data: candidate,
+          format: smFormat,
+          render_format: cfg.format || '9:16',
+          subtitles: cfg.subtitles || 'srt',
+          output_dir: 'C:\\VSE\\Shorts',
+          ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const renderJobId = data.job_id
+      setSmJobStatus(prev => ({...prev, [index]: {status: 'pending'}}))
+      
+      let attempts = 0
+      const poll = setInterval(async () => {
+        attempts++
+        if (attempts > 40) { clearInterval(poll); return }
+        try {
+          const statusRes = await fetch(`${apiUrl}/v1/shorts/${renderJobId}`, {
+            headers: { ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}) }
+          })
+          const statusData = await statusRes.json()
+          setSmJobStatus(prev => ({...prev, [index]: statusData}))
+          if (statusData.status === 'done' || statusData.status === 'error') {
+            clearInterval(poll)
+          }
+        } catch {}
+      }, 3000)
+    } catch (e: any) {
+      setSmError(`Render error: ${e.message}`)
+    }
+  }
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!url.trim()) return
+
+    setLoading(true)
+    setError('')
+    setResult(null)
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+        },
+        body: JSON.stringify({
+          video_url: url.trim(),
+          llm_provider: 'claude',
+          lang: 'pl',
+          publication_type: publicationType,
+          portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : selectedPortalId.trim(),
+        }),
+      })
+
+      let data: GenerateResponse | null = null
+      try { data = await res.json() } catch {
+        throw new Error(`Serwer zwrócił nieprawidłową odpowiedź (HTTP ${res.status})`)
+      }
+
+      if (!res.ok) {
+        const detail = (data as unknown as { detail?: string | { msg: string }[] })?.detail
+        if (Array.isArray(detail)) throw new Error(detail.map((d) => d.msg).join(', '))
+        throw new Error(typeof detail === 'string' ? detail : `Błąd serwera: HTTP ${res.status}`)
+      }
+
+      if (!data) throw new Error('Pusta odpowiedź serwera')
+      if (data.error) throw new Error(data.error)
+
+      const schema = data.schema_data ?? null
+      if (!schema) throw new Error('Serwer nie zwrócił schema_data')
+
+      setResult({ raw: schema, videoId: data.video_id, time: data.processing_time_s, inputUrl: url.trim() })
+      setActiveTab('article')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Nieznany błąd')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-500" />
+      </div>
+    )
+  }
+
+  const schema = result?.raw ?? null
+  const chapters = extractChapters(schema)
+  const faq = extractFaq(schema)
+  const planLabel = userProfile?.plan?.display_name ?? 'Free'
+  const usageUsed = userProfile?.usage?.used_this_month ?? 0
+  const usageQuota = userProfile?.usage?.quota ?? 5
+
+  return (
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gray-950 text-white">
+        {/* Sidebar */}
+        <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-20">
+          <div className="p-6 border-b border-gray-800">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <span className="font-bold text-white block">VSE</span>
+                <span className="text-xs text-gray-500">Video SEO Engine</span>
+              </div>
+            </div>
+          </div>
+
+          <nav className="flex-1 p-4 space-y-1">
+            <NavItem icon="grid" label="Dashboard" href="/dashboard" active />
+            <NavItem icon="clock" label="Historia" href="/historia" />
+            <NavItem icon="settings" label="Ustawienia" href="/ustawienia" />
+          </nav>
+
+          {/* User info + plan */}
+          <div className="p-4 border-t border-gray-800">
+            <div className="mb-3">
+              <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <span>Użyto</span>
+                <span>{usageUsed}/{usageQuota}</span>
+              </div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (usageUsed / usageQuota) * 100)}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                {session?.user?.email?.[0]?.toUpperCase() || 'U'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{session?.user?.email}</p>
+                <p className="text-xs text-violet-400">{planLabel}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1 mb-3">
+              <a
+                href="/cennik"
+                className="text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5"
+              >
+                ↑ Zmień plan
+              </a>
+              {userProfile?.plan?.id !== 'free' && (
+                <ManageSubscriptionLink accessToken={(session as { accessToken?: string })?.accessToken} />
+              )}
+            </div>
+
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="w-full text-left text-sm text-gray-400 hover:text-white transition-colors py-1"
+            >
+              → Wyloguj się
+            </button>
+          </div>
+        </aside>
+
+        {/* Main content */}
+        <main className="ml-64 p-8">
+          <div className="max-w-3xl">
+            <EmailVerificationBanner
+              isVerified={userProfile?.is_verified}
+              accessToken={(session as { accessToken?: string })?.accessToken}
+            />
+
+            <h1 className="text-2xl font-bold text-white mb-1">Video SEO Engine</h1>
+            <p className="text-gray-400 mb-8">
+              Wklej URL YouTube — AI wygeneruje schema VideoObject + Clip + FAQPage.
+            </p>
+
+            {jobLoading && (
+              <div className="mb-6 flex items-center gap-3 p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl">
+                <span className="animate-spin inline-block w-4 h-4 border-2 border-violet-300/30 border-t-violet-400 rounded-full" />
+                <span className="text-sm text-violet-300">Ładowanie wyników z historii...</span>
+              </div>
+            )}
+
+            {jobError && (
+              <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
+                ⚠️ {jobError}
+              </div>
+            )}
+
+            {jobId && result && (
+              <div className="mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+                <span className="text-xs text-blue-400">📋 Wyniki załadowane z historii</span>
+                <Link href="/historia" className="text-xs text-gray-500 hover:text-white ml-auto transition-colors">
+                  ← Wróć do historii
+                </Link>
+              </div>
+            )}
+
+            {/* Portal & Publication Type Selector */}
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Portal docelowy</label>
+                {portalsLoading ? (
+                  <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
+                    <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
+                    Ładowanie...
+                  </div>
+                ) : portals.length === 0 ? (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val === '__add__') {
+                        setShowAddPortalModal(true)
+                      } else if (val === '__manual__') {
+                        setSelectedPortalId('__manual__')
+                      }
+                    }}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                  >
+                    <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
+                    <option value="__add__">+ Dodaj nowy portal...</option>
+                    <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                  </select>
+                ) : (
+                  <select
+                    id="portal-selector"
+                    value={selectedPortalId}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val === '__add__') {
+                        setShowAddPortalModal(true)
+                      } else if (val === '__manual__') {
+                        setSelectedPortalId('__manual__')
+                      } else {
+                        setSelectedPortalId(val)
+                      }
+                    }}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                  >
+                    {portals.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                    <option value="__add__">+ Dodaj nowy portal...</option>
+                    <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Typ publikacji</label>
+                <select
+                  id="publication-type-selector"
+                  value={publicationType}
+                  onChange={(e) => setPublicationType(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                >
+                  <option value="full_analysis">📝 Pełna analiza</option>
+                  <option value="watching_page">🎬 Strona z filmem</option>
+                  <option value="discover">🔍 Discover</option>
+                </select>
+              </div>
+            </div>
+
+            {/* URL Form */}
+            <form onSubmit={handleGenerate} className="mb-8">
+              <div className="flex gap-3">
+                <input
+                  id="youtube-url-input"
+                  type="text"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                />
+                <button
+                  id="generate-btn"
+                  type="submit"
+                  disabled={loading || !url.trim()}
+                  className="px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                >
+                  {loading ? (
+                    <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Generuję...</>
+                  ) : (
+                    <>✦ Generuj SEO</>
+                  )}
+                </button>
+              </div>
+
+              {loading && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-gray-400">
+                  <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
+                  Pobieranie transkryptu i generowanie schema... (~50s)
+                </div>
+              )}
+
+              {error && (
+                <div className="mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2">
+                  <span className="flex-shrink-0 mt-0.5">⚠️</span>
+                  <div>
+                    <p className="font-medium mb-0.5">Wystąpił błąd</p>
+                    <p className="text-red-300/80">{error}</p>
+                  </div>
+                </div>
+              )}
+            </form>
+
+            {!result && !loading && (
+              <>
+                <div className="grid grid-cols-3 gap-4 mb-8">
+                  {[
+                    { label: 'Filmy w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
+                    { label: 'Benchmark score', value: '8/10', sub: 'vs 2—3/10 konkurencja' },
+                    { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },
+                  ].map((stat) => (
+                    <div key={stat.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                      <p className="text-gray-400 text-sm mb-1">{stat.label}</p>
+                      <p className="text-2xl font-bold text-white">{stat.value}</p>
+                      <p className="text-xs text-gray-500 mt-1">{stat.sub}</p>
+                    </div>
+                  ))}
+                </div>
+                <WpQuickPanel />
+              </>
+            )}
+
+            {/* Results */}
+            {result && (
+              <div>
+                <div className="flex items-center justify-between mb-5">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Wyniki SEO</h2>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Video: <span className="font-mono">{result.videoId}</span>
+                      {result.time && <> • {result.time.toFixed(1)}s</>}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
+                      ✔️ Wygenerowano
+                    </span>
+                    {isPro && (
+                      <button
+                        onClick={() => setShowInjectModal(true)}
+                        className="px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5"
+                      >
+                        🚀 Wyślij do portalu
+                      </button>
+                    )}
+                    {ytChannels.length > 0 && (
+                      <button
+                        onClick={() => setYtModalOpen(true)}
+                        className="px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2"
+                      >
+                        ▶️ Wyślij na YouTube
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <TabBar
+                  active={activeTab}
+                  onChange={setActiveTab}
+                  chaptersCount={chapters.length}
+                  faqCount={faq.length}
+                />
+
+                {/* Tab: Schemat */}
+                {activeTab === 'schema' && (
+                  <div>
+                    <ResultSection
+                      title="Tytuł artykułu"
+                      copyText={schema?.post_title ?? ''}
+                      copyId="post_title"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <p className="text-white font-medium">{schema?.post_title ?? '(brak tytułu)'}</p>
+                      {schema?.focus_keyphrase && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Focus: <span className="text-violet-400">{schema.focus_keyphrase}</span>
+                        </p>
+                      )}
+                    </ResultSection>
+
+                    <ResultSection
+                      title="Meta description"
+                      copyText={schema?.meta_description ?? ''}
+                      copyId="meta_description"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <p className="text-gray-300 text-sm leading-relaxed">
+                        {schema?.meta_description ?? '(brak meta description)'}
+                      </p>
+                    </ResultSection>
+
+                    <ResultSection
+                      title="Schema JSON-LD"
+                      copyText={schemaToScriptTag(schema)}
+                      copyId="schema_jsonld"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                      badge="Wklej do <head>"
+                    >
+                      <pre className="text-xs text-emerald-400 font-mono overflow-auto max-h-72 leading-relaxed">
+{`<script type="application/ld+json">`}
+{JSON.stringify(schema ?? {}, null, 2)}
+{`</script>`}
+                      </pre>
+                    </ResultSection>
+                  </div>
+                )}
+
+                {/* Tab: Artykuł */}
+                {activeTab === 'article' && (
+                  <div>
+                    <div className="flex justify-end mb-4">
+                      <CopyButton
+                        text={articleToText(schema, faq)}
+                        id="article_all"
+                        copiedKey={copiedKey}
+                        onCopy={handleCopy}
+                        label="Kopiuj cały artykuł"
+                      />
+                    </div>
+
+                    <ResultSection
+                      title="Lead artykułu"
+                      copyText={schema?.lead ?? ''}
+                      copyId="lead"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                        {schema?.lead ?? '(brak leadu)'}
+                      </p>
+                    </ResultSection>
+
+                    <ResultSection
+                      title="Treść artykułu"
+                      copyText={schema?.article_body ?? ''}
+                      copyId="article_body"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                        {schema?.article_body ?? '(brak treści)'}
+                      </div>
+                    </ResultSection>
+
+                    {faq.length > 0 && (
+                      <ResultSection
+                        title="Sekcja FAQ (HTML)"
+                        copyText={faqToHtml(faq)}
+                        copyId="faq"
+                        copiedKey={copiedKey}
+                        onCopy={handleCopy}
+                        badge={`${faq.length} pytań`}
+                      >
+                        <div className="space-y-3 text-sm">
+                          {faq.map((item, idx) => (
+                            <details key={idx} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                              <summary className="font-medium text-violet-300 cursor-pointer">{item.question}</summary>
+                              <p className="mt-2 text-gray-400 text-xs leading-relaxed">{item.answer}</p>
+                            </details>
+                          ))}
+                        </div>
+                      </ResultSection>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab: Rozdziały */}
+                {activeTab === 'chapters' && (
+                  <div>
+                    <ResultSection
+                      title="Rozdziały YouTube"
+                      copyText={chaptersToText(chapters)}
+                      copyId="chapters"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                      badge={`${chapters.length} rozdziałów`}
+                    >
+                      <pre className="text-xs text-gray-300 font-mono overflow-auto max-h-60 leading-relaxed">
+                        {chaptersToText(chapters)}
+                      </pre>
+                    </ResultSection>
+                  </div>
+                )}
+
+                {/* Tab: Opis YouTube */}
+                {activeTab === 'youtube' && (
+                  <div>
+                    <ResultSection
+                      title="Wygenerowany opis YouTube"
+                      copyText={ytDescription}
+                      copyId="yt_desc"
+                      copiedKey={copiedKey}
+                      onCopy={handleCopy}
+                    >
+                      <pre className="text-xs text-gray-300 font-mono overflow-auto max-h-96 whitespace-pre-wrap leading-relaxed">
+                        {ytDescription}
+                      </pre>
+                    </ResultSection>
+                  </div>
+                )}
+
+                {/* Tab: ShortMachine */}
+                {activeTab === 'shorts' && (
+                  <div className="space-y-6">
+                    <h2 className="text-xl font-semibold text-white">✂️ ShortMachine</h2>
+                    
+                    <div className="bg-gray-800 rounded-xl p-6 space-y-4">
+                      <h3 className="text-lg font-medium text-white">Propozycje kandydatów</h3>
+                      
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">YouTube ID lub URL</label>
+                        <input
+                          id="sm-youtube-id"
+                          type="text"
+                          value={smYoutubeId}
+                          onChange={e => setSmYoutubeId(e.target.value)}
+                          placeholder="np. dQw4w9WgXcQ"
+                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-2 mb-4">
+                        <label className="text-sm text-gray-400 whitespace-nowrap">Plik lokalny</label>
+                        <input
+                          type="text"
+                          value={shortLocalPath}
+                          onChange={e => setShortLocalPath(e.target.value)}
+                          placeholder="C:\\Users\\...\\video.mp4 (opcjonalny)"
+                          className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 placeholder-gray-500"
+                        />
+                        <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 border border-gray-500 rounded px-3 py-1 text-sm text-gray-200 flex items-center gap-1">
+                          📁 Browse
+                          <input
+                            type="file"
+                            accept="video/*,.mp4,.mov,.mkv,.avi"
+                            className="hidden"
+                            onChange={e => {
+                              const file = e.target.files?.[0]
+                              if (file) setShortLocalPath(file.name)
+                            }}
+                          />
+                        </label>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Custom query (opcjonalny)</label>
+                        <input
+                          id="sm-custom-query"
+                          type="text"
+                          value={smCustomQuery}
+                          onChange={e => setSmCustomQuery(e.target.value)}
+                          placeholder="np. Niemcy teściową Europy"
+                          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-sm text-gray-400 mb-1">Emotional</label>
+                          <input id="sm-count-emotional" type="number" min="0" max="5" value={smCountEmotional}
+                            onChange={e => setSmCountEmotional(Number(e.target.value))}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-400 mb-1">Professional</label>
+                          <input id="sm-count-professional" type="number" min="0" max="5" value={smCountProfessional}
+                            onChange={e => setSmCountProfessional(Number(e.target.value))}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-400 mb-1">Custom</label>
+                          <input id="sm-count-custom" type="number" min="0" max="5" value={smCountCustom}
+                            onChange={e => setSmCountCustom(Number(e.target.value))}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
+                        </div>
+                      </div>
+                      
+                      <style>{`@keyframes sm-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+                      <button
+                        id="sm-get-candidates-btn"
+                        onClick={handleGetCandidates}
+                        disabled={smLoading || !smYoutubeId}
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                      >
+                        {smLoading ? (
+                          <>
+                            <svg style={{display:'inline-block',width:'16px',height:'16px',animation:'sm-spin 0.8s linear infinite',marginRight:'8px',verticalAlign:'middle'}} viewBox="0 0 24 24" fill="none">
+                              <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="3"/>
+                              <path d="M12 2a10 10 0 0 1 10 10" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+                            </svg>
+                            Analizuję transkrypt AI...
+                          </>
+                        ) : '🎯 Analizuj wideo'}
+                      </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 py-2 px-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                      <span className="text-xs text-gray-400">Format renderowania:</span>
+                      {(['raw', 'short'] as const).map((fmt) => (
+                        <button
+                          key={fmt}
+                          onClick={() => setSmFormat(fmt)}
+                          className={`px-3 py-1 text-xs rounded border transition-all ${
+                            smFormat === fmt
+                              ? 'bg-violet-600/20 border-violet-500/40 text-violet-400'
+                              : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {fmt === 'raw' ? '📼 Raw (szybki cut)' : '✂️ Short (9:16)'}
+                        </button>
+                      ))}
+                      <span className="text-xs text-gray-600 ml-auto">
+                        {smFormat === 'raw' ? 'ffmpeg -c copy, bez re-encode' : 'Przetwarzanie 9:16 + SRT'}
+                      </span>
+                    </div>
+
+                    {/* Globalny selektor kanału YT */}
+                    {ytChannels.length > 0 && (
+                      <div className="flex items-center gap-3 mb-4 px-1">
+                        <span className="text-xs text-gray-400 whitespace-nowrap">Kanał YT:</span>
+                        <select
+                          className="flex-1 bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+                          value={smGlobalChannelId}
+                          onChange={e => setSmGlobalChannelId(e.target.value)}
+                        >
+                          {ytChannels.map((ch: any) => (
+                            <option key={ch.channel_id} value={ch.channel_id}>
+                              {ch.is_default ? '★ ' : ''}{ch.channel_title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {smCandidates.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-lg font-medium text-white">Kandydaci ({smCandidates.length})</h3>
+                        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-700">
+                          <input
+                            type="checkbox"
+                            id="selectAllCandidates"
+                            checked={smCandidates.length > 0 && smSelected.size === smCandidates.length}
+                            onChange={(e) => {
+                              if (e.target.checked) setSmSelected(new Set(smCandidates.map((_: any, idx: number) => idx)))
+                              else setSmSelected(new Set())
+                            }}
+                            style={{cursor:'pointer',accentColor:'#3b82f6'}}
+                          />
+                          <label htmlFor="selectAllCandidates" className="text-xs text-gray-400 cursor-pointer">
+                            Zaznacz wszystkie ({smCandidates.length})
+                          </label>
+                        </div>
+                        {smCandidates.map((c, i) => (
+                          <div key={i} className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center gap-2">
+                                <input type="checkbox" checked={smSelected.has(i)} onChange={() => toggleSmSelected(i)} style={{cursor:'pointer',accentColor:'#3b82f6'}} />
+                                <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                  c.type === 'emotional' ? 'bg-red-900 text-red-300' :
+                                  c.type === 'professional' ? 'bg-blue-900 text-blue-300' :
+                                  'bg-purple-900 text-purple-300'
+                                }`}>{c.type}</span>
+                                <span className="text-sm text-gray-400">
+                                  {Math.floor(c.start_sec / 60)}:{String(Math.floor(c.start_sec % 60)).padStart(2,'0')} - 
+                                  {Math.floor(c.end_sec / 60)}:{String(Math.floor(c.end_sec % 60)).padStart(2,'0')}
+                                  &nbsp;({c.duration_sec}s)
+                                </span>
+                              </div>
+                              <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                                <span className="text-yellow-400 text-sm">
+                                  {'★'.repeat(Math.round(c.score * 5))}{'☆'.repeat(5 - Math.round(c.score * 5))}
+                                </span>
+                                <button onClick={() => setSmExpandedIdx(smExpandedIdx === i ? null : i)} style={{padding:'2px 8px',fontSize:'11px',background: smExpandedIdx===i ? '#1e40af' : '#1e293b',border:'1px solid '+(smExpandedIdx===i?'#3b82f6':'#334155'),borderRadius:'4px',color: smExpandedIdx===i?'#93c5fd':'#94a3b8',cursor:'pointer'}}>
+                                  {smExpandedIdx === i ? '▲ Transkrypt' : '✏ Transkrypt'}
+                                </button>
+                              </div>
+                            </div>
+                            
+                            <div className="text-sm space-y-1">
+                              <p><span className="text-gray-400">Hook:</span> <span className="text-white">{c.hook_text}</span></p>
+                              <p><span className="text-gray-400">Puenta:</span> <span className="text-white">{c.punchline_text}</span></p>
+                              {c.query_match && (
+                                <p><span className="text-gray-400">Match:</span> <span className="text-green-400">{c.query_match}</span></p>
+                              )}
+                            </div>
+                            
+                            {smExpandedIdx === i && (
+                              <div style={{marginBottom:'12px',border:'1px solid #334155',borderRadius:'8px',overflow:'hidden',background:'#0f172a'}}>
+                                {(() => {
+                                  const ytMatch = (c.youtube_url||'').match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
+                                  const ytId = ytMatch ? ytMatch[1] : null
+                                  const adjStart = getAdj(i, c).start
+                                  return ytId ? (
+                                    <div style={{position:'relative',paddingBottom:'56.25%',height:0,overflow:'hidden'}}>
+                                      <iframe key={`yt-${i}-${Math.floor(adjStart)}`} src={`https://www.youtube.com/embed/${ytId}?start=${Math.floor(adjStart)}&autoplay=0&rel=0`} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:'none'}} allowFullScreen />
+                                    </div>
+                                  ) : <div style={{padding:'8px',color:'#64748b',fontSize:'12px'}}>Brak YouTube URL dla podglądu</div>
+                                })()}
+                                <div style={{maxHeight:'220px',overflowY:'auto',padding:'8px'}}>
+                                  <div style={{display:'flex',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
+                                    <span style={{fontSize:'11px',color:'#94a3b8'}}>Klik ustawia:</span>
+                                    <button onClick={()=>setSmTrimMode('start')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='start'?'#3b82f6':'#1e293b',color:smTrimMode==='start'?'#fff':'#94a3b8'}}>◀ Start</button>
+                                    <button onClick={()=>setSmTrimMode('end')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='end'?'#f59e0b':'#1e293b',color:smTrimMode==='end'?'#fff':'#94a3b8'}}>Koniec ▶</button>
+                                    <span style={{marginLeft:'auto',fontSize:'11px',color:'#64748b'}}>{(c.vtt_segments||[]).length} segmentów</span>
+                                  </div>
+                                  {(c.vtt_segments||[]).map((seg: any, si: number) => {
+                                    const adj = getAdj(i, c)
+                                    const isInRange = seg.ts >= adj.start && seg.ts <= adj.end
+                                    return (
+                                      <div key={si} onClick={() => { if (smTrimMode === 'start') { setSmTrimAdj((p: any) => ({...p, [i]: {startDelta: seg.ts - (c.start_sec??0), endDelta: p[i]?.endDelta??0}})); } else { setSmTrimAdj((p: any) => ({...p, [i]: {startDelta: p[i]?.startDelta??0, endDelta: seg.ts - (c.end_sec??0) + 2}})); } }} style={{padding:'4px 8px',marginBottom:'2px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',lineHeight:'1.4',background: isInRange ? 'rgba(59,130,246,0.15)' : 'transparent',borderLeft: isInRange ? '3px solid #3b82f6' : '3px solid transparent',color: isInRange ? '#e2e8f0' : '#64748b',transition: 'background 0.1s'}}>
+                                        <span style={{color:'#475569',marginRight:'8px',fontFamily:'monospace',fontSize:'11px'}}>{seg.time_str}</span>
+                                        {seg.text}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="space-y-1 mb-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={smTitles[i] || ''}
+                                  onChange={e => setSmTitles(p => ({...p, [i]: e.target.value}))}
+                                  placeholder="Tytuł shorta..."
+                                  className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500"
+                                />
+                                {(smTrimAdj[i]?.startDelta || smTrimAdj[i]?.endDelta) && (
+                                  <button
+                                    onClick={() => handleRegenerateTitle(i, c)}
+                                    disabled={smTitleLoading[i]}
+                                    className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-gray-300 disabled:opacity-50"
+                                    title="Odśwież tytuł i tagi na podstawie nowego zakresu"
+                                  >
+                                    {smTitleLoading[i] ? '...' : '🔄'}
+                                  </button>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {(smTags[i] || []).map((tag, ti) => (
+                                  <span key={ti} className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-700 border border-gray-600 rounded-full text-xs text-gray-300">
+                                    {tag}
+                                    <button onClick={() => setSmTags(p => ({...p, [i]: (p[i]||[]).filter((_,j)=>j!==ti)}))} className="text-gray-500 hover:text-red-400 leading-none">×</button>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="mb-2">
+                              <button
+                                onClick={() => {
+                                  if (smPreviewIdx === i) {
+                                    setSmPreviewIdx(null)
+                                    if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
+                                    return
+                                  }
+                                  setSmPreviewIdx(i)
+                                  const adj2 = getAdj(i, c)
+                                  const videoId2 = smYoutubeId.length === 11 ? smYoutubeId : smYoutubeId.match(/[a-zA-Z0-9_-]{11}/)?.[0] || ''
+                                  setTimeout(() => {
+                                    if (!(window as any).YT?.Player) return
+                                    if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()
+                                    if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
+                                    ytPlayerRef.current = new (window as any).YT.Player(`yt-preview-${i}`, {
+                                      height: '180',
+                                      width: '320',
+                                      videoId: videoId2,
+                                      playerVars: { start: Math.floor(adj2.start), autoplay: 1, rel: 0, modestbranding: 1 },
+                                      events: {
+                                        onReady: (e: any) => {
+                                          e.target.seekTo(adj2.start, true)
+                                          e.target.playVideo()
+                                          ytIntervalRef.current = setInterval(() => {
+                                            const t = e.target.getCurrentTime()
+                                            if (t >= adj2.end) {
+                                              e.target.pauseVideo()
+                                              clearInterval(ytIntervalRef.current)
+                                            }
+                                          }, 250)
+                                        }
+                                      }
+                                    })
+                                  }, 100)
+                                }}
+                                className="text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                              >
+                                {smPreviewIdx === i ? '▼ Zamknij podgląd' : '▶ Podgląd'}
+                              </button>
+
+                              {smPreviewIdx === i && (
+                                <div className="mt-2 rounded overflow-hidden" style={{width:320}}>
+                                  <div id={`yt-preview-${i}`} />
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {fmtSec(getAdj(i,c).start)} → {fmtSec(getAdj(i,c).end)} ({Math.round(getAdj(i,c).end-getAdj(i,c).start)}s)
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'8px',fontSize:'12px',color:'#888'}}>
+                              <span>✂ Start:</span>
+                              {([-5,-2,-1] as number[]).map(d=>(
+                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>
+                              ))}
+                              <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).start)}</span>
+                              {([1,2,5] as number[]).map(d=>(
+                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>
+                              ))}
+                              <span style={{marginLeft:'8px'}}>Koniec:</span>
+                              {([-5,-2,-1] as number[]).map(d=>(
+                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>
+                              ))}
+                              <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).end)}</span>
+                              {([1,2,5] as number[]).map(d=>(
+                                <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>
+                              ))}
+                              <span style={{marginLeft:'6px',color:'#64748b'}}>{Math.round(getAdj(i,c).end-getAdj(i,c).start)}s</span>
+                              {(smTrimAdj[i]?.startDelta||smTrimAdj[i]?.endDelta)?<button onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:0,endDelta:0}}))} style={{padding:'1px 5px',fontSize:'10px',background:'transparent',border:'1px solid #475569',borderRadius:'3px',color:'#64748b',cursor:'pointer',marginLeft:'auto'}}>↺</button>:null}
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-700">
+                              <select
+                                value={smRenderConfig[i]?.format || '9:16'}
+                                onChange={e => setSmRenderConfig(prev => ({...prev, [i]: {...(prev[i]||{}), format: e.target.value}}))}
+                                className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs"
+                              >
+                                <option value="9:16">9:16 (Shorts)</option>
+                                <option value="16:9">16:9 (YT)</option>
+                              </select>
+                              <select
+                                value={smRenderConfig[i]?.subtitles || 'srt'}
+                                onChange={e => setSmRenderConfig(prev => ({...prev, [i]: {...(prev[i]||{}), subtitles: e.target.value}}))}
+                                className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-xs"
+                              >
+                                <option value="none">Bez napisów</option>
+                                <option value="srt">Export SRT</option>
+                              </select>
+                              <button
+                                id={`sm-render-btn-${i}`}
+                                onClick={() => { const a = getAdj(i, c); handleRenderShort({ ...c, start_sec: a.start, end_sec: a.end }, i); }}
+                                className="bg-green-700 hover:bg-green-600 text-white text-xs font-medium px-3 py-1 rounded transition-colors"
+                              >
+                                ▶ Renderuj
+                              </button>
+                            </div>
+                            
+                            {smJobStatus[i] && (
+                              <div className={`text-xs px-2 py-1 rounded ${
+                                smJobStatus[i].status === 'done' ? 'bg-green-900 text-green-300' :
+                                smJobStatus[i].status === 'error' ? 'bg-red-900 text-red-300' :
+                                'bg-yellow-900 text-yellow-300'
+                              }`}>
+                                {smJobStatus[i].status === 'done' ? (
+                                  <div className="flex flex-col gap-1">
+                                    <span>Gotowe: {smJobStatus[i].result_paths?.raw || 'plik zapisany'}</span>
+                                    {smJobStatus[i].result_paths?.raw && (
+                                      <button
+                                        onClick={() => {
+                                          const rawPath = smJobStatus[i].result_paths?.raw || ''
+                                          const folderPath = rawPath.includes('\\') || rawPath.includes('/')
+                                            ? rawPath.substring(0, Math.max(rawPath.lastIndexOf('\\'), rawPath.lastIndexOf('/')))
+                                            : rawPath
+                                          navigator.clipboard.writeText(folderPath).then(() => {})
+                                        }}
+                                        className="mt-1 text-xs text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded px-2 py-0.5 transition-colors self-start"
+                                        title="Kopiuj ścieżkę folderu do schowka"
+                                      >
+                                        📋 Kopiuj ścieżkę folderu
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : smJobStatus[i].status === 'error' ? (
+                                  <span>Błąd: {smJobStatus[i].error}</span>
+                                ) : (
+                                  <span>Przetwarzam... ({smJobStatus[i].status})</span>
+                                )}
+                              </div>
+                            )}
+                            
+                            {/* YouTube Inject Block */}
+                            <div className="border-t border-gray-600 pt-3 mt-1">
+                              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">► Wstrzyknij metadane na YouTube</p>
+                              {ytChannels.length > 1 && (
+                                <select
+                                  className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 mb-2"
+                                  value={smChannelOverride[i] ?? ''}
+                                  onChange={e => setSmChannelOverride(prev => ({...prev, [i]: e.target.value}))}
+                                >
+                                  <option value="">🌐 {ytChannels.find((ch: any) => ch.channel_id === smGlobalChannelId)?.channel_title || 'Kanał globalny'}</option>
+                                  {ytChannels.filter((ch: any) => ch.channel_id !== smGlobalChannelId).map((ch: any) => (
+                                    <option key={ch.channel_id} value={ch.channel_id}>{ch.channel_title}</option>
+                                  ))}
+                                </select>
+                              )}
+                              <input
+                                type="text"
+                                placeholder="URL lub ID YouTube (wgrany z Premiere Pro)"
+                                className="w-full bg-gray-700 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none mb-2"
+                                value={smTargetYtId[i] || ''}
+                                onChange={e => setSmTargetYtId(prev => ({...prev, [i]: e.target.value}))}
+                              />
+                              <div className="grid grid-cols-3 gap-2 mb-2">
+                                <select
+                                  className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                                  value={smSelectedPlaylist[i] || ''}
+                                  onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
+                                >
+                                  <option value="">Playlista (opcj.)</option>
+                                  {smPlaylists.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
+                                </select>
+                                <input
+                                  type="datetime-local"
+                                  className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                                  value={smPublishAt[i] || ''}
+                                  onChange={e => setSmPublishAt(prev => ({...prev, [i]: e.target.value}))}
+                                />
+                                <select
+                                  className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                                  value={smPrivacyStatus[i] || 'private'}
+                                  onChange={e => setSmPrivacyStatus(prev => ({...prev, [i]: e.target.value}))}
+                                >
+                                  <option value="private">Prywatny</option>
+                                  <option value="unlisted">Niepubliczny</option>
+                                  <option value="public">Publiczny</option>
+                                </select>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => setSmModalOpenFor(i)}
+                                  disabled={!smTargetYtId[i]}
+                                  className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
+                                >
+                                  ► Podgląd i publikacja
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {smSelected.size > 0 && (
+                          <div style={{position:'sticky',bottom:'8px',textAlign:'center',marginTop:'8px',zIndex:10}}>
+                            <button onClick={() => { smSelected.forEach((selIdx: number) => { const c = smCandidates[selIdx]; const a = getAdj(selIdx, c); handleRenderShort({...c, start_sec: a.start, end_sec: a.end}, selIdx); }); setSmSelected(new Set()); }} style={{padding:'10px 24px',background:'linear-gradient(135deg,#059669,#10b981)',border:'none',borderRadius:'8px',color:'#fff',fontWeight:'600',fontSize:'14px',cursor:'pointer',boxShadow:'0 4px 12px rgba(16,185,129,0.3)'}}>
+                              ► Renderuj zaznaczone ({smSelected.size})
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {smError && (
+                      <div className="bg-red-900 border border-red-700 text-red-300 rounded-lg p-3 text-sm">
+                        {smError}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* ShortMachine YouTube Inject Modal */}
+        {smModalOpenFor !== null && smCandidates[smModalOpenFor] && (() => {
+          const i = smModalOpenFor
+          const c = smCandidates[i]
+          const smSchemaData = {
+            youtube_description_hook: smTitles[i] || c.suggested_title || c.title || '',
+            video_description: c.hook || '',
+            youtube_hashtags: smTags[i] || c.tags || []
+          }
+          const rawInput = smTargetYtId[i] || ''
+          const smVideoId = rawInput.match(/(?:v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})/)?.[1] || rawInput
+
+          return (
+            <YouTubePublishModal
+              isOpen={true}
+              onClose={() => setSmModalOpenFor(null)}
+              videoId={smVideoId}
+              schemaData={smSchemaData}
+              wpUrl=""
+              channels={(smChannelOverride[i] || smGlobalChannelId) ? [ytChannels.find((ch: any) => ch.channel_id === (smChannelOverride[i] || smGlobalChannelId)) ?? ytChannels[0]].filter(Boolean) : ytChannels}
+              accessToken={accessToken || ""}
+              apiUrl={process.env.NEXT_PUBLIC_API_URL || ''}
+              publishAt={smPublishAt[i]}
+              privacyStatus={smPrivacyStatus[i]}
+              playlistId={smSelectedPlaylist[i]}
+            />
+          )
+        })()}
+
+        {/* Inject Modal */}
+        {showInjectModal && result && (() => {
+          const selectedPortal = portals.find((p) => p.id === selectedPortalId)
+          return (
+            <InjectModal
+              schemaData={result.raw}
+              videoUrl={result.inputUrl}
+              accessToken={accessToken}
+              onClose={() => setShowInjectModal(false)}
+              selectedPortalId={selectedPortalId}
+              portalName={selectedPortal?.name}
+              portalUrl={selectedPortal?.url}
+              ytChannels={ytChannels}
+            />
+          )
+        })()}
+
+        {ytModalOpen && result && (() => {
+          const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || ""
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+
+          return (
+            <YouTubePublishModal
+              overrideDescription={ytDescription}
+              isOpen={ytModalOpen}
+              onClose={() => setYtModalOpen(false)}
+              videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || ""}
+              schemaData={result.raw ?? {}}
+              wpUrl={wpUrl}
+              channels={ytChannels}
+              accessToken={accessToken || ""}
+              apiUrl={apiUrl}
+            />
+          )
+        })()}
+
+        {showAddPortalModal && (
+          <AddPortalModal
+            onClose={() => setShowAddPortalModal(false)}
+            onSuccess={(portalId) => {
+              setShowAddPortalModal(false)
+              setSelectedPortalId(portalId)
+            }}
+          />
+        )}
+      </div>
+    </ErrorBoundary>
+  )
+}
