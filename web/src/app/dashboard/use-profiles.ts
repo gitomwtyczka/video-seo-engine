@@ -11,6 +11,7 @@
  * D35 (2026-06-30, vse-dev-01): createProfile mutation for inline creation.
  */
 import { useState, useEffect, useCallback } from 'react'
+import { apiGet, apiPost } from '../lib/api-client'
 
 export interface Profile {
   id: string
@@ -37,15 +38,11 @@ export function useProfiles() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-
   const fetchProfiles = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${apiUrl}/v1/profiles`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const data = await apiGet<{ profiles: Profile[] }>('/v1/profiles')
       setProfiles(data.profiles ?? [])
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Błąd pobierania profili')
@@ -53,30 +50,21 @@ export function useProfiles() {
     } finally {
       setLoading(false)
     }
-  }, [apiUrl])
+  }, [])
 
   useEffect(() => { fetchProfiles() }, [fetchProfiles])
 
   /** Create a new server-side YAML profile and refresh the list. */
   const createProfile = useCallback(async (payload: CreateProfilePayload): Promise<Profile | null> => {
     try {
-      const res = await fetch(`${apiUrl}/v1/profiles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || `HTTP ${res.status}`)
-      }
-      const created: Profile = await res.json()
+      const created = await apiPost<Profile>('/v1/profiles', payload)
       await fetchProfiles() // refresh list
       return created
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Błąd tworzenia profilu')
       return null
     }
-  }, [apiUrl, fetchProfiles])
+  }, [fetchProfiles])
 
   return {
     profiles,
