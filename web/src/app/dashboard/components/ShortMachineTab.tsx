@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { extractYoutubeId } from '../utils'
 import { YouTubePublishModal } from '../YouTubePublishModal'
 
@@ -101,24 +101,59 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
   const [smPrivacyStatus, setSmPrivacyStatus] = useState<Record<number, string>>({})
   const [smSelectedPlaylist, setSmSelectedPlaylist] = useState<Record<number, string>>({})
   const [smPlaylists, setSmPlaylists] = useState<{id: string, title: string}[]>([])
+  const [smPlaylistsByChannel, setSmPlaylistsByChannel] = useState<Record<string, {id: string, title: string}[]>>({})
+  const [playlistsLoading, setPlaylistsLoading] = useState(false)
   const [smModalOpenFor, setSmModalOpenFor] = useState<number | null>(null)
 
-  useEffect(() => {
-    const defaultCh = ytChannels.find((ch: any) => ch.is_default) ?? ytChannels[0]
-    if (defaultCh && !smGlobalChannelId) {
-      setSmGlobalChannelId(defaultCh.channel_id)
-    }
-    const channelId = ytChannels[0]?.channel_id
-    if (!channelId) {
-      setSmPlaylists([])
-      return
-    }
+  const fetchPlaylistsForChannel = useCallback(async (channelId: string) => {
+    if (!channelId) return
     const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
-    fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`)
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setSmPlaylists(data) })
-      .catch(err => console.warn('Failed to load playlists:', err))
-  }, [ytChannels])
+    const effectiveToken = accessToken || session?.accessToken
+    setPlaylistsLoading(true)
+    try {
+      const res = await fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {})
+        }
+      })
+      if (!res.ok) {
+        console.warn(`Failed to load playlists for channel ${channelId}: HTTP ${res.status}`)
+        return
+      }
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        setSmPlaylistsByChannel(prev => ({ ...prev, [channelId]: data }))
+        setSmPlaylists(data)
+      } else {
+        console.warn('Playlists response is not an array:', data)
+      }
+    } catch (err) {
+      console.warn('Failed to load playlists:', err)
+    } finally {
+      setPlaylistsLoading(false)
+    }
+  }, [accessToken, session])
+
+  // Set default global channel if not set
+  useEffect(() => {
+    if (ytChannels.length > 0 && !smGlobalChannelId) {
+      const defaultCh = ytChannels.find((ch: any) => ch.is_default) ?? ytChannels[0]
+      if (defaultCh?.channel_id) {
+        setSmGlobalChannelId(defaultCh.channel_id)
+      }
+    }
+  }, [ytChannels, smGlobalChannelId])
+
+  // Fetch playlists whenever active global channel changes or tokens are updated
+  useEffect(() => {
+    const activeChId = smGlobalChannelId || (ytChannels.find((ch: any) => ch.is_default) ?? ytChannels[0])?.channel_id
+    if (activeChId) {
+      fetchPlaylistsForChannel(activeChId)
+    } else {
+      setSmPlaylists([])
+    }
+  }, [smGlobalChannelId, ytChannels, fetchPlaylistsForChannel])
 
   const fmtSec = (sec: number) => `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`
   const getAdj = (idx: number, c: any) => ({ start: (c.start_sec??0)+(smTrimAdj[idx]?.startDelta??0), end: (c.end_sec??0)+(smTrimAdj[idx]?.endDelta??0) })
@@ -203,7 +238,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
           format: smFormat,
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
-          output_dir: 'C:\\VSE\\Shorts',
+          output_dir: 'C:\\\\VSE\\\\Shorts',
           ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
         }),
       })
@@ -495,8 +530,8 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                         if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()
                         if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
                         ytPlayerRef.current = new (window as any).YT.Player(`yt-preview-${i}`, {
-                          height: '180',
-                          width: '320',
+                          height: '100%',
+                          width: '100%',
                           videoId: videoId2,
                           playerVars: { start: Math.floor(adj2.start), autoplay: 1, rel: 0, modestbranding: 1 },
                           events: {
@@ -521,10 +556,13 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                   </button>
 
                   {smPreviewIdx === i && (
-                    <div className="mt-2 rounded overflow-hidden" style={{width:320}}>
-                      <div id={`yt-preview-${i}`} />
-                      <div className="text-xs text-gray-500 mt-1">
-                        {fmtSec(getAdj(i,c).start)} → {fmtSec(getAdj(i,c).end)} ({Math.round(getAdj(i,c).end-getAdj(i,c).start)}s)
+                    <div className="mt-2 rounded-lg overflow-hidden w-full max-w-2xl border border-gray-700 bg-black">
+                      <div className="relative w-full aspect-video min-h-[220px] sm:min-h-[315px]">
+                        <div id={`yt-preview-${i}`} className="w-full h-full" />
+                      </div>
+                      <div className="text-xs text-gray-400 px-3 py-1.5 bg-gray-900 border-t border-gray-800 flex items-center justify-between">
+                        <span>Zakres: {fmtSec(getAdj(i,c).start)} → {fmtSec(getAdj(i,c).end)}</span>
+                        <span>{Math.round(getAdj(i,c).end-getAdj(i,c).start)}s</span>
                       </div>
                     </div>
                   )}
@@ -614,9 +652,16 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">► Wstrzyknij metadane na YouTube</p>
                   {ytChannels.length > 1 && (
                     <select
-                      className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 mb-2"
+                      className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 mb-2 focus:outline-none focus:border-blue-500"
                       value={smChannelOverride[i] ?? ''}
-                      onChange={e => setSmChannelOverride(prev => ({...prev, [i]: e.target.value}))}
+                      onChange={e => {
+                        const val = e.target.value
+                        setSmChannelOverride(prev => ({...prev, [i]: val}))
+                        const targetCh = val || smGlobalChannelId
+                        if (targetCh && !smPlaylistsByChannel[targetCh]) {
+                          fetchPlaylistsForChannel(targetCh)
+                        }
+                      }}
                     >
                       <option value="">🌐 {ytChannels.find((ch: any) => ch.channel_id === smGlobalChannelId)?.channel_title || 'Kanał globalny'}</option>
                       {ytChannels.filter((ch: any) => ch.channel_id !== smGlobalChannelId).map((ch: any) => (
@@ -632,14 +677,22 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                     onChange={e => setSmTargetYtId(prev => ({...prev, [i]: e.target.value}))}
                   />
                   <div className="grid grid-cols-3 gap-2 mb-2">
-                    <select
-                      className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
-                      value={smSelectedPlaylist[i] || ''}
-                      onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
-                    >
-                      <option value="">Playlista (opcj.)</option>
-                      {smPlaylists.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
-                    </select>
+                    {(() => {
+                      const candidateChannelId = smChannelOverride[i] || smGlobalChannelId || ytChannels[0]?.channel_id
+                      const channelPlaylistsList = (candidateChannelId ? smPlaylistsByChannel[candidateChannelId] : null) || smPlaylists || []
+                      return (
+                        <select
+                          className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
+                          value={smSelectedPlaylist[i] || ''}
+                          onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
+                        >
+                          <option value="">
+                            {playlistsLoading && channelPlaylistsList.length === 0 ? 'Ładowanie playlist...' : 'Playlista (opcj.)'}
+                          </option>
+                          {channelPlaylistsList.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
+                        </select>
+                      )
+                    })()}
                     <input
                       type="datetime-local"
                       className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
