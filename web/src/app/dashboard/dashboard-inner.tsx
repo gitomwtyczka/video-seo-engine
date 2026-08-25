@@ -624,7 +624,7 @@ function AddPortalModal({
       .replace(/[óòôõöő]/g, 'o').replace(/[śšş]/g, 's')
       .replace(/[ùúûüű]/g, 'u').replace(/[ýÿ]/g, 'y')
       .replace(/[źżž]/g, 'z').replace(/[đð]/g, 'd')
-      .replace(/[^\w-]/g, '-').replace(/-+/g, '-')
+      .replace(/[^\\w-]/g, '-').replace(/-+/g, '-')
       .replace(/^-|-$/g, '')
 
   const handleProfileDropdownChange = (value: string) => {
