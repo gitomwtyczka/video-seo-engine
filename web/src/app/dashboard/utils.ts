@@ -149,3 +149,9 @@ export function buildYtDescription(schema: SchemaData | null | undefined, wpUrl?
 
   return parts.join('\n\n')
 }
+
+export function extractYoutubeId(urlOrId: string): string {
+  if (/^[A-Za-z0-9_-]{11}$/.test(urlOrId)) return urlOrId
+  const match = urlOrId.match(/(?:v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})/)
+  return match ? match[1] : urlOrId
+}
