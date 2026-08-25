@@ -292,22 +292,6 @@ export default function DashboardInner() {
       .catch(() => setYtChannels([]))
   }, [session?.accessToken])
 
-  useEffect(() => {
-    const defaultCh = ytChannels.find((ch: any) => ch.is_default) ?? ytChannels[0]
-    if (defaultCh && !smGlobalChannelId) {
-      setSmGlobalChannelId(defaultCh.channel_id)
-    }
-    const channelId = ytChannels[0]?.channel_id
-    if (!channelId) {
-      setSmPlaylists([])
-      return
-    }
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
-    fetch(`${apiBase}/v1/youtube/channels/${channelId}/playlists`)
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setSmPlaylists(data) })
-      .catch(err => console.warn('Failed to load playlists:', err))
-  }, [ytChannels])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
