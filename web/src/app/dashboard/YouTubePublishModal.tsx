@@ -36,7 +36,13 @@ interface Props {
 
 export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUrl, channels, accessToken, apiUrl, publishAt, privacyStatus, playlistId }: Props) {
 
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([])
+
+  useEffect(() => {
+    if (channels.length === 1 && selected.length === 0) {
+      setSelected([channels[0].channel_id])
+    }
+  }, [channels]);
 
   const [status, setStatus] = useState<"idle"|"loading"|"done"|"error">("idle");
 
