@@ -13,6 +13,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
+import { apiGet, apiPost } from '../lib/api-client'
 import { useJobLoader } from './use-job-loader'
 import { usePortals, type Portal } from './use-portals'
 import { useProfiles, type Profile } from './use-profiles'
@@ -201,7 +202,7 @@ function saveWpCredentials(creds: { wpUrl: string; wpUser: string; wpPassword: s
 
 function extractVideoId(url: string): string {
   if (!url) return ''
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\s]{11})/)
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\\s]{11})/)
   return match ? match[1] : (url.length === 11 ? url : '')
 }
 
@@ -283,14 +284,10 @@ export default function DashboardInner() {
   const [ytDescription, setYtDescription] = useState<string>('')
 
   useEffect(() => {
-    if (!session?.accessToken) return
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/youtube/channels`, {
-      headers: { Authorization: `Bearer ${session.accessToken}` }
-    })
-      .then((r) => r.ok ? r.json() : [])
+    apiGet<any[]>('/v1/youtube/channels')
       .then((data) => setYtChannels(Array.isArray(data) ? data : []))
       .catch(() => setYtChannels([]))
-  }, [session?.accessToken])
+  }, [])
 
 
   useEffect(() => {
@@ -338,19 +335,15 @@ export default function DashboardInner() {
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!session?.accessToken) return
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-        const res = await fetch(`${apiUrl}/v1/users/me`, {
-          headers: { Authorization: `Bearer ${session.accessToken as string}` },
-        })
-        if (res.ok) setUserProfile(await res.json())
+        const data = await apiGet<UserProfile>('/v1/users/me')
+        setUserProfile(data)
       } catch {
         // silent
       }
     }
     fetchProfile()
-  }, [session?.accessToken])
+  }, [])
 
   const isPro =
     (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
@@ -382,32 +375,13 @@ export default function DashboardInner() {
     setResult(null)
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-      const res = await fetch(`${apiUrl}/v1/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
-        },
-        body: JSON.stringify({
-          video_url: url.trim(),
-          llm_provider: 'claude',
-          lang: 'pl',
-          publication_type: publicationType,
-          portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : selectedPortalId.trim(),
-        }),
+      const data = await apiPost<GenerateResponse>('/v1/generate', {
+        video_url: url.trim(),
+        llm_provider: 'claude',
+        lang: 'pl',
+        publication_type: publicationType,
+        portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : selectedPortalId.trim(),
       })
-
-      let data: GenerateResponse | null = null
-      try { data = await res.json() } catch {
-        throw new Error(`Serwer zwrócił nieprawidłową odpowiedź (HTTP ${res.status})`)
-      }
-
-      if (!res.ok) {
-        const detail = (data as unknown as { detail?: string | { msg: string }[] })?.detail
-        if (Array.isArray(detail)) throw new Error(detail.map((d) => d.msg).join(', '))
-        throw new Error(typeof detail === 'string' ? detail : `Błąd serwera: HTTP ${res.status}`)
-      }
 
       if (!data) throw new Error('Pusta odpowiedź serwera')
       if (data.error) throw new Error(data.error)
@@ -549,256 +523,4 @@ export default function DashboardInner() {
             <div className="grid grid-cols-2 gap-3 mb-5">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Portal docelowy</label>
-                {portalsLoading ? (
-                  <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
-                    <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
-                    Ładowanie...
-                  </div>
-                ) : portals.length === 0 ? (
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const val = e.target.value
-                      if (val === '__add__') {
-                        setShowAddPortalModal(true)
-                      } else if (val === '__manual__') {
-                        setSelectedPortalId('__manual__')
-                      }
-                    }}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
-                  >
-                    <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
-                    <option value="__add__">+ Dodaj nowy portal...</option>
-                    <option value="__manual__">✏️ Wpisz ręcznie...</option>
-                  </select>
-                ) : (
-                  <select
-                    id="portal-selector"
-                    value={selectedPortalId}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      if (val === '__add__') {
-                        setShowAddPortalModal(true)
-                      } else if (val === '__manual__') {
-                        setSelectedPortalId('__manual__')
-                      } else {
-                        setSelectedPortalId(val)
-                      }
-                    }}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
-                  >
-                    {portals.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                    <option value="__add__">+ Dodaj nowy portal...</option>
-                    <option value="__manual__">✏️ Wpisz ręcznie...</option>
-                  </select>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Typ publikacji</label>
-                <select
-                  id="publication-type-selector"
-                  value={publicationType}
-                  onChange={(e) => setPublicationType(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
-                >
-                  <option value="full_analysis">📝 Pełna analiza</option>
-                  <option value="watching_page">🎬 Strona z filmem</option>
-                  <option value="discover">🔍 Discover</option>
-                </select>
-              </div>
-            </div>
-
-            {/* URL Form */}
-            <form onSubmit={handleGenerate} className="mb-8">
-              <div className="flex gap-3">
-                <input
-                  id="youtube-url-input"
-                  type="text"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-                />
-                <button
-                  id="generate-btn"
-                  type="submit"
-                  disabled={loading || !url.trim()}
-                  className="px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
-                >
-                  {loading ? (
-                    <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Generuję...</>
-                  ) : (
-                    <>✦ Generuj SEO</>
-                  )}
-                </button>
-              </div>
-
-              {loading && (
-                <div className="mt-3 flex items-center gap-2 text-sm text-gray-400">
-                  <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
-                  Pobieranie transkryptu i generowanie schema... (~50s)
-                </div>
-              )}
-
-              {error && (
-                <div className="mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2">
-                  <span className="flex-shrink-0 mt-0.5">⚠️</span>
-                  <div>
-                    <p className="font-medium mb-0.5">Wystąpił błąd</p>
-                    <p className="text-red-300/80">{error}</p>
-                  </div>
-                </div>
-              )}
-            </form>
-
-            {!result && !loading && (
-              <>
-                <div className="grid grid-cols-3 gap-4 mb-8">
-                  {[
-                    { label: 'Filmy w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
-                    { label: 'Benchmark score', value: '8/10', sub: 'vs 2—3/10 konkurencja' },
-                    { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },
-                  ].map((stat) => (
-                    <div key={stat.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                      <p className="text-gray-400 text-sm mb-1">{stat.label}</p>
-                      <p className="text-2xl font-bold text-white">{stat.value}</p>
-                      <p className="text-xs text-gray-500 mt-1">{stat.sub}</p>
-                    </div>
-                  ))}
-                </div>
-                <WpQuickPanel />
-              </>
-            )}
-
-            {/* Results */}
-            {result && (
-              <div>
-                <div className="flex items-center justify-between mb-5">
-                  <div>
-                    <h2 className="text-lg font-semibold text-white">Wyniki SEO</h2>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Video: <span className="font-mono">{result.videoId}</span>
-                      {result.time && <> • {result.time.toFixed(1)}s</>}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
-                      ✔️ Wygenerowano
-                    </span>
-                    {isPro && (
-                      <button
-                        onClick={() => setShowInjectModal(true)}
-                        className="px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5"
-                      >
-                        🚀 Wyślij do portalu
-                      </button>
-                    )}
-                    {ytChannels.length > 0 && (
-                      <button
-                        onClick={() => setYtModalOpen(true)}
-                        className="px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2"
-                      >
-                        ▶️ Wyślij na YouTube
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <TabBar
-                  active={activeTab}
-                  onChange={setActiveTab}
-                  chaptersCount={chapters.length}
-                  faqCount={faq.length}
-                />
-
-                {/* Tab: Schemat */}
-                {activeTab === 'schema' && (
-                  <SchemaTab schema={schema} copiedKey={copiedKey} onCopy={handleCopy} />
-                )}
-
-                {/* Tab: Artykuł */}
-                {activeTab === 'article' && (
-                  <ArticleTab schema={schema} faq={faq} copiedKey={copiedKey} onCopy={handleCopy} />
-                )}
-
-                {/* Tab: Rozdziały */}
-                {activeTab === 'chapters' && (
-                  <ChaptersTab chapters={chapters} copiedKey={copiedKey} onCopy={handleCopy} />
-                )}
-
-                {/* Tab: Opis YouTube */}
-                {activeTab === 'youtube' && (
-                  <YouTubeTab ytDescription={ytDescription} copiedKey={copiedKey} onCopy={handleCopy} />
-                )}
-
-                {/* Tab: ShortMachine */}
-                {activeTab === 'shorts' && (
-                  <ShortMachineTab
-                    ytChannels={ytChannels}
-                    initialYoutubeId={extractVideoId(url)}
-                    accessToken={accessToken}
-                    session={session}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        </main>
-
-        {/* Inject Modal */}
-        {showInjectModal && result && (() => {
-          const selectedPortal = portals.find((p) => p.id === selectedPortalId)
-          return (
-            <InjectModal
-              schemaData={result.raw}
-              videoUrl={result.inputUrl}
-              accessToken={accessToken}
-              onClose={() => setShowInjectModal(false)}
-              selectedPortalId={selectedPortalId}
-              portalName={selectedPortal?.name}
-              portalUrl={selectedPortal?.url}
-              ytChannels={ytChannels}
-            />
-          )
-        })()}
-
-        {ytModalOpen && result && (() => {
-          const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || ""
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
-
-          return (
-            <YouTubePublishModal
-              overrideDescription={ytDescription}
-              isOpen={ytModalOpen}
-              onClose={() => setYtModalOpen(false)}
-              videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || ""}
-              schemaData={result.raw ?? {}}
-              wpUrl={wpUrl}
-              channels={ytChannels}
-              accessToken={accessToken || ""}
-              apiUrl={apiUrl}
-            />
-          )
-        })()}
-
-        {showAddPortalModal && (
-          <AddPortalModal
-            onClose={() => setShowAddPortalModal(false)}
-            onSuccess={(portalId) => {
-              setShowAddPortalModal(false)
-              setSelectedPortalId(portalId)
-            }}
-          />
-        )}
-      </div>
-    </ErrorBoundary>
-  )
-}
+                {portalsLoading ? (\n                  <div className=\"flex items-center gap-2 h-[42px] text-sm text-gray-500\">\n                    <span className=\"animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full\" />\n                    Ładowanie...\n                  </div>\n                ) : portals.length === 0 ? (\n                  <select\n                    value=\"\"\n                    onChange={(e) => {\n                      const val = e.target.value\n                      if (val === '__add__') {\n                        setShowAddPortalModal(true)\n                      } else if (val === '__manual__') {\n                        setSelectedPortalId('__manual__')\n                      }\n                    }}\n                    className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                    style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                  >\n                    <option value=\"\" disabled>Brak portali — dodaj pierwszy portal</option>\n                    <option value=\"__add__\">+ Dodaj nowy portal...</option>\n                    <option value=\"__manual__\">✏️ Wpisz ręcznie...</option>\n                  </select>\n                ) : (\n                  <select\n                    id=\"portal-selector\"\n                    value={selectedPortalId}\n                    onChange={(e) => {\n                      const val = e.target.value\n                      if (val === '__add__') {\n                        setShowAddPortalModal(true)\n                      } else if (val === '__manual__') {\n                        setSelectedPortalId('__manual__')\n                      } else {\n                        setSelectedPortalId(val)\n                      }\n                    }}\n                    className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                    style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                  >\n                    {portals.map((p) => (\n                      <option key={p.id} value={p.id}>\n                        {p.name}\n                      </option>\n                    ))}\n                    <option value=\"__add__\">+ Dodaj nowy portal...</option>\n                    <option value=\"__manual__\">✏️ Wpisz ręcznie...</option>\n                  </select>\n                )}\n              </div>\n\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1.5\">Typ publikacji</label>\n                <select\n                  id=\"publication-type-selector\"\n                  value={publicationType}\n                  onChange={(e) => setPublicationType(e.target.value)}\n                  className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                  style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                >\n                  <option value=\"full_analysis\">📝 Pełna analiza</option>\n                  <option value=\"watching_page\">🎬 Strona z filmem</option>\n                  <option value=\"discover\">🔍 Discover</option>\n                </select>\n              </div>\n            </div>\n\n            {/* URL Form */}\n            <form onSubmit={handleGenerate} className=\"mb-8\">\n              <div className=\"flex gap-3\">\n                <input\n                  id=\"youtube-url-input\"\n                  type=\"text\"\n                  value={url}\n                  onChange={(e) => setUrl(e.target.value)}\n                  placeholder=\"https://www.youtube.com/watch?v=...\"\n                  className=\"flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors\"\n                />\n                <button\n                  id=\"generate-btn\"\n                  type=\"submit\"\n                  disabled={loading || !url.trim()}\n                  className=\"px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap\"\n                >\n                  {loading ? (\n                    <><span className=\"animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full\" /> Generuję...</>\n                  ) : (\n                    <>✦ Generuj SEO</>\n                  )}\n                </button>\n              </div>\n\n              {loading && (\n                <div className=\"mt-3 flex items-center gap-2 text-sm text-gray-400\">\n                  <span className=\"animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full\" />\n                  Pobieranie transkryptu i generowanie schema... (~50s)\n                </div>\n              )}\n\n              {error && (\n                <div className=\"mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2\">\n                  <span className=\"flex-shrink-0 mt-0.5\">⚠️</span>\n                  <div>\n                    <p className=\"font-medium mb-0.5\">Wystąpił błąd</p>\n                    <p className=\"text-red-300/80\">{error}</p>\n                  </div>\n                </div>\n              )}\n            </form>\n\n            {!result && !loading && (\n              <>\n                <div className=\"grid grid-cols-3 gap-4 mb-8\">\n                  {[\n                    { label: 'Filmy w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },\n                    { label: 'Benchmark score', value: '8/10', sub: 'vs 2—3/10 konkurencja' },\n                    { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },\n                  ].map((stat) => (\n                    <div key={stat.label} className=\"bg-gray-900 border border-gray-800 rounded-xl p-5\">\n                      <p className=\"text-gray-400 text-sm mb-1\">{stat.label}</p>\n                      <p className=\"text-2xl font-bold text-white\">{stat.value}</p>\n                      <p className=\"text-xs text-gray-500 mt-1\">{stat.sub}</p>\n                    </div>\n                  ))}\n                </div>\n                <WpQuickPanel />\n              </>\n            )}\n\n            {/* Results */}\n            {result && (\n              <div>\n                <div className=\"flex items-center justify-between mb-5\">\n                  <div>\n                    <h2 className=\"text-lg font-semibold text-white\">Wyniki SEO</h2>\n                    <p className=\"text-xs text-gray-500 mt-0.5\">\n                      Video: <span className=\"font-mono\">{result.videoId}</span>\n                      {result.time && <> • {result.time.toFixed(1)}s</>}\n                    </p>\n                  </div>\n                  <div className=\"flex items-center gap-2\">\n                    <span className=\"px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20\">\n                      ✔️ Wygenerowano\n                    </span>\n                    {isPro && (\n                      <button\n                        onClick={() => setShowInjectModal(true)}\n                        className=\"px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5\"\n                      >\n                        🚀 Wyślij do portalu\n                      </button>\n                    )}\n                    {ytChannels.length > 0 && (\n                      <button\n                        onClick={() => setYtModalOpen(true)}\n                        className=\"px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2\"\n                      >\n                        ▶️ Wyślij na YouTube\n                      </button>\n                    )}\n                  </div>\n                </div>\n\n                <TabBar\n                  active={activeTab}\n                  onChange={setActiveTab}\n                  chaptersCount={chapters.length}\n                  faqCount={faq.length}\n                />\n\n                {/* Tab: Schemat */}\n                {activeTab === 'schema' && (\n                  <SchemaTab schema={schema} copiedKey={copiedKey} onCopy={handleCopy} />\n                )}\n\n                {/* Tab: Artykuł */}\n                {activeTab === 'article' && (\n                  <ArticleTab schema={schema} faq={faq} copiedKey={copiedKey} onCopy={handleCopy} />\n                )}\n\n                {/* Tab: Rozdziały */}\n                {activeTab === 'chapters' && (\n                  <ChaptersTab chapters={chapters} copiedKey={copiedKey} onCopy={handleCopy} />\n                )}\n\n                {/* Tab: Opis YouTube */}\n                {activeTab === 'youtube' && (\n                  <YouTubeTab ytDescription={ytDescription} copiedKey={copiedKey} onCopy={handleCopy} />\n                )}\n\n                {/* Tab: ShortMachine */}\n                {activeTab === 'shorts' && (\n                  <ShortMachineTab\n                    ytChannels={ytChannels}\n                    initialYoutubeId={extractVideoId(url)}\n                    accessToken={accessToken}\n                    session={session}\n                  />\n                )}\n              </div>\n            )}\n          </div>\n        </main>\n\n        {/* Inject Modal */}\n        {showInjectModal && result && (() => {\n          const selectedPortal = portals.find((p) => p.id === selectedPortalId)\n          return (\n            <InjectModal\n              schemaData={result.raw}\n              videoUrl={result.inputUrl}\n              accessToken={accessToken}\n              onClose={() => setShowInjectModal(false)}\n              selectedPortalId={selectedPortalId}\n              portalName={selectedPortal?.name}\n              portalUrl={selectedPortal?.url}\n              ytChannels={ytChannels}\n            />\n          )\n        })()}\n\n        {ytModalOpen && result && (() => {\n          const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || \"\"\n          const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''\n\n          return (\n            <YouTubePublishModal\n              overrideDescription={ytDescription}\n              isOpen={ytModalOpen}\n              onClose={() => setYtModalOpen(false)}\n              videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || \"\"}\n              schemaData={result.raw ?? {}}\n              wpUrl={wpUrl}\n              channels={ytChannels}\n              accessToken={accessToken || \"\"}\n              apiUrl={apiUrl}\n            />\n          )\n        })()}\n\n        {showAddPortalModal && (\n          <AddPortalModal\n            onClose={() => setShowAddPortalModal(false)}\n            onSuccess={(portalId) => {\n              setShowAddPortalModal(false)\n              setSelectedPortalId(portalId)\n            }}\n          />\n        )}\n      </div>\n    </ErrorBoundary>\n  )\n}\n
