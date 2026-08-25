@@ -6,9 +6,10 @@ interface YouTubeTabProps {
   ytDescription: string
   copiedKey: string | null
   onCopy: (text: string, id: string) => void
+  credits?: unknown
 }
 
-export function YouTubeTab({ ytDescription, copiedKey, onCopy }: YouTubeTabProps) {
+export function YouTubeTab({ ytDescription, copiedKey, onCopy, credits }: YouTubeTabProps) {
   return (
     <div>
       <ResultSection
@@ -22,6 +23,20 @@ export function YouTubeTab({ ytDescription, copiedKey, onCopy }: YouTubeTabProps
           {ytDescription}
         </pre>
       </ResultSection>
+
+      {credits !== undefined && (
+        <ResultSection
+          title="Credits"
+          copyText={typeof credits === 'string' ? credits : credits ? JSON.stringify(credits) : ''}
+          copyId="yt_credits"
+          copiedKey={copiedKey}
+          onCopy={onCopy}
+        >
+          <div className="text-xs text-gray-300 font-mono">
+            {typeof credits === 'string' ? credits : credits ? JSON.stringify(credits) : '-'}
+          </div>
+        </ResultSection>
+      )}
     </div>
   )
 }
