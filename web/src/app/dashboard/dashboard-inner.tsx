@@ -255,6 +255,10 @@ import {
   WpQuickPanel,
   InjectModal,
   AddPortalModal,
+  SchemaTab,
+  ArticleTab,
+  ChaptersTab,
+  YouTubeTab,
 } from './components'
 
 
@@ -927,143 +931,22 @@ export default function DashboardInner() {
 
                 {/* Tab: Schemat */}
                 {activeTab === 'schema' && (
-                  <div>
-                    <ResultSection
-                      title="Tytuł artykułu"
-                      copyText={schema?.post_title ?? ''}
-                      copyId="post_title"
-                      copiedKey={copiedKey}
-                      onCopy={handleCopy}
-                    >
-                      <p className="text-white font-medium">{schema?.post_title ?? '(brak tytułu)'}</p>
-                      {schema?.focus_keyphrase && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Focus: <span className="text-violet-400">{schema.focus_keyphrase}</span>
-                        </p>
-                      )}
-                    </ResultSection>
-
-                    <ResultSection
-                      title="Meta description"
-                      copyText={schema?.meta_description ?? ''}
-                      copyId="meta_description"
-                      copiedKey={copiedKey}
-                      onCopy={handleCopy}
-                    >
-                      <p className="text-gray-300 text-sm leading-relaxed">
-                        {schema?.meta_description ?? '(brak meta description)'}
-                      </p>
-                    </ResultSection>
-
-                    <ResultSection
-                      title="Schema JSON-LD"
-                      copyText={schemaToScriptTag(schema)}
-                      copyId="schema_jsonld"
-                      copiedKey={copiedKey}
-                      onCopy={handleCopy}
-                      badge="Wklej do <head>"
-                    >
-                      <pre className="text-xs text-emerald-400 font-mono overflow-auto max-h-72 leading-relaxed">
-{`<script type="application/ld+json">`}
-{JSON.stringify(schema ?? {}, null, 2)}
-{`</script>`}
-                      </pre>
-                    </ResultSection>
-                  </div>
+                  <SchemaTab schema={schema} copiedKey={copiedKey} onCopy={handleCopy} />
                 )}
 
                 {/* Tab: Artykuł */}
                 {activeTab === 'article' && (
-                  <div>
-                    <div className="flex justify-end mb-4">
-                      <CopyButton
-                        text={articleToText(schema, faq)}
-                        id="article_all"
-                        copiedKey={copiedKey}
-                        onCopy={handleCopy}
-                        label="Kopiuj cały artykuł"
-                      />
-                    </div>
-
-                    <ResultSection
-                      title="Lead artykułu"
-                      copyText={schema?.lead ?? ''}
-                      copyId="lead"
-                      copiedKey={copiedKey}
-                      onCopy={handleCopy}
-                    >
-                      <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
-                        {schema?.lead ?? '(brak leadu)'}
-                      </p>
-                    </ResultSection>
-
-                    <ResultSection
-                      title="Treść artykułu"
-                      copyText={schema?.article_body ?? ''}
-                      copyId="article_body"
-                      copiedKey={copiedKey}
-                      onCopy={handleCopy}
-                    >
-                      <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
-                        {schema?.article_body ?? '(brak treści)'}
-                      </div>
-                    </ResultSection>
-
-                    {faq.length > 0 && (
-                      <ResultSection
-                        title="Sekcja FAQ (HTML)"
-                        copyText={faqToHtml(faq)}
-                        copyId="faq"
-                        copiedKey={copiedKey}
-                        onCopy={handleCopy}
-                        badge={`${faq.length} pytań`}
-                      >
-                        <div className="space-y-3 text-sm">
-                          {faq.map((item, idx) => (
-                            <details key={idx} className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
-                              <summary className="font-medium text-violet-300 cursor-pointer">{item.question}</summary>
-                              <p className="mt-2 text-gray-400 text-xs leading-relaxed">{item.answer}</p>
-                            </details>
-                          ))}
-                        </div>
-                      </ResultSection>
-                    )}
-                  </div>
+                  <ArticleTab schema={schema} faq={faq} copiedKey={copiedKey} onCopy={handleCopy} />
                 )}
 
                 {/* Tab: Rozdziały */}
                 {activeTab === 'chapters' && (
-                  <div>
-                    <ResultSection
-                      title="Rozdziały YouTube"
-                      copyText={chaptersToText(chapters)}
-                      copyId="chapters"
-                      copiedKey={copiedKey}
-                      onCopy={handleCopy}
-                      badge={`${chapters.length} rozdziałów`}
-                    >
-                      <pre className="text-xs text-gray-300 font-mono overflow-auto max-h-60 leading-relaxed">
-                        {chaptersToText(chapters)}
-                      </pre>
-                    </ResultSection>
-                  </div>
+                  <ChaptersTab chapters={chapters} copiedKey={copiedKey} onCopy={handleCopy} />
                 )}
 
                 {/* Tab: Opis YouTube */}
                 {activeTab === 'youtube' && (
-                  <div>
-                    <ResultSection
-                      title="Wygenerowany opis YouTube"
-                      copyText={ytDescription}
-                      copyId="yt_desc"
-                      copiedKey={copiedKey}
-                      onCopy={handleCopy}
-                    >
-                      <pre className="text-xs text-gray-300 font-mono overflow-auto max-h-96 whitespace-pre-wrap leading-relaxed">
-                        {ytDescription}
-                      </pre>
-                    </ResultSection>
-                  </div>
+                  <YouTubeTab ytDescription={ytDescription} copiedKey={copiedKey} onCopy={handleCopy} />
                 )}
 
                 {/* Tab: ShortMachine */}
