@@ -624,7 +624,7 @@ function AddPortalModal({
       .replace(/[óòôõöő]/g, 'o').replace(/[śšş]/g, 's')
       .replace(/[ùúûüű]/g, 'u').replace(/[ýÿ]/g, 'y')
       .replace(/[źżž]/g, 'z').replace(/[đð]/g, 'd')
-      .replace(/[^\\w-]/g, '-').replace(/-+/g, '-')
+      .replace(/[^\w-]/g, '-').replace(/-+/g, '-')
       .replace(/^-|-$/g, '')
 
   const handleProfileDropdownChange = (value: string) => {
@@ -1975,7 +1975,7 @@ export default function DashboardInner() {
                                   c.type === 'emotional' ? 'bg-red-900 text-red-300' :
                                   c.type === 'professional' ? 'bg-blue-900 text-blue-300' :
                                   'bg-purple-900 text-purple-300'
-                                }}`}>{c.type}</span>
+                                }`}>{c.type}</span>
                                 <span className="text-sm text-gray-400">
                                   {Math.floor(c.start_sec / 60)}:{String(Math.floor(c.start_sec % 60)).padStart(2,'0')} - 
                                   {Math.floor(c.end_sec / 60)}:{String(Math.floor(c.end_sec % 60)).padStart(2,'0')}
