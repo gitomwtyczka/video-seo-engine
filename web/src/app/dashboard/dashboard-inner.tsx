@@ -1303,6 +1303,8 @@ export default function DashboardInner() {
   })
 
   const [smTargetYtId, setSmTargetYtId] = useState<Record<number, string>>({})
+  const [smGlobalChannelId, setSmGlobalChannelId] = useState<string>('')
+  const [smChannelOverride, setSmChannelOverride] = useState<Record<number, string>>({})
   const [smPublishAt, setSmPublishAt] = useState<Record<number, string>>({})
   const [smPrivacyStatus, setSmPrivacyStatus] = useState<Record<number, string>>({})
   const [smSelectedPlaylist, setSmSelectedPlaylist] = useState<Record<number, string>>({})
@@ -1325,6 +1327,10 @@ export default function DashboardInner() {
   }, [session?.accessToken])
 
   useEffect(() => {
+    const defaultCh = ytChannels.find((ch: any) => ch.is_default) ?? ytChannels[0]
+    if (defaultCh && !smGlobalChannelId) {
+      setSmGlobalChannelId(defaultCh.channel_id)
+    }
     const channelId = ytChannels[0]?.channel_id
     if (!channelId) {
       setSmPlaylists([])
@@ -2121,6 +2127,23 @@ export default function DashboardInner() {
                       </span>
                     </div>
 
+                    {/* Globalny selektor kanału YT */}
+                    {ytChannels.length > 0 && (
+                      <div className="flex items-center gap-3 mb-4 px-1">
+                        <span className="text-xs text-gray-400 whitespace-nowrap">Kanał YT:</span>
+                        <select
+                          className="flex-1 bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+                          value={smGlobalChannelId}
+                          onChange={e => setSmGlobalChannelId(e.target.value)}
+                        >
+                          {ytChannels.map((ch: any) => (
+                            <option key={ch.channel_id} value={ch.channel_id}>
+                              {ch.is_default ? '★ ' : ''}{ch.channel_title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     {smCandidates.length > 0 && (
                       <div className="space-y-3">
                         <h3 className="text-lg font-medium text-white">Kandydaci ({smCandidates.length})</h3>
@@ -2369,6 +2392,18 @@ export default function DashboardInner() {
                             {/* YouTube Inject Block */}
                             <div className="border-t border-gray-600 pt-3 mt-1">
                               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">► Wstrzyknij metadane na YouTube</p>
+                              {ytChannels.length > 1 && (
+                                <select
+                                  className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 mb-2"
+                                  value={smChannelOverride[i] ?? ''}
+                                  onChange={e => setSmChannelOverride(prev => ({...prev, [i]: e.target.value}))}
+                                >
+                                  <option value="">🌐 {ytChannels.find((ch: any) => ch.channel_id === smGlobalChannelId)?.channel_title || 'Kanał globalny'}</option>
+                                  {ytChannels.filter((ch: any) => ch.channel_id !== smGlobalChannelId).map((ch: any) => (
+                                    <option key={ch.channel_id} value={ch.channel_id}>{ch.channel_title}</option>
+                                  ))}
+                                </select>
+                              )}
                               <input
                                 type="text"
                                 placeholder="URL lub ID YouTube (wgrany z Premiere Pro)"
@@ -2454,7 +2489,7 @@ export default function DashboardInner() {
               videoId={smVideoId}
               schemaData={smSchemaData}
               wpUrl=""
-              channels={ytChannels}
+              channels={(smChannelOverride[i] || smGlobalChannelId) ? [ytChannels.find((ch: any) => ch.channel_id === (smChannelOverride[i] || smGlobalChannelId)) ?? ytChannels[0]].filter(Boolean) : ytChannels}
               accessToken={accessToken || ""}
               apiUrl={process.env.NEXT_PUBLIC_API_URL || ''}
               publishAt={smPublishAt[i]}
