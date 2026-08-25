@@ -421,11 +421,13 @@ async def render_short(req: RenderRequest, db: AsyncSession = Depends(get_db)):
     if not req.youtube_url and not req.local_path:
         raise HTTPException(status_code=400, detail="Wymagany youtube_url lub local_path")
 
+    yt_id = _extract_youtube_id(req.youtube_id) or _extract_youtube_id(req.youtube_url) or req.youtube_id
+
     job = ShortJob(
         status="pending",
         youtube_url=req.youtube_url,
         local_path=req.local_path,
-        youtube_id=req.youtube_id,
+        youtube_id=yt_id,
         start_sec=req.start_sec,
         end_sec=req.end_sec,
         candidate_data=req.candidate_data,
