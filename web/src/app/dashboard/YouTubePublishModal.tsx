@@ -252,7 +252,16 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUr
 
 
 
-        {status==="done" && <div style={{color:"#4ade80",marginBottom:8}}>{Object.entries(result).map(([k,v])=><div key={k}>{k}: {v}</div>)}</div>}
+        {status==="done" && (
+          <div style={{marginBottom:8}}>
+            {Object.entries(result).map(([k,v]) => {
+              const isError = String(v).toLowerCase().includes('error') || String(k).toLowerCase().includes('error');
+              const isWarning = String(v).toLowerCase().includes('warning');
+              const color = isError ? '#f87171' : isWarning ? '#fbbf24' : '#4ade80';
+              return <div key={k} style={{color, fontSize: 13, marginBottom: 4}}>{k}: {v}</div>;
+            })}
+          </div>
+        )}
 
         {status==="error" && <div style={{color:"#f87171",marginBottom:8}}>Błąd: {result.error}</div>}
 

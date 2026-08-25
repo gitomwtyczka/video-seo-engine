@@ -47,12 +47,21 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
   useEffect(() => {
     if (!smYoutubeId) return
     const cleanId = extractYoutubeId(smYoutubeId)
+    if (!cleanId) return
     const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
     fetch(`${apiBase}/v1/shorts/history/${cleanId}`)
       .then(r => r.json())
       .then(data => {
         if (data.candidates?.length > 0 && smCandidates.length === 0) {
           setSmCandidates(data.candidates)
+          const newTitles: Record<number, string> = {}
+          const newTags: Record<number, string[]> = {}
+          data.candidates.forEach((c: any, i: number) => {
+            newTitles[i] = c.suggested_title || c.title || ''
+            newTags[i] = c.tags || []
+          })
+          setSmTitles(newTitles)
+          setSmTags(newTags)
         }
         if (data.jobs?.length > 0 && data.candidates?.length > 0) {
           const restoredStatus: Record<number, any> = {}
@@ -231,7 +240,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
         headers: { 'Content-Type': 'application/json', ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}) },
         body: JSON.stringify({
           youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : `https://www.youtube.com/watch?v=${smYoutubeId}`,
-          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,
+          youtube_id: extractYoutubeId(smYoutubeId) || undefined,
           start_sec: candidate.start_sec,
           end_sec: candidate.end_sec,
           candidate_data: candidate,
