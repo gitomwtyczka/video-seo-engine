@@ -290,7 +290,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
           format: smFormat,
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
-          output_dir: 'C:\\\\\\\\VSE\\\\\\\\Shorts',
+          output_dir: 'C:\\VSE\\Shorts',
           ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
         }),
       })
