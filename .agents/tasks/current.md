@@ -1,5 +1,6 @@
 # Current Tasks
 ## ✅ Zamknięte
+- [x] Naprawa przycisku ręcznej synchronizacji (HTTP 502, naprawa NameError i syntax error). 
 - [x] Naprawa ścieżki generowania (C:\\VSE\\Shorts) w UI VSE
 - [x] Wdrożenie cookies.txt strategy dla yt-dlp local runner - 2026-07-20
 - [x] Fix VTT Truncation (runner) - 2026-07-20
@@ -17,4 +18,6 @@
 - Brak
 
 ## 🔵 Następne
-- Oczekiwanie na nowe zadania
+- Analiza modelu biznesowego i roadmapy komercyjnej (SRT-only tool z uploadem MP3 za ~10 USD/mc)
+- Zmiany w UI i BD pozwalające na zarządzanie pobranymi napisami (SRT z markerami szortów)
+- Ograniczenie darmowej wersji: do 3 shortów ręcznie.
