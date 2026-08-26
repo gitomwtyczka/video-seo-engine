@@ -698,6 +698,29 @@ async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, d
 async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """
     CO: Generuje pakiet 3 plików SRT dla danego wideo YouTube.
+    # --- FREEMIUM LIMIT: 2 filmy/mc dla anonimowych (brak portal_id) ---
+    # Pobierz portal_id z query param lub header X-Portal-ID
+    # Jeśli brak portal_id — pozwól (free anonymous, liczymy per youtube_id)
+    # Jeśli jest portal_id — sprawdź count w tym miesiącu
+    FREE_MONTHLY_LIMIT = 2
+    if portal_id:
+        from datetime import datetime, timezone
+        from sqlalchemy import func, extract
+        now = datetime.now(timezone.utc)
+        count_stmt = select(func.count(ShortSrtPackage.id)).where(
+            ShortSrtPackage.portal_id == portal_id,
+            extract('year', ShortSrtPackage.created_at) == now.year,
+            extract('month', ShortSrtPackage.created_at) == now.month,
+        )
+        count_result = await db.execute(count_stmt)
+        usage_count = count_result.scalar_one()
+        if usage_count >= FREE_MONTHLY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Limit free: {FREE_MONTHLY_LIMIT} filmy/miesiąc. Przejdź na ADVANCED aby kontynuować."
+            )
+    # --- END FREEMIUM LIMIT ---
+
     PO CO: SRT-Only Shorts workflow — montazysci pobieraja SRT i tna ręcznie w Premiere.
     JAK:
         1. Pobiera kandydatów z short_candidate_sets
@@ -807,8 +830,8 @@ async def get_srt_package(youtube_id: str, portal_id: Optional[str] = None, db: 
     result = await db.execute(query)
     pkg = result.scalar_one_or_none()
     
-    if not pkg:
-        return {"exists": False, "youtube_id": yt_id}
+    if pkg is None:
+        raise HTTPException(status_code=404, detail=f"Brak pakietu SRT dla youtube_id={yt_id}")
     
     return {
         "exists": True,
