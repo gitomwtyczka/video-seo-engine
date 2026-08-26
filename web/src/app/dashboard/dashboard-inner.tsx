@@ -753,7 +753,7 @@ export default function DashboardInner() {
               overrideDescription={ytDescription}
               isOpen={ytModalOpen}
               onClose={() => setYtModalOpen(false)}
-              videoId={result.raw?.video_id || extractVideoId(result.inputUrl) || ""}
+              videoId={result?.videoId || result?.raw?.video_id || extractVideoId(result?.inputUrl || "") || ""}
               schemaData={result.raw ?? {}}
               wpUrl={wpUrl}
               channels={ytChannels}
