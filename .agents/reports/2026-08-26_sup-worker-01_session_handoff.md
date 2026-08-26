@@ -1,9 +1,64 @@
 # Handoff Report — sup-worker-01 | shadow-perihelion
 **Data:** 2026-08-26 | **Sesja:** 4c9dbe9f-adaa-4b32-8ca7-ecfa1751882a  
-**Status:** W toku — przekazuję Supervisorowi  
+**Status:** ✅ Zamknięte — przekazuję Supervisorowi  
 **Brain lokalizacja:** `C:\Users\tomas2\.gemini\antigravity\brain\4c9dbe9f-adaa-4b32-8ca7-ecfa1751882a\`  
-**Transcript:** `...\.system_generated\logs\transcript.jsonl`  
+**Transcript:** `..\.system_generated\logs\transcript.jsonl`  
 **Scratch & SRT:** `...\scratch\` (patrz sekcja pliki)
+
+---
+
+## 🌟 KLUCZOWY INSIGHT BIZNESOWY — SRT jako samodzielny produkt (NOWE)
+
+> Ten insight pojawił się na końcu sesji i MUSI być przekazany Supervisorowi i shadow-strateg.
+
+### Odkrycie
+W trakcie sesji zrealizowaliśmy proof-of-concept, który ujawnił **nową wartość produktową**: możliwość tworzenia shortów w pełni bezkosztowo i ręcznie, wyłącznie przez generowanie plików SRT.
+
+### Model "SRT-Only Shorts"
+
+| Etap | Narzędzie | Koszt |
+|------|-----------|-------|
+| Pobierz transkrypt z YT | yt-dlp / youtube-transcript-api | 0 zł |
+| Wygeneruj kandydatów | LLM (Gemini Flash) | ~0,01–0,05 USD |
+| 3 pliki SRT | VSE backend | 0 zł (serwer) |
+| Montaż | Premiere Pro / DaVinci / CapCut | narzędzie klienta |
+| Publikacja YT | ręcznie | 0 zł |
+
+**Łączny koszt serwera na użytkownika: ~0,05 USD/film**
+
+### Propozycja tiers
+
+```
+TIER FREE (~0 zł):
+  - Do 3 shortów na film
+  - Generuje: pelny_film.srt, napisy_shortow.srt, shorts_markers.srt
+  - Ręczne pobieranie plików
+  - Ręczny montaż w Premiere/DaVinci
+  - Zero renderingu wideo po stronie serwera
+
+TIER SRT PRO (~10 USD/mies lub mniej):
+  - Unlimited shortów
+  - Integracja z kanałem YT (auto opis/tytuł/hashtagi po publikacji)
+  - Historia i zarządzanie szortami przez panel
+
+TIER FULL AUTO (wyższa cena):
+  - Wszystko powyżej
+  - Local Runner — automatyczne renderowanie na komputerze klienta
+  - Faster-Whisper — transkrypcja z MP3 bez kosztów API
+  - Auto-publikacja z harmonogramem
+```
+
+### Dlaczego to ważne
+1. **Bariera wejścia = 0** — użytkownik potrzebuje tylko Premiere Pro (które i tak ma)
+2. **Wartość realna** — SRT z timestampami shortów to 90% roboty montażysty. Wie dokładnie gdzie ciąć.
+3. **Zarażenie ideą** — po kilku razach user zobaczy ile czasu oszczędza i naturalnie sięgnie po automatyzację
+4. **Skalowanie bez bólu** — Free tier nie generuje kosztów serwera, więc można dać go szeroko
+
+### Następne kroki dla shadow-strateg
+- Zaprojektować UX "Pobierz pakiet SRT" jako standalone CTA
+- Rozważyć landing page tylko dla tego workflow
+- Wycenić tier SRT PRO (10 USD/mies wydaje się właściwe, może nawet 7–8 USD)
+- Zapisać w roadmapie jako osobną funkcjonalność od renderowania
 
 ---
 
