@@ -755,7 +755,7 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
     cand_res = await db.execute(cand_query)
     cand_set = cand_res.scalar_one_or_none()
     
-    candidates = cand_set.candidates if cand_set else []
+    candidates = merged_candidates if cand_set else []
     
     if not candidates:
         raise HTTPException(
