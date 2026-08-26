@@ -183,9 +183,11 @@ async def startup_event() -> None:
         from api.models.youtube_channel import YouTubeChannel # noqa: F401
         from api.models.oauth_state import OAuthState # noqa: F401
         from api.models.short_job import ShortJob # noqa: F401
+        from api.models.short_candidate import ShortCandidateSet # noqa: F401
+        from api.models.short_srt import ShortSrtPackage # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals, youtube_channels).")
+        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals, youtube_channels, short_srt_packages).")
         
         from sqlalchemy import delete
         from datetime import datetime, timezone
