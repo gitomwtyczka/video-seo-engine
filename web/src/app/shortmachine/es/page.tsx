@@ -84,7 +84,8 @@ export default function ShortMachinePageES() {
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mes</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• 3 vídeos/mes, shorts ilimitados</li>
+                <li>• 2 vídeos / mes</li>
+                <li>• Shorts ilimitados por vídeo</li>
                 <li>• Listo en 60 segundos</li>
                 <li>• Sin tarjeta de crédito</li>
               </ul>
@@ -98,14 +99,15 @@ export default function ShortMachinePageES() {
               <h3 className="text-2xl font-bold mb-2">ADVANCED</h3>
               <div className="text-3xl font-extrabold mb-6">$9<span className="text-lg text-gray-400 font-normal">/mes</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• Vídeos ilimitados/mes</li>
-                <li>• La IA elige los mejores momentos</li>
-                <li>• Historial y guardado de análisis</li>
-                <li>• Integración con canal YT</li>
+                <li>• 10 vídeos / mes</li>
+                <li>• Shorts ilimitados por vídeo</li>
+                <li>• Vídeos de hasta 45 minutos</li>
+                <li>• Historial y análisis guardados</li>
+                <li>• Integración con canal de YouTube</li>
                 <li>• Soporte prioritario</li>
               </ul>
               <Link href="/dashboard" className="block text-center py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold transition text-white">
-                Comprar ADVANCED
+                Obtener ADVANCED
               </Link>
             </div>
             
@@ -114,9 +116,11 @@ export default function ShortMachinePageES() {
               <div className="text-3xl font-extrabold mb-6">Contáctanos</div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
                 <li>• Todo lo de ADVANCED</li>
-                <li>• Renderizado automático de vídeo</li>
-                <li>• Local Runner (offline)</li>
-                <li>• Acceso API</li>
+                <li>• Vídeos ilimitados / mes</li>
+                <li>• Vídeos de más de 45 minutos</li>
+                <li>• Acceso a API</li>
+                <li>• Renderizado automático</li>
+                <li>• Soporte dedicado</li>
               </ul>
               <a href="mailto:kontakt@impresjapr.pl" className="block text-center py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition text-white">
                 Pedir presupuesto
