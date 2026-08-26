@@ -784,7 +784,8 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                           onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
                         >
                           <option value="">
-                            {playlistsLoading && channelPlaylistsList.length === 0 ? 'Ładowanie playlist...' : 'Playlista (opcj.)'}\n                          </option>
+                            {playlistsLoading && channelPlaylistsList.length === 0 ? 'Ładowanie playlist...' : 'Playlista (opcj.)'}
+                          </option>
                           {channelPlaylistsList.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
                         </select>
                       )
