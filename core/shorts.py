@@ -74,11 +74,11 @@ Każdy kandydat to DOKŁADNIE JEDEN spójny wycinek wideo w przedziale [start_se
 ## DLA KAŻDEGO KANDYDATA:
 
 ### STRUKTURA Hook → Body → Punchline:
-- **start_sec**: timestamp VTT początku pierwszego słowa hooka (w sekundach jako float).
-- **end_sec**: timestamp VTT OSTATNIEGO słowa punchline + 1.5 sekundy ciszy (NIE początek zdania!).
-  PRZYKŁAD: Jeśli zdanie punchline zaczyna się o [19:01] i trwa 8 sekund:
-  - POPRAWNE: end_sec = 1141 + 8 + 1.5 = 1150.5
-  - BŁĘDNE: end_sec = 1141 (to jest POCZĄTEK punchline, nie koniec!)
+- **start_sec**: timestamp VTT początku pierwszego słowa hooka przeliczony na sekundy jako float (np. [02:25] = 145.0).
+- **end_sec**: timestamp VTT OSTATNIEGO słowa punchline + 1.5 sekundy ciszy przeliczony na sekundy jako float (NIE początek zdania!).
+  PRZYKŁAD: Jeśli zdanie punchline zaczyna się o [03:04] (184s) i trwa 7 sekund:
+  - POPRAWNE: end_sec = 184 + 7 + 1.5 = 192.5
+  - BŁĘDNE: end_sec = 184.0 (to jest POCZĄTEK punchline, nie koniec!)
 - **hook_text (pierwsze 3-8 sekund)**: Mocne zdanie otwierające / hook zatrzymujący scrollowanie.
   Musi wynikać bezpośrednio ze słów otwierających ten fragment w sekundzie `start_sec`.
 - **body_summary (środek)**: 1-2 zwięzłe zdania podsumowujące, o czym mowa w środku TEGO fragmentu (między start_sec a end_sec).
@@ -96,10 +96,13 @@ Każdy kandydat to DOKŁADNIE JEDEN spójny wycinek wideo w przedziale [start_se
 
 Odpowiedź TYLKO JSON (bez markdown):
 {{"candidates": [
-  {{"type": "emotional", "start_sec": 0.0, "end_sec": 0.0,
-    "hook_text": "...", "punchline_text": "...", "body_summary": "...",
-    "score": 0.0, "rationale": "...", "query_match": "",
-    "suggested_title": "Chwytliwy tytuł shorta — 5-9 słów po polsku, bez hashtag",
+  {{"type": "emotional", "start_sec": 145.0, "end_sec": 192.5,
+    "hook_text": "Mocny cytat lub hook otwierający ze start_sec...",
+    "punchline_text": "Pointa lub konkluzja zamykająca z end_sec...",
+    "body_summary": "1-2 zdania streszczenia środka tego fragmentu...",
+    "score": 0.85, "rationale": "Dlaczego ten fragment jest świetnym shortem",
+    "query_match": "",
+    "suggested_title": "Chwytliwy tytuł shorta — 5-9 słów po polsku",
     "tags": ["#hashtag1", "#hashtag2"]}}
 ]}}
 """
@@ -219,6 +222,7 @@ def propose_shorts(
         logger.error("propose_shorts: JSON parse error: %s | raw[:200]=%s", e, raw[:200])
         raise ValueError(f"LLM returned invalid JSON: {e}")
     candidates_raw = data.get("candidates", [])
+    logger.info("propose_shorts: LLM returned %d raw candidate entries", len(candidates_raw))
     
     candidates: list[ShortCandidate] = []
     for c in candidates_raw:
