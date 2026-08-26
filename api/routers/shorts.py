@@ -22,6 +22,7 @@ from api.db import get_db
 from api.models.job import TranscriptJob
 from api.models.short_job import ShortJob
 from api.models.short_candidate import ShortCandidateSet
+from api.models.short_srt import ShortSrtPackage
 from core.shorts import propose_shorts, get_vtt_segments_for_candidate, get_segments_for_range
 
 logger = logging.getLogger(__name__)
@@ -101,7 +102,7 @@ def _convert_transcript_to_webvtt(transcript: str) -> str:
 
     lines = transcript.split("\n")
     segments = []
-    ts_pattern = re.compile(r'^(?:\[)?(?:(\d{1,2}):)?(\d{2}):(\d{2})(?:\.\d+)?(?:\])?\s*(.*)$')
+    ts_pattern = re.compile(r'^(?:\[)?(?:(\d{1,2}):)?(\\d{2}):(\\d{2})(?:\.\d+)?(?:\])?\s*(.*)$')
 
     for line in lines:
         line_s = line.strip()
@@ -187,6 +188,133 @@ async def _resolve_vtt_path(youtube_id: str, db: AsyncSession) -> Optional[str]:
         return tmp_file
 
     return None
+
+
+# --- SRT Generators ---
+
+def _seconds_to_srt_time(seconds: float) -> str:
+    """Konwertuje sekundy do formatu SRT: HH:MM:SS,mmm"""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _generate_pelny_film_srt(vtt_path: str) -> str:
+    """
+    CO: Generuje pełny plik SRT z transkryptu VTT.
+    PO CO: YouTube Closed Captions dla pełnego wideo.
+    """
+    try:
+        with open(vtt_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        lines = content.split('\n')
+        entries = []
+        i = 0
+        
+        # Skip WEBVTT header
+        while i < len(lines) and not '-->' in lines[i]:
+            i += 1
+        
+        counter = 1
+        while i < len(lines):
+            line = lines[i].strip()
+            if '-->' in line:
+                # Parse timestamp line: 00:00:05.000 --> 00:00:10.000
+                parts = line.split(' --> ')
+                if len(parts) == 2:
+                    start_vtt = parts[0].strip().replace('.', ',')
+                    end_vtt = parts[1].strip().split(' ')[0].replace('.', ',')
+                    # Collect text lines
+                    text_lines = []
+                    i += 1
+                    while i < len(lines) and lines[i].strip() and '-->' not in lines[i]:
+                        text_line = lines[i].strip()
+                        # Remove VTT tags like <c.colorE5E5E5> </c>
+                        import re as _re
+                        text_line = _re.sub(r'<[^>]+>', '', text_line)
+                        if text_line:
+                            text_lines.append(text_line)
+                        i += 1
+                    if text_lines:
+                        entries.append(f"{counter}\n{start_vtt} --> {end_vtt}\n" + '\n'.join(text_lines))
+                        counter += 1
+                    continue
+            i += 1
+        
+        return '\n\n'.join(entries) + '\n'
+    except Exception as e:
+        logger.error("_generate_pelny_film_srt error: %s", e)
+        return ""
+
+
+def _generate_napisy_shortow_srt(candidates: list) -> str:
+    """
+    CO: Generuje SRT tylko z napisami w obszarach shortow.
+    PO CO: Import do Premiere/DaVinci — montazysta widzi tekst tylko w obszarach do cięcia.
+    """
+    entries = []
+    counter = 1
+    
+    for c in candidates:
+        start_sec = c.get('start_sec', 0)
+        end_sec = c.get('end_sec', start_sec + 60)
+        title = c.get('suggested_title') or c.get('title') or f"Short {counter}"
+        hook = c.get('hook_text', '')
+        punchline = c.get('punchline_text', '')
+        
+        # Header entry for this short
+        entries.append(
+            f"{counter}\n"
+            f"{_seconds_to_srt_time(start_sec)} --> {_seconds_to_srt_time(start_sec + 2)}\n"
+            f"[SHORT: {title}]"
+        )
+        counter += 1
+        
+        # VTT segments within this range
+        vtt_segs = c.get('vtt_segments', [])
+        for seg in vtt_segs:
+            ts = seg.get('ts', 0)
+            if start_sec <= ts <= end_sec:
+                seg_text = seg.get('text', '').strip()
+                if seg_text:
+                    seg_end = min(ts + 4, end_sec)
+                    entries.append(
+                        f"{counter}\n"
+                        f"{_seconds_to_srt_time(ts)} --> {_seconds_to_srt_time(seg_end)}\n"
+                        f"{seg_text}"
+                    )
+                    counter += 1
+    
+    return '\n\n'.join(entries) + '\n' if entries else ""
+
+
+def _generate_shorts_markers_srt(candidates: list) -> str:
+    """
+    CO: Generuje SRT z dużymi blokami czasowymi dla każdego shorta.
+    PO CO: Import do Premiere = wizualne markery cięć na osi czasu.
+            Montazysta przeciaga plik na ścieżkę Captions, widzi bloki, tnie żyletką.
+    """
+    entries = []
+    
+    for i, c in enumerate(candidates, 1):
+        start_sec = c.get('start_sec', 0)
+        end_sec = c.get('end_sec', start_sec + 60)
+        title = c.get('suggested_title') or c.get('title') or f"Short {i}"
+        short_type = c.get('type', 'short').upper()
+        score = c.get('score', 0)
+        stars = '\u2605' * round(score * 5) + '\u2606' * (5 - round(score * 5))
+        
+        entries.append(
+            f"{i}\n"
+            f"{_seconds_to_srt_time(start_sec)} --> {_seconds_to_srt_time(end_sec)}\n"
+            f"[SHORT {i}: {title}]\n"
+            f"{short_type} | {stars} | {int(end_sec - start_sec)}s"
+        )
+    
+    return '\n\n'.join(entries) + '\n' if entries else ""
 
 
 # --- Endpoints ---
@@ -541,6 +669,141 @@ async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, d
             }
             for j in jobs
         ]
+    }
+
+
+@router.post("/generate-srt/{youtube_id}")
+async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """
+    CO: Generuje pakiet 3 plików SRT dla danego wideo YouTube.
+    PO CO: SRT-Only Shorts workflow — montazysci pobieraja SRT i tna ręcznie w Premiere.
+    JAK:
+        1. Pobiera kandydatów z short_candidate_sets
+        2. Pobiera VTT z dysku/DB
+        3. Generuje 3 pliki SRT
+        4. Zapisuje do short_srt_packages
+        5. Zwraca JSON z treścią plików
+    """
+    yt_id = _extract_youtube_id(youtube_id) or youtube_id
+    
+    # 1. Pobierz kandydatów
+    cand_conditions = [ShortCandidateSet.youtube_id == yt_id]
+    if portal_id:
+        cand_conditions.append(ShortCandidateSet.portal_id == portal_id)
+    
+    cand_query = select(ShortCandidateSet).where(*cand_conditions).order_by(desc(ShortCandidateSet.created_at)).limit(1)
+    cand_res = await db.execute(cand_query)
+    cand_set = cand_res.scalar_one_or_none()
+    
+    candidates = cand_set.candidates if cand_set else []
+    
+    if not candidates:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Brak kandydatów dla youtube_id={yt_id}. Najpierw wygeneruj kandydatów przez /v1/shorts/candidates."
+        )
+    
+    # 2. Pobierz VTT
+    tmp_file = None
+    vtt_path = await _resolve_vtt_path(yt_id, db)
+    if vtt_path and vtt_path.startswith("/tmp/") and "_title_" in vtt_path:
+        tmp_file = vtt_path
+    
+    try:
+        # 3. Generuj SRT
+        pelny_film = _generate_pelny_film_srt(vtt_path) if vtt_path else ""
+        napisy_shortow = _generate_napisy_shortow_srt(candidates)
+        shorts_markers = _generate_shorts_markers_srt(candidates)
+        
+        # 4. Zapisz do bazy
+        srt_package = ShortSrtPackage(
+            youtube_id=yt_id,
+            portal_id=portal_id,
+            candidate_count=len(candidates),
+            pelny_film_srt=pelny_film,
+            napisy_shortow_srt=napisy_shortow,
+            shorts_markers_srt=shorts_markers,
+        )
+        db.add(srt_package)
+        await db.commit()
+        await db.refresh(srt_package)
+        
+        logger.info("SRT package generated for youtube_id=%s, id=%s", yt_id, srt_package.id)
+        
+        # 5. Zwroc pakiet
+        return {
+            "id": str(srt_package.id),
+            "youtube_id": yt_id,
+            "candidate_count": len(candidates),
+            "files": {
+                "pelny_film": {
+                    "filename": f"{yt_id}_pelny_film.srt",
+                    "content": pelny_film,
+                    "size_bytes": len(pelny_film.encode('utf-8')),
+                },
+                "napisy_shortow": {
+                    "filename": f"{yt_id}_napisy_shortow.srt",
+                    "content": napisy_shortow,
+                    "size_bytes": len(napisy_shortow.encode('utf-8')),
+                },
+                "shorts_markers": {
+                    "filename": f"{yt_id}_shorts_markers.srt",
+                    "content": shorts_markers,
+                    "size_bytes": len(shorts_markers.encode('utf-8')),
+                },
+            },
+            "created_at": srt_package.created_at.isoformat(),
+        }
+    finally:
+        if tmp_file and os.path.exists(tmp_file):
+            try:
+                os.remove(tmp_file)
+            except Exception:
+                pass
+
+
+@router.get("/srt/{youtube_id}")
+async def get_srt_package(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """
+    CO: Pobiera ostatnio wygenerowany pakiet SRT dla youtube_id.
+    PO CO: Frontend może sprawdzić czy SRT już istnieje przed regeneracją.
+    """
+    yt_id = _extract_youtube_id(youtube_id) or youtube_id
+    
+    conditions = [ShortSrtPackage.youtube_id == yt_id]
+    if portal_id:
+        conditions.append(ShortSrtPackage.portal_id == portal_id)
+    
+    query = select(ShortSrtPackage).where(*conditions).order_by(desc(ShortSrtPackage.created_at)).limit(1)
+    result = await db.execute(query)
+    pkg = result.scalar_one_or_none()
+    
+    if not pkg:
+        return {"exists": False, "youtube_id": yt_id}
+    
+    return {
+        "exists": True,
+        "id": str(pkg.id),
+        "youtube_id": yt_id,
+        "candidate_count": pkg.candidate_count,
+        "created_at": pkg.created_at.isoformat(),
+        "files": {
+            "pelny_film": {
+                "filename": f"{yt_id}_pelny_film.srt",
+                "content": pkg.pelny_film_srt or "",
+                "size_bytes": len((pkg.pelny_film_srt or "").encode('utf-8')),
+            },
+            "napisy_shortow": {
+                "filename": f"{yt_id}_napisy_shortow.srt",
+                "content": pkg.napisy_shortow_srt or "",
+                "size_bytes": len((pkg.napisy_shortow_srt or "").encode('utf-8')),
+            },
+            "shorts_markers": {
+                "filename": f"{yt_id}_shorts_markers.srt",
+                "content": pkg.shorts_markers_srt or "",
+                "size_bytes": len((pkg.shorts_markers_srt or "").encode('utf-8')),
+            },
+        },
     }
 
 
