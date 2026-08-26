@@ -81,7 +81,7 @@ export default function ShortMachinePagePL() {
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mc</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• 3 filmy/miesiąc, unlimited shortów</li>
+                <li>• 2 filmy/miesiąc, unlimited shortów</li>
                 <li>• Gotowe w 60 sekund</li>
                 <li>• Bez karty kredytowej</li>
               </ul>
