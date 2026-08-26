@@ -78,8 +78,9 @@ export default function ShortMachinePageEN() {
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mo</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• 3 shorts per video</li>
-                <li>• Zero server-side rendering</li>
+                <li>• 2 videos/month, unlimited shorts</li>
+                <li>• Ready in 60 seconds</li>
+                <li>• No credit card required</li>
               </ul>
               <Link href="/dashboard" className="block text-center py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition">
                 Select
@@ -88,7 +89,7 @@ export default function ShortMachinePageEN() {
             
             <div className="bg-gray-900 p-8 rounded-xl border-2 border-violet-500 ring-4 ring-violet-500/20 flex flex-col relative transform md:-translate-y-4">
               <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-violet-500 text-white px-3 py-1 text-sm font-bold rounded-full">Recommended</div>
-              <h3 className="text-2xl font-bold mb-2">SRT PRO</h3>
+              <h3 className="text-2xl font-bold mb-2">ADVANCED</h3>
               <div className="text-3xl font-extrabold mb-6">$9<span className="text-lg text-gray-400 font-normal">/mo</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
                 <li>• Unlimited shorts</li>
@@ -101,7 +102,7 @@ export default function ShortMachinePageEN() {
             </div>
             
             <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col opacity-75">
-              <h3 className="text-2xl font-bold mb-2">FULL AUTO</h3>
+              <h3 className="text-2xl font-bold mb-2">ENTERPRISE</h3>
               <div className="text-3xl font-extrabold mb-6">Soon</div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
                 <li>• Automatic rendering</li>
