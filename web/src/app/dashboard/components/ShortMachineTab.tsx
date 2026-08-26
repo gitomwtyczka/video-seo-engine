@@ -290,7 +290,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
           format: smFormat,
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
-          output_dir: 'C:\\\\VSE\\\\Shorts',
+          output_dir: 'C:\\\\\\\\VSE\\\\\\\\Shorts',
           ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
         }),
       })
@@ -561,7 +561,8 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                       ) : <div style={{padding:'8px',color:'#64748b',fontSize:'12px'}}>Brak YouTube URL dla podglądu</div>
                     })()}
                     <div style={{maxHeight:'220px',overflowY:'auto',padding:'8px'}}>
-                      <div style={{display:'flex',gap:'6px',marginBottom:'8px',alignItems:'center'}}>\n                        <span style={{fontSize:'11px',color:'#94a3b8'}}>Klik ustawia:</span>
+                      <div style={{display:'flex',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
+                        <span style={{fontSize:'11px',color:'#94a3b8'}}>Klik ustawia:</span>
                         <button onClick={()=>setSmTrimMode('start')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='start'?'#3b82f6':'#1e293b',color:smTrimMode==='start'?'#fff':'#94a3b8'}}>◀ Start</button>
                         <button onClick={()=>setSmTrimMode('end')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='end'?'#f59e0b':'#1e293b',color:smTrimMode==='end'?'#fff':'#94a3b8'}}>Koniec ▶</button>
                         <span style={{marginLeft:'auto',fontSize:'11px',color:'#64748b'}}>{(c.vtt_segments||[]).length} segmentów</span>
@@ -783,8 +784,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                           onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
                         >
                           <option value="">
-                            {playlistsLoading && channelPlaylistsList.length === 0 ? 'Ładowanie playlist...' : 'Playlista (opcj.)'}
-                          </option>
+                            {playlistsLoading && channelPlaylistsList.length === 0 ? 'Ładowanie playlist...' : 'Playlista (opcj.)'}\n                          </option>
                           {channelPlaylistsList.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
                         </select>
                       )
