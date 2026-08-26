@@ -290,7 +290,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
           format: smFormat,
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
-          output_dir: 'C:\\\\VSE\\\\Shorts',
+          output_dir: 'C:\\\\\\\\VSE\\\\\\\\Shorts',
           ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
         }),
       })
@@ -378,7 +378,8 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
             <div>
               <label className="block text-sm text-gray-400 mb-1">Emotional</label>
               <input id="sm-count-emotional" type="number" min="0" max="5" value={smCountEmotional}
-                onChange={e => setSmCountEmotional(Number(e.target.value))}\n                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
+                onChange={e => setSmCountEmotional(Number(e.target.value))}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm" />
             </div>
             <div>
               <label className="block text-sm text-gray-400 mb-1">Professional</label>
@@ -554,8 +555,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                       const ytId = ytMatch ? ytMatch[1] : null
                       const adjStart = getAdj(i, c).start
                       return ytId ? (
-                        <div style={{position:'relative',paddingBottom:'56.25%',height:0,overflow:'hidden'}}>
-                          <iframe key={`yt-${i}-${Math.floor(adjStart)}`} src={`https://www.youtube.com/embed/${ytId}?start=${Math.floor(adjStart)}&autoplay=0&rel=0`} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:'none'}} allowFullScreen />
+                        <div style={{position:'relative',paddingBottom:'56.25%',height:0,overflow:'hidden'}}>\n                          <iframe key={`yt-${i}-${Math.floor(adjStart)}`} src={`https://www.youtube.com/embed/${ytId}?start=${Math.floor(adjStart)}&autoplay=0&rel=0`} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:'none'}} allowFullScreen />
                         </div>
                       ) : <div style={{padding:'8px',color:'#64748b',fontSize:'12px'}}>Brak YouTube URL dla podglądu</div>
                     })()}
@@ -589,7 +589,8 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                       placeholder="Tytuł shorta..."
                       className="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500"
                     />
-                    {(smTrimAdj[i]?.startDelta || smTrimAdj[i]?.endDelta) && (\n                      <button
+                    {(smTrimAdj[i]?.startDelta || smTrimAdj[i]?.endDelta) && (
+                      <button
                         onClick={() => handleRegenerateTitle(i, c)}
                         disabled={smTitleLoading[i]}
                         className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded text-gray-300 disabled:opacity-50"
@@ -622,7 +623,8 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                       const videoId2 = smYoutubeId.length === 11 ? smYoutubeId : smYoutubeId.match(/[a-zA-Z0-9_-]{11}/)?.[0] || ''
                       setTimeout(() => {
                         if (!(window as any).YT?.Player) return
-                        if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()\n                        if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
+                        if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()
+                        if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
                         ytPlayerRef.current = new (window as any).YT.Player(`yt-preview-${i}`, {
                           height: '100%',
                           width: '100%',
@@ -733,8 +735,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                           </button>
                         )}
                       </div>
-                    ) : smJobStatus[i].status === 'error' ? (
-                      <span>Błąd: {smJobStatus[i].error}</span>
+                    ) : smJobStatus[i].status === 'error' ? (\n                      <span>Błąd: {smJobStatus[i].error}</span>
                     ) : (
                       <span>Przetwarzam... ({smJobStatus[i].status})</span>
                     )}
