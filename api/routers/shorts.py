@@ -102,7 +102,7 @@ def _convert_transcript_to_webvtt(transcript: str) -> str:
 
     lines = transcript.split("\n")
     segments = []
-    ts_pattern = re.compile(r'^(?:\[)?(?:(\d{1,2}):)?(\\d{2}):(\\d{2})(?:\.\d+)?(?:\])?\s*(.*)$')
+    ts_pattern = re.compile(r'^(?:\[)?(?:(\d{1,2}):)?(\d{2}):(\d{2})(?:\.\d+)?(?:\])?\s*(.*)$')
 
     for line in lines:
         line_s = line.strip()
@@ -289,6 +289,28 @@ def _generate_napisy_shortow_srt(candidates: list) -> str:
                     counter += 1
     
     return '\n\n'.join(entries) + '\n' if entries else ""
+
+
+def _generate_youtube_chapters(candidates: list) -> str:
+    """
+    CO: Generuje blok tekstu YouTube Chapters do wklejenia w opis wideo.
+    PO CO: Natywny YouTube workflow — tworca wkleja w opis, YT tworzy klikalne
+           rozdzialy na scrubberze. Na telefonie: klik rozdzialu -> Remix -> Edit into Short.
+    FORMAT: Musi zaczynac sie od 00:00, kolejne wpisy w kolejnosci chronologicznej.
+    """
+    if not candidates:
+        return ""
+    lines = ["00:00 Wstep"]
+    for i, c in enumerate(candidates, 1):
+        start_sec = c.get('start_sec', 0)
+        title = c.get('suggested_title') or c.get('title') or f"Short {i}"
+        title = title.replace('"', '').replace('[', '').replace(']', '').strip()
+        minutes = int(start_sec // 60)
+        seconds = int(start_sec % 60)
+        timestamp = f"{minutes:02d}:{seconds:02d}"
+        lines.append(f"{timestamp} [SHORT {i}] {title}")
+    return "\n".join(lines)
+
 
 
 def _generate_shorts_markers_srt(candidates: list) -> str:
@@ -714,6 +736,7 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
         pelny_film = _generate_pelny_film_srt(vtt_path) if vtt_path else ""
         napisy_shortow = _generate_napisy_shortow_srt(candidates)
         shorts_markers = _generate_shorts_markers_srt(candidates)
+        youtube_chapters = _generate_youtube_chapters(candidates)
         
         # 4. Zapisz do bazy
         srt_package = ShortSrtPackage(
@@ -723,6 +746,7 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
             pelny_film_srt=pelny_film,
             napisy_shortow_srt=napisy_shortow,
             shorts_markers_srt=shorts_markers,
+            youtube_chapters=youtube_chapters,
         )
         db.add(srt_package)
         await db.commit()
@@ -750,6 +774,11 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
                     "filename": f"{yt_id}_shorts_markers.srt",
                     "content": shorts_markers,
                     "size_bytes": len(shorts_markers.encode('utf-8')),
+                },
+                "youtube_chapters": {
+                    "filename": f"{yt_id}_chapters.txt",
+                    "content": youtube_chapters,
+                    "size_bytes": len(youtube_chapters.encode('utf-8')),
                 },
             },
             "created_at": srt_package.created_at.isoformat(),
@@ -802,6 +831,11 @@ async def get_srt_package(youtube_id: str, portal_id: Optional[str] = None, db: 
                 "filename": f"{yt_id}_shorts_markers.srt",
                 "content": pkg.shorts_markers_srt or "",
                 "size_bytes": len((pkg.shorts_markers_srt or "").encode('utf-8')),
+            },
+            "youtube_chapters": {
+                "filename": f"{yt_id}_chapters.txt",
+                "content": pkg.youtube_chapters or "",
+                "size_bytes": len((pkg.youtube_chapters or "").encode('utf-8')),
             },
         },
     }
