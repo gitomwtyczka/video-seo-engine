@@ -1,3 +1,4 @@
+"""
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
@@ -458,7 +459,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-white">📄 Pakiet SRT</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Pobierz 3 pliki SRT do montażu w Premiere/DaVinci bez renderowania wideo</p>
+                <p className="text-xs text-gray-400 mt-0.5">Pobierz pakiet SRT + YouTube Chapters do montażu w Premiere/DaVinci lub bezpośrednio ze smartfona przez YT Studio</p>
               </div>
               <button
                 onClick={handleGenerateSrt}
@@ -474,6 +475,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
             {srtPackage && (
               <div className="space-y-2">
                 <p className="text-xs text-green-400">✅ Pakiet gotowy ({srtPackage.candidate_count} kandydatów)</p>
+                <p className="text-xs text-gray-500 mt-1">Wklej <span className="font-mono text-violet-400">chapters.txt</span> w opis YouTube → klikalne rozdziały + Remix na telefonie</p>
                 <div className="grid grid-cols-1 gap-2">
                   {Object.entries(srtPackage.files as Record<string, {filename: string, content: string, size_bytes: number}>).map(([key, file]) => (
                     <div key={key} className="flex items-center justify-between bg-gray-900 rounded-lg px-3 py-2">

@@ -1,3 +1,4 @@
+"""
 import Link from 'next/link';
 
 export default function ShortMachinePageEN() {
@@ -28,7 +29,7 @@ export default function ShortMachinePageEN() {
       <section className="py-20 bg-gray-900">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center mb-12">How it works</h2>
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-4 gap-8">
             <div className="bg-gray-800 p-8 rounded-xl">
               <div className="text-4xl mb-4">➡</div>
               <h3 className="text-xl font-bold mb-3">1. Paste YouTube link</h3>
@@ -37,7 +38,7 @@ export default function ShortMachinePageEN() {
             <div className="bg-gray-800 p-8 rounded-xl">
               <div className="text-4xl mb-4">↓</div>
               <h3 className="text-xl font-bold mb-3">2. Download SRT package</h3>
-              <p className="text-gray-400">3 SRT files ready in seconds. Full transcript, subtitles in short areas, and cut markers for Premiere.</p>
+              <p className="text-gray-400">4 files ready in seconds. Full transcript, subtitles in short areas, and cut markers for Premiere.</p>
             </div>
             <div className="bg-gray-800 p-8 rounded-xl">
               <div className="text-4xl mb-4">✂</div>
@@ -52,7 +53,7 @@ export default function ShortMachinePageEN() {
       <section className="py-20 bg-gray-950">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center mb-12">What you get</h2>
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-4 gap-8">
             <div className="border border-gray-800 p-8 rounded-xl bg-gray-900/50">
               <h3 className="text-lg font-mono text-violet-400 mb-2">pelny_film.srt</h3>
               <p className="text-gray-300">Full video transcript with timestamps. Load directly as YouTube Closed Captions.</p>
@@ -65,6 +66,11 @@ export default function ShortMachinePageEN() {
               <h3 className="text-lg font-mono text-violet-400 mb-2">shorts_markers.srt</h3>
               <p className="text-gray-300">The key file: large [SHORT 1: Title] blocks on the timeline. Drag & drop to Premiere = instant visual cut markers.</p>
             </div>
+            <div className="border border-gray-800 p-8 rounded-xl bg-gray-900/50">
+              <h3 className="text-lg font-mono text-violet-400 mb-2">chapters.txt</h3>
+              <p className="text-gray-300">Ready-to-paste YouTube Chapters block for your video description. YouTube creates clickable chapters on the scrubber bar.</p>
+              <p className="text-xs text-violet-400 mt-3">→ Tap chapter on mobile → Remix → Edit into Short</p>
+            </div>
           </div>
         </div>
       </section>
@@ -73,7 +79,7 @@ export default function ShortMachinePageEN() {
       <section className="py-20 bg-gray-900">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center mb-12">Pricing</h2>
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-4 gap-8 max-w-5xl mx-auto">
             <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col">
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mo</span></div>

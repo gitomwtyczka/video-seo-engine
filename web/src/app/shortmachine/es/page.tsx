@@ -1,3 +1,4 @@
+"""
 import Link from 'next/link';
 
 export default function ShortMachinePageES() {
@@ -31,7 +32,7 @@ export default function ShortMachinePageES() {
       <section className="py-20 bg-gray-900">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center mb-12">Cómo funciona</h2>
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-4 gap-8">
             <div className="bg-gray-800 p-8 rounded-xl">
               <div className="text-4xl mb-4">➡</div>
               <h3 className="text-xl font-bold mb-3">1. Pega el link de YouTube</h3>
@@ -40,7 +41,7 @@ export default function ShortMachinePageES() {
             <div className="bg-gray-800 p-8 rounded-xl">
               <div className="text-4xl mb-4">↓</div>
               <h3 className="text-xl font-bold mb-3">2. Descarga el paquete SRT</h3>
-              <p className="text-gray-400">3 archivos SRT listos en segundos. Transcripción completa, subtítulos en áreas de shorts y marcadores de corte para Premiere.</p>
+              <p className="text-gray-400">4 archivos listos en segundos. Transcripción completa, subtítulos en áreas de shorts y marcadores de corte para Premiere.</p>
             </div>
             <div className="bg-gray-800 p-8 rounded-xl">
               <div className="text-4xl mb-4">✂</div>
@@ -55,7 +56,7 @@ export default function ShortMachinePageES() {
       <section className="py-20 bg-gray-950">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center mb-12">Lo que obtienes</h2>
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-4 gap-8">
             <div className="border border-gray-800 p-8 rounded-xl bg-gray-900/50">
               <h3 className="text-lg font-mono text-violet-400 mb-2">pelny_film.srt</h3>
               <p className="text-gray-300 mb-2">Transcripción completa del vídeo con marcas de tiempo. Cárgala directamente como Closed Captions en YouTube.</p>
@@ -71,6 +72,11 @@ export default function ShortMachinePageES() {
               <p className="text-gray-300 mb-2">El archivo clave: grandes bloques [SHORT 1: Título] en el timeline. Drag & drop en Premiere = marcadores visuales de corte inmediatos.</p>
               <p className="text-sm text-violet-300 font-medium">→ Drag & drop en timeline = bloques de color en 5 segundos</p>
             </div>
+            <div className="border border-gray-800 p-8 rounded-xl bg-gray-900/50">
+              <h3 className="text-lg font-mono text-violet-400 mb-2">chapters.txt</h3>
+              <p className="text-gray-300">Bloque de capítulos de YouTube listo para pegar en la descripción. YouTube crea capítulos clicables en la barra del reproductor.</p>
+              <p className="text-xs text-violet-400 mt-3">→ Toca el capítulo en el móvil → Remix → Edit into Short</p>
+            </div>
           </div>
         </div>
       </section>
@@ -79,7 +85,7 @@ export default function ShortMachinePageES() {
       <section className="py-20 bg-gray-900">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center mb-12">Precios</h2>
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-4 gap-8 max-w-5xl mx-auto">
             <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col">
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mes</span></div>
