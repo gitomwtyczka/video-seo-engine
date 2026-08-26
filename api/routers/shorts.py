@@ -660,10 +660,25 @@ async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, d
         select(ShortCandidateSet)
         .where(*cand_conditions)
         .order_by(desc(ShortCandidateSet.created_at))
-        .limit(1)
+        .limit(10)
     )
     cand_res = await db.execute(cand_query)
-    cand_set = cand_res.scalar_one_or_none()
+    cand_sets = cand_res.scalars().all()
+    
+    merged_candidates = []
+    candidates_created_at = None
+    if cand_sets:
+        candidates_created_at = cand_sets[0].created_at
+        for cset in reversed(cand_sets):
+            for c in cset.candidates:
+                is_dup = False
+                for ex in merged_candidates:
+                    if abs(ex.get("start_sec", 0) - c.get("start_sec", 0)) < 1 and \
+                       abs(ex.get("end_sec", 0) - c.get("end_sec", 0)) < 1:
+                        is_dup = True
+                        break
+                if not is_dup:
+                    merged_candidates.append(c)
 
     # 2. Pobierz ostatnie 20 jobów renderowania dla tego wideo
     jobs_query = (
@@ -677,8 +692,8 @@ async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, d
 
     return {
         "youtube_id": yt_id,
-        "candidates": cand_set.candidates if cand_set else [],
-        "candidates_created_at": cand_set.created_at.isoformat() if cand_set else None,
+        "candidates": merged_candidates,
+        "candidates_created_at": candidates_created_at.isoformat() if candidates_created_at else None,
         "jobs": [
             {
                 "id": str(j.id),
