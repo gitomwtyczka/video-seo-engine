@@ -290,7 +290,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
           format: smFormat,
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
-          output_dir: 'C:\\\\\\\\VSE\\\\\\\\Shorts',
+          output_dir: 'C:\\\\VSE\\\\Shorts',
           ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
         }),
       })
@@ -555,13 +555,13 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                       const ytId = ytMatch ? ytMatch[1] : null
                       const adjStart = getAdj(i, c).start
                       return ytId ? (
-                        <div style={{position:'relative',paddingBottom:'56.25%',height:0,overflow:'hidden'}}>\n                          <iframe key={`yt-${i}-${Math.floor(adjStart)}`} src={`https://www.youtube.com/embed/${ytId}?start=${Math.floor(adjStart)}&autoplay=0&rel=0`} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:'none'}} allowFullScreen />
+                        <div style={{position:'relative',paddingBottom:'56.25%',height:0,overflow:'hidden'}}>
+                          <iframe key={`yt-${i}-${Math.floor(adjStart)}`} src={`https://www.youtube.com/embed/${ytId}?start=${Math.floor(adjStart)}&autoplay=0&rel=0`} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:'none'}} allowFullScreen />
                         </div>
                       ) : <div style={{padding:'8px',color:'#64748b',fontSize:'12px'}}>Brak YouTube URL dla podglądu</div>
                     })()}
                     <div style={{maxHeight:'220px',overflowY:'auto',padding:'8px'}}>
-                      <div style={{display:'flex',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
-                        <span style={{fontSize:'11px',color:'#94a3b8'}}>Klik ustawia:</span>
+                      <div style={{display:'flex',gap:'6px',marginBottom:'8px',alignItems:'center'}}>\n                        <span style={{fontSize:'11px',color:'#94a3b8'}}>Klik ustawia:</span>
                         <button onClick={()=>setSmTrimMode('start')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='start'?'#3b82f6':'#1e293b',color:smTrimMode==='start'?'#fff':'#94a3b8'}}>◀ Start</button>
                         <button onClick={()=>setSmTrimMode('end')} style={{padding:'2px 8px',fontSize:'11px',borderRadius:'4px',border:'none',cursor:'pointer',background:smTrimMode==='end'?'#f59e0b':'#1e293b',color:smTrimMode==='end'?'#fff':'#94a3b8'}}>Koniec ▶</button>
                         <span style={{marginLeft:'auto',fontSize:'11px',color:'#64748b'}}>{(c.vtt_segments||[]).length} segmentów</span>
@@ -735,7 +735,8 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                           </button>
                         )}
                       </div>
-                    ) : smJobStatus[i].status === 'error' ? (\n                      <span>Błąd: {smJobStatus[i].error}</span>
+                    ) : smJobStatus[i].status === 'error' ? (
+                      <span>Błąd: {smJobStatus[i].error}</span>
                     ) : (
                       <span>Przetwarzam... ({smJobStatus[i].status})</span>
                     )}
