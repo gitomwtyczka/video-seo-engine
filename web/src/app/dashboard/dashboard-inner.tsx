@@ -717,7 +717,7 @@ export default function DashboardInner() {
                 {activeTab === 'shorts' && (
                   <ShortMachineTab
                     ytChannels={ytChannels}
-                    initialYoutubeId={extractVideoId(url)}
+                    initialYoutubeId={result?.videoId || extractVideoId(url) || extractVideoId(result?.inputUrl || '')}
                     accessToken={accessToken}
                     session={session}
                   />
