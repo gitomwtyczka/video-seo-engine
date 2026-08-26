@@ -125,7 +125,7 @@ def _validate_and_enrich_candidate_texts(
     if end <= start or not segments:
         return cand
 
-    clip_segments = [seg for seg in segments if (start - 1.5) <= seg[0] <= (end + 1.5)]
+    clip_segments = [seg for seg in segments if (start - 2.0) <= seg[0] <= (end + 2.0)]
     in_range_segments = [seg for seg in clip_segments if start <= seg[0] <= end]
     active_segments = in_range_segments if in_range_segments else clip_segments
 
@@ -133,29 +133,31 @@ def _validate_and_enrich_candidate_texts(
         return cand
 
     full_text = " ".join(t.strip() for _, t in active_segments if t.strip())
-    seg_words = set(re.findall(r"\b\w{4,}\b", full_text.lower()))
+    title = str(cand.get("suggested_title", "")).strip()
+    
+    # Zbiór słów bazowych z segmentu i tytułu
+    seg_words = set(re.findall(r"\b\w{4,}\b", (full_text + " " + title).lower()))
     opening_text = " ".join(t.strip() for _, t in active_segments[:2] if t.strip())
     closing_text = " ".join(t.strip() for _, t in active_segments[-2:] if t.strip())
 
     # Walidacja hook_text
     hook_text = str(cand.get("hook_text", "")).strip()
     hook_words = set(re.findall(r"\b\w{4,}\b", hook_text.lower()))
-    if not hook_text or (len(hook_words) >= 3 and len(hook_words & seg_words) == 0):
+    if not hook_text or (len(hook_words) >= 4 and len(hook_words & seg_words) == 0):
         logger.warning("hook_text out of context for [%.1f-%.1f], auto-repairing from transcript", start, end)
         cand["hook_text"] = opening_text
 
     # Walidacja punchline_text
     punchline_text = str(cand.get("punchline_text", "")).strip()
     punch_words = set(re.findall(r"\b\w{4,}\b", punchline_text.lower()))
-    if not punchline_text or (len(punch_words) >= 3 and len(punch_words & seg_words) == 0):
+    if not punchline_text or (len(punch_words) >= 4 and len(punch_words & seg_words) == 0):
         logger.warning("punchline_text out of context for [%.1f-%.1f], auto-repairing from transcript", start, end)
         cand["punchline_text"] = closing_text
 
     # Walidacja body_summary
     body_summary = str(cand.get("body_summary", "")).strip()
-    body_words = set(re.findall(r"\b\w{4,}\b", body_summary.lower()))
-    if not body_summary or (len(body_words) >= 4 and len(body_words & seg_words) == 0):
-        cand["body_summary"] = f"Fragment wideo: {cand.get('suggested_title', '')}"
+    if not body_summary or len(body_summary) < 5:
+        cand["body_summary"] = f"Fragment wideo ({int(start // 60)}:{int(start % 60):02d} - {int(end // 60)}:{int(end % 60):02d}): {title}"
 
     return cand
 
