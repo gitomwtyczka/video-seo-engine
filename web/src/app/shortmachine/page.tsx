@@ -11,7 +11,7 @@ export default function ShortMachinePagePL() {
             Twoje shorty z YouTube. Bez renderowania. Za darmo.
           </h1>
           <p className="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">
-            ShortMachine analizuje Twoje wideo AI, wyznacza najlepsze momenty i generuje pakiet SRT gotowy do Premiere Pro lub DaVinci Resolve. Zero kosztownego renderowania po naszej stronie.
+            Wklej link YouTube. Za 60 sekund dostajesz pakiet SRT z zaznaczonymi momentami do cięcia w Premiere Pro lub DaVinci Resolve. AI wybiera haki, emocje i pointy za Ciebie.
           </p>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
             <Link href="/dashboard" className="px-8 py-3 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-lg transition">
@@ -56,14 +56,17 @@ export default function ShortMachinePagePL() {
             <div className="border border-gray-800 p-8 rounded-xl bg-gray-900/50">
               <h3 className="text-lg font-mono text-violet-400 mb-2">pelny_film.srt</h3>
               <p className="text-gray-300">Pełna transkrypcja wideo z timestampami. Można wprost załadować jako YouTube Closed Captions.</p>
+              <p className="text-xs text-violet-400 mt-3">→ Wgraj jako CC na YouTube — więcej wyświetlen od algorytmu</p>
             </div>
             <div className="border border-gray-800 p-8 rounded-xl bg-gray-900/50">
               <h3 className="text-lg font-mono text-violet-400 mb-2">napisy_shortow.srt</h3>
               <p className="text-gray-300">Napisy tylko w obszarach wybranych przez AI. Do importu jako ścieżka napisów w Premiere lub DaVinci.</p>
+              <p className="text-xs text-violet-400 mt-3">→ Import do Premiere: ścieżka Captions gotowa</p>
             </div>
             <div className="border border-gray-800 p-8 rounded-xl bg-gray-900/50">
               <h3 className="text-lg font-mono text-violet-400 mb-2">shorts_markers.srt</h3>
               <p className="text-gray-300">Kluczowy plik: duże bloki [SHORT 1: Tytuł] na osi czasu. Drag & drop na Premiere = wizualne markery cięć natychmiast.</p>
+              <p className="text-xs text-violet-400 mt-3">→ Drag & drop na timeline = kolorowe bloki cięć w 5 sekund</p>
             </div>
           </div>
         </div>
@@ -78,8 +81,9 @@ export default function ShortMachinePagePL() {
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mc</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• 3 shorty/film</li>
-                <li>• Zero renderingu po stronie serwera</li>
+                <li>• 3 filmy/miesiąc, unlimited shortów</li>
+                <li>• Gotowe w 60 sekund</li>
+                <li>• Bez karty kredytowej</li>
               </ul>
               <Link href="/dashboard" className="block text-center py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition">
                 Wybierz
@@ -88,28 +92,32 @@ export default function ShortMachinePagePL() {
             
             <div className="bg-gray-900 p-8 rounded-xl border-2 border-violet-500 ring-4 ring-violet-500/20 flex flex-col relative transform md:-translate-y-4">
               <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-violet-500 text-white px-3 py-1 text-sm font-bold rounded-full">Polecany</div>
-              <h3 className="text-2xl font-bold mb-2">SRT PRO</h3>
+              <h3 className="text-2xl font-bold mb-2">ADVANCED</h3>
               <div className="text-3xl font-extrabold mb-6">$9<span className="text-lg text-gray-400 font-normal">/mc</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• Nielimitowane shorty</li>
-                <li>• Historia wideo</li>
+                <li>• Unlimited filmów/miesiąc</li>
+                <li>• AI wybiera najlepsze momenty</li>
+                <li>• Historia i zapis analiz</li>
                 <li>• Integracja z kanałem YT</li>
+                <li>• Priorytetowe wsparcie</li>
               </ul>
               <Link href="/dashboard" className="block text-center py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold transition text-white">
                 Kup PRO
               </Link>
             </div>
             
-            <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col opacity-75">
-              <h3 className="text-2xl font-bold mb-2">FULL AUTO</h3>
-              <div className="text-3xl font-extrabold mb-6">Wkrótce</div>
+            <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col">
+              <h3 className="text-2xl font-bold mb-2">ENTERPRISE</h3>
+              <div className="text-3xl font-extrabold mb-6">Skontaktuj się</div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• Automatyczne renderowanie</li>
-                <li>• Wyższa cena</li>
+                <li>• Wszystko z ADVANCED</li>
+                <li>• Automatyczne renderowanie wideo</li>
+                <li>• Local Runner (offline)</li>
+                <li>• API access</li>
               </ul>
-              <button disabled className="block text-center py-3 bg-gray-700/50 text-gray-500 rounded-lg font-semibold cursor-not-allowed">
-                Niedostępny
-              </button>
+              <a href="mailto:kontakt@impresjapr.pl" className="block text-center py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition">
+                Zapytaj o wycenę
+              </a>
             </div>
           </div>
         </div>
