@@ -1,1 +1,10 @@
-{"callsign": "vse-dev-02", "status": "done", "current_task": "DISPATCH 1 — ShortMachine Preview YT + Tytuły/Tagi AI", "timestamp": "2026-08-21T07:31:00+02:00", "last_completed": ["feat(shorts): suggested_title + tags — commit 8cff52d4 (2026-08-21)", "feat(api): POST /v1/shorts/title — commit 4685a6ee (2026-08-21)", "feat(dashboard): preview YT + tytuł/tagi UI — commit 9571bb81 (2026-08-21)", "deploy: vse-api + vse-web zbudowane i działają (2026-08-21)"], "pending": []}
+{
+  "callsign": "shadow-dev-01",
+  "status": "done",
+  "current_task": "Fix backslashes in ShortMachineTab.tsx output_dir",
+  "timestamp": "2026-08-26T16:06:25.031814",
+  "last_completed": [
+    "Naprawa \u015bcie\u017cki generowania w UI (ShortMachineTab.tsx) - usuni\u0119cie wielokrotnych backslashy"
+  ],
+  "pending": []
+}
