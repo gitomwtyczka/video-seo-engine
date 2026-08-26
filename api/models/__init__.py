@@ -4,5 +4,6 @@ from api.models.youtube_channel import YouTubeChannel
 from api.models.oauth_state import OAuthState
 from api.models.short_candidate import ShortCandidateSet
 from api.models.short_job import ShortJob
+from api.models.short_srt import ShortSrtPackage
 
-__all__ = ["User", "Plan", "UsageLog", "ApiKey", "PlanName", "WpPortal", "YouTubeChannel", "OAuthState", "ShortCandidateSet", "ShortJob"]
+__all__ = ["User", "Plan", "UsageLog", "ApiKey", "PlanName", "WpPortal", "YouTubeChannel", "OAuthState", "ShortCandidateSet", "ShortJob", "ShortSrtPackage"]
