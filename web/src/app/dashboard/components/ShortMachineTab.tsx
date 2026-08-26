@@ -751,10 +751,17 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
       {smModalOpenFor !== null && smCandidates[smModalOpenFor] && (() => {
         const i = smModalOpenFor
         const c = smCandidates[i]
+        // Generowanie opisu z hooka, body i puenty
+        const hookTxt = c.hook_text || c.hook || '';
+        const bodySum = c.body_summary || '';
+        const punchTxt = c.punchline_text || c.puenta || '';
+        const combinedBody = [hookTxt, bodySum, punchTxt].filter(Boolean).join('\n\n');
+
         const smSchemaData = {
-          youtube_description_hook: smTitles[i] || c.suggested_title || c.title || '',
-          video_description: c.hook || '',
-          youtube_hashtags: smTags[i] || c.tags || []
+          youtube_description_body: combinedBody,
+          youtube_description_hook: combinedBody || smTitles[i] || c.suggested_title || c.title || '',
+          youtube_hashtags: smTags[i] || c.tags || [],
+          yt_title: smTitles[i] || c.suggested_title || c.title || ''
         }
         const rawInput = smTargetYtId[i] || ''
         const smVideoId = rawInput.match(/(?:v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})/)?.[1] || rawInput
