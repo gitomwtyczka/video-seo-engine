@@ -28,21 +28,22 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
   const [smTitleLoading, setSmTitleLoading] = useState<Record<number, boolean>>({})
 
   // Auto-populate smYoutubeId from current video URL or initialYoutubeId
+  // Fix: reaguj na zmiane initialYoutubeId nawet gdy smYoutubeId jest pusty (async load from history/job_id)
   useEffect(() => {
-    if (!smYoutubeId) {
-      if (initialYoutubeId) {
-        setSmYoutubeId(initialYoutubeId)
-      } else if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search)
-        const jobVideoUrl = urlParams.get('video_url') || ''
-        if (jobVideoUrl) {
-          const match = jobVideoUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)
-          if (match) setSmYoutubeId(match[1])
-          else if (jobVideoUrl.length === 11) setSmYoutubeId(jobVideoUrl)
-        }
+    if (initialYoutubeId && !smYoutubeId) {
+      setSmYoutubeId(initialYoutubeId)
+      return
+    }
+    if (!smYoutubeId && typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search)
+      const jobVideoUrl = urlParams.get('video_url') || ''
+      if (jobVideoUrl) {
+        const match = jobVideoUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)
+        if (match) setSmYoutubeId(match[1])
+        else if (jobVideoUrl.length === 11) setSmYoutubeId(jobVideoUrl)
       }
     }
-  }, [initialYoutubeId, smYoutubeId])
+  }, [initialYoutubeId])
 
   useEffect(() => {
     if (!smYoutubeId) return
