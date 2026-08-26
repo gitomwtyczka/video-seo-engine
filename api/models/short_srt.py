@@ -22,4 +22,5 @@ class ShortSrtPackage(Base):
     pelny_film_srt = Column(Text, nullable=True)
     napisy_shortow_srt = Column(Text, nullable=True)
     shorts_markers_srt = Column(Text, nullable=True)
+    youtube_chapters = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
