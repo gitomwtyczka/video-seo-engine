@@ -78,7 +78,8 @@ export default function ShortMachinePageEN() {
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mo</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• 2 videos/month, unlimited shorts</li>
+                <li>• 2 videos / month</li>
+                <li>• Unlimited shorts per video</li>
                 <li>• Ready in 60 seconds</li>
                 <li>• No credit card required</li>
               </ul>
@@ -92,25 +93,32 @@ export default function ShortMachinePageEN() {
               <h3 className="text-2xl font-bold mb-2">ADVANCED</h3>
               <div className="text-3xl font-extrabold mb-6">$9<span className="text-lg text-gray-400 font-normal">/mo</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• Unlimited shorts</li>
-                <li>• Video history</li>
+                <li>• 10 videos / month</li>
+                <li>• Unlimited shorts per video</li>
+                <li>• Videos up to 45 minutes</li>
+                <li>• History and saved analyses</li>
                 <li>• YouTube channel integration</li>
+                <li>• Priority support</li>
               </ul>
               <Link href="/dashboard" className="block text-center py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold transition text-white">
-                Get PRO
+                Get ADVANCED
               </Link>
             </div>
             
             <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col opacity-75">
               <h3 className="text-2xl font-bold mb-2">ENTERPRISE</h3>
-              <div className="text-3xl font-extrabold mb-6">Soon</div>
+              <div className="text-3xl font-extrabold mb-6">Contact us</div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• Automatic rendering</li>
-                <li>• Higher price</li>
+                <li>• Everything in ADVANCED</li>
+                <li>• Unlimited videos / month</li>
+                <li>• Videos over 45 minutes</li>
+                <li>• API access</li>
+                <li>• Automatic video rendering</li>
+                <li>• Dedicated support</li>
               </ul>
-              <button disabled className="block text-center py-3 bg-gray-700/50 text-gray-500 rounded-lg font-semibold cursor-not-allowed">
-                Unavailable
-              </button>
+              <a href="mailto:kontakt@impresjapr.pl" className="block text-center py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition">
+                Request a quote
+              </a>
             </div>
           </div>
         </div>
