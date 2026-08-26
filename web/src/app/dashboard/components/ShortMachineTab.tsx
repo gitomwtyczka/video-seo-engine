@@ -114,6 +114,9 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
   const [smPlaylistsByChannel, setSmPlaylistsByChannel] = useState<Record<string, {id: string, title: string}[]>>({})
   const [playlistsLoading, setPlaylistsLoading] = useState(false)
   const [smModalOpenFor, setSmModalOpenFor] = useState<number | null>(null)
+  const [srtLoading, setSrtLoading] = useState(false)
+  const [srtPackage, setSrtPackage] = useState<any>(null)
+  const [srtError, setSrtError] = useState<string | null>(null)
 
   const fetchPlaylistsForChannel = useCallback(async (channelId: string) => {
     if (!channelId) return
@@ -144,6 +147,45 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
       setPlaylistsLoading(false)
     }
   }, [accessToken, session])
+
+  const handleGenerateSrt = async () => {
+    if (!smYoutubeId) return
+    const cleanId = extractYoutubeId(smYoutubeId) || smYoutubeId
+    setSrtLoading(true)
+    setSrtError(null)
+    setSrtPackage(null)
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
+      const effectiveToken = accessToken || session?.accessToken
+      const res = await fetch(`${apiBase}/v1/shorts/generate-srt/${cleanId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {})
+        }
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setSrtPackage(data)
+    } catch (e: any) {
+      setSrtError(e.message)
+    } finally {
+      setSrtLoading(false)
+    }
+  }
+
+  const downloadSrtFile = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   // Set default global channel if not set
   useEffect(() => {
@@ -248,7 +290,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
           format: smFormat,
           render_format: cfg.format || '9:16',
           subtitles: cfg.subtitles || 'srt',
-          output_dir: 'C:\\\\VSE\\\\Shorts',
+          output_dir: 'C:\\\\\\\\VSE\\\\\\\\Shorts',
           ...(shortLocalPath ? { local_path: shortLocalPath } : {}),
         }),
       })
@@ -409,6 +451,51 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
             </select>
           </div>
         )}
+
+        {/* SRT Package Generator */}
+        {smYoutubeId && smCandidates.length > 0 && (
+          <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-white">📄 Pakiet SRT</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Pobierz 3 pliki SRT do montażu w Premiere/DaVinci bez renderowania wideo</p>
+              </div>
+              <button
+                onClick={handleGenerateSrt}
+                disabled={srtLoading}
+                className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+              >
+                {srtLoading ? '⏳ Generuję...' : '📥 Generuj pakiet SRT'}
+              </button>
+            </div>
+            {srtError && (
+              <p className="text-xs text-red-400">{srtError}</p>
+            )}
+            {srtPackage && (
+              <div className="space-y-2">
+                <p className="text-xs text-green-400">✅ Pakiet gotowy ({srtPackage.candidate_count} kandydatów)</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {Object.entries(srtPackage.files as Record<string, {filename: string, content: string, size_bytes: number}>).map(([key, file]) => (
+                    <div key={key} className="flex items-center justify-between bg-gray-900 rounded-lg px-3 py-2">
+                      <div>
+                        <p className="text-xs text-white font-mono">{file.filename}</p>
+                        <p className="text-xs text-gray-500">{(file.size_bytes / 1024).toFixed(1)} KB</p>
+                      </div>
+                      <button
+                        onClick={() => downloadSrtFile(file.filename, file.content)}
+                        className="text-xs text-violet-400 hover:text-violet-300 border border-violet-500/30 rounded px-2 py-1 transition-colors"
+                      >
+                        ↓ Pobierz
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500">Przeciągnij <span className="font-mono text-gray-400">shorts_markers.srt</span> na ścieżkę Captions w Premiere → wizualne markery cięć</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {smCandidates.length > 0 && (
           <div className="space-y-3">
             <h3 className="text-lg font-medium text-white">Kandydaci ({smCandidates.length})</h3>
