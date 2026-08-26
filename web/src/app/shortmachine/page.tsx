@@ -81,7 +81,8 @@ export default function ShortMachinePagePL() {
               <h3 className="text-2xl font-bold mb-2">FREE</h3>
               <div className="text-3xl font-extrabold mb-6">$0<span className="text-lg text-gray-500 font-normal">/mc</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• 2 filmy/miesiąc, unlimited shortów</li>
+                <li>• 2 filmy / miesiąc</li>
+                <li>• Unlimited shortów z każdego filmu</li>
                 <li>• Gotowe w 60 sekund</li>
                 <li>• Bez karty kredytowej</li>
               </ul>
@@ -95,25 +96,28 @@ export default function ShortMachinePagePL() {
               <h3 className="text-2xl font-bold mb-2">ADVANCED</h3>
               <div className="text-3xl font-extrabold mb-6">$9<span className="text-lg text-gray-400 font-normal">/mc</span></div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
-                <li>• Unlimited filmów/miesiąc</li>
-                <li>• AI wybiera najlepsze momenty</li>
+                <li>• 10 filmów / miesiąc</li>
+                <li>• Unlimited shortów z każdego filmu</li>
+                <li>• Filmy do 45 minut</li>
                 <li>• Historia i zapis analiz</li>
                 <li>• Integracja z kanałem YT</li>
                 <li>• Priorytetowe wsparcie</li>
               </ul>
               <Link href="/dashboard" className="block text-center py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold transition text-white">
-                Kup PRO
+                Kup ADVANCED
               </Link>
             </div>
             
-            <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col">
+            <div className="bg-gray-800 p-8 rounded-xl border border-gray-700 flex flex-col opacity-75">
               <h3 className="text-2xl font-bold mb-2">ENTERPRISE</h3>
               <div className="text-3xl font-extrabold mb-6">Skontaktuj się</div>
               <ul className="text-gray-300 mb-8 flex-grow space-y-3">
                 <li>• Wszystko z ADVANCED</li>
-                <li>• Automatyczne renderowanie wideo</li>
-                <li>• Local Runner (offline)</li>
+                <li>• Nielimitowane filmy / mc</li>
+                <li>• Filmy powyżej 45 minut</li>
                 <li>• API access</li>
+                <li>• Automatyczne renderowanie</li>
+                <li>• Dedykowany support</li>
               </ul>
               <a href="mailto:kontakt@impresjapr.pl" className="block text-center py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition">
                 Zapytaj o wycenę
