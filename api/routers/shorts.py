@@ -1,29 +1,34 @@
 """
-ShortMachine API Router — endpointy dla propozycji i renderowania shortów.
+ShortMachine API Router — endpointy dla propozycji, renderowania shortów i transkrypcji audio (faster-whisper).
 
-CO: REST API dla ShortMachine.
+CO: REST API dla ShortMachine oraz lokalnej transkrypcji audio.
 PO CO: Frontend (Next.js) i Local Runner komunikują się przez te endpointy.
-JAK: 7 endpointów: kandydaci, historia, render, pending (dla Local Runner), result, status, title.
+JAK: Endpointy kandydatów, renderowania, SRT packages oraz uploadu i transkrypcji MP3 (faster-whisper).
 """
+import asyncio
 import logging
 import os
 import re
+import shutil
 import tempfile
+import uuid
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.db import get_db
+from api.db import get_db, AsyncSessionLocal
 from api.models.job import TranscriptJob
 from api.models.short_job import ShortJob
 from api.models.short_candidate import ShortCandidateSet
 from api.models.short_srt import ShortSrtPackage
 from core.shorts import propose_shorts, get_vtt_segments_for_candidate, get_segments_for_range
+from api.services.whisper_service import transcribe_audio
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/shorts", tags=["shorts"])
@@ -157,7 +162,7 @@ async def _resolve_vtt_path(youtube_id: str, db: AsyncSession) -> Optional[str]:
     
     Returns:
         Ścieżka do pliku VTT (może być plikiem tymczasowym) lub None.
-        Jeśli zwrócił plik tymczasowy, caller musi go usuńąć po użyciu.
+        Jeśli zwrócił plik tymczasowy, caller musi go usunąć po użyciu.
     """
     # 1. Sprawdz dysk VPS
     candidates_paths = [
@@ -197,7 +202,10 @@ def _seconds_to_srt_time(seconds: float) -> str:
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
-    ms = int((seconds % 1) * 1000)
+    ms = int(round((seconds - int(seconds)) * 1000))
+    if ms >= 1000:
+        s += 1
+        ms = 0
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
@@ -262,8 +270,6 @@ def _generate_napisy_shortow_srt(candidates: list) -> str:
         start_sec = c.get('start_sec', 0)
         end_sec = c.get('end_sec', start_sec + 60)
         title = c.get('suggested_title') or c.get('title') or f"Short {counter}"
-        hook = c.get('hook_text', '')
-        punchline = c.get('punchline_text', '')
         
         # Header entry for this short
         entries.append(
@@ -312,7 +318,6 @@ def _generate_youtube_chapters(candidates: list) -> str:
     return "\n".join(lines)
 
 
-
 def _generate_shorts_markers_srt(candidates: list) -> str:
     """
     CO: Generuje SRT z dużymi blokami czasowymi dla każdego shorta.
@@ -339,12 +344,186 @@ def _generate_shorts_markers_srt(candidates: list) -> str:
     return '\n\n'.join(entries) + '\n' if entries else ""
 
 
+# --- Faster-Whisper Background Task ---
+
+async def _run_whisper_transcription(
+    job_id: UUID,
+    tmp_path: str,
+    quality: str,
+    portal_id: Optional[str],
+):
+    """Asynchroniczne zadanie transkrypcji audio przez faster-whisper."""
+    logger.info("[whisper] Starting background task for job %s (file=%s, quality=%s)", job_id, tmp_path, quality)
+    
+    async with AsyncSessionLocal() as session:
+        pkg = await session.get(ShortSrtPackage, job_id)
+        if pkg:
+            pkg.status = "processing"
+            pkg.progress_pct = 20
+            await session.commit()
+    
+    try:
+        srt_text, vtt_text, info = await asyncio.to_thread(
+            transcribe_audio,
+            audio_path=tmp_path,
+            quality=quality,
+            lang="pl",
+        )
+        
+        async with AsyncSessionLocal() as session:
+            pkg = await session.get(ShortSrtPackage, job_id)
+            if pkg:
+                pkg.status = "done"
+                pkg.progress_pct = 100
+                pkg.pelny_film_srt = srt_text
+                pkg.candidate_count = info.get("segments_count", 0)
+                await session.commit()
+                logger.info(
+                    "[whisper] Job %s completed: %d segments, duration=%.1fs",
+                    job_id, info.get("segments_count", 0), info.get("duration", 0.0)
+                )
+    except Exception as exc:
+        logger.error("[whisper] Job %s failed: %s", job_id, exc, exc_info=True)
+        async with AsyncSessionLocal() as session:
+            pkg = await session.get(ShortSrtPackage, job_id)
+            if pkg:
+                pkg.status = "error"
+                pkg.error_message = str(exc)
+                await session.commit()
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+                logger.info("[whisper] Cleaned up temp audio file: %s", tmp_path)
+            except Exception as clean_err:
+                logger.warning("[whisper] Failed to clean up temp file %s: %s", tmp_path, clean_err)
+
+
 # --- Endpoints ---
+
+@router.post("/transcribe-audio")
+async def transcribe_audio_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    quality: str = Form("default"),
+    portal_id: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    CO: Przyjmuje plik audio i zleca asynchroniczną transkrypcję przez faster-whisper na VPS.
+    PO CO: Transkrypcja własnych plików MP3/WAV/M4A bez zależności od YouTube.
+    JAK:
+      1. Zapisuje plik do /tmp
+      2. Tworzy wpis w short_srt_packages ze statusem 'pending'
+      3. Uruchamia background task (faster-whisper)
+      4. Zwraca { job_id, status: "pending" }
+    """
+    allowed_exts = (".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac", ".wma", ".mp4")
+    original_filename = file.filename or "audio.mp3"
+    ext = os.path.splitext(original_filename)[1].lower()
+    if ext and ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Niedozwolony format pliku: {ext}. Dozwolone formaty: {', '.join(allowed_exts)}"
+        )
+
+    job_id = uuid.uuid4()
+    safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', original_filename)
+    tmp_path = f"/tmp/vse_whisper_{job_id}_{safe_name}"
+
+    try:
+        with open(tmp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        logger.error("Failed to save uploaded audio file: %s", e)
+        raise HTTPException(status_code=500, detail=f"Błąd zapisu pliku: {e}")
+    finally:
+        await file.close()
+
+    srt_package = ShortSrtPackage(
+        id=job_id,
+        youtube_id=None,
+        audio_filename=original_filename,
+        portal_id=portal_id,
+        status="pending",
+        progress_pct=0,
+        candidate_count=0,
+    )
+    db.add(srt_package)
+    await db.commit()
+    await db.refresh(srt_package)
+
+    background_tasks.add_task(
+        _run_whisper_transcription,
+        job_id=job_id,
+        tmp_path=tmp_path,
+        quality=quality,
+        portal_id=portal_id,
+    )
+
+    logger.info("Transcribe audio job created: %s (%s, quality=%s)", job_id, original_filename, quality)
+    return {
+        "job_id": str(job_id),
+        "status": "pending",
+        "audio_filename": original_filename,
+    }
+
+
+@router.get("/transcribe-status/{job_id}")
+async def get_transcribe_status(job_id: UUID, db: AsyncSession = Depends(get_db)):
+    """
+    CO: Sprawdza status zadania transkrypcji faster-whisper.
+    PO CO: Polling statusu dla frontendu.
+    """
+    pkg = await db.get(ShortSrtPackage, job_id)
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    srt_ready = bool(pkg.status == "done" and pkg.pelny_film_srt)
+    return {
+        "job_id": str(pkg.id),
+        "status": pkg.status,
+        "progress_pct": pkg.progress_pct or (100 if srt_ready else 0),
+        "srt_ready": srt_ready,
+        "error": pkg.error_message,
+        "audio_filename": pkg.audio_filename,
+        "created_at": pkg.created_at.isoformat() if pkg.created_at else None,
+    }
+
+
+@router.get("/transcribe-download/{job_id}")
+async def download_transcribe_srt(job_id: UUID, db: AsyncSession = Depends(get_db)):
+    """
+    CO: Pobiera wygenerowany plik SRT (pelny_film.srt).
+    PO CO: Użytkownik pobiera gotowe napisy do montażu.
+    """
+    pkg = await db.get(ShortSrtPackage, job_id)
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if pkg.status != "done" or not pkg.pelny_film_srt:
+        if pkg.status == "error":
+            raise HTTPException(status_code=400, detail=f"Transcription failed: {pkg.error_message}")
+        raise HTTPException(status_code=400, detail=f"SRT not ready yet (status={pkg.status})")
+
+    filename = "pelny_film.srt"
+    if pkg.audio_filename:
+        base_name = os.path.splitext(pkg.audio_filename)[0]
+        base_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', base_name)
+        filename = f"{base_name}.srt"
+
+    return Response(
+        content=pkg.pelny_film_srt,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
 
 @router.get("/candidates/{youtube_id}")
 async def get_saved_candidates(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """Pobiera ostatnio zapisanych kandydatów dla youtube_id z DB."""
-    # Sanitize: extract 11-char ID from full URL if needed [szortownia-4]
     yt_id = _extract_youtube_id(youtube_id) or youtube_id
     conditions = [ShortCandidateSet.youtube_id == yt_id]
     if portal_id:
@@ -364,6 +543,7 @@ async def get_saved_candidates(youtube_id: str, portal_id: Optional[str] = None,
         "custom_query": record.custom_query,
     }
 
+
 @router.post("/candidates/{youtube_id}/save")
 async def save_candidates(youtube_id: str, body: dict, db: AsyncSession = Depends(get_db)):
     """Zapisuje kandydatów do DB (wywoływane przez frontend po analizie)."""
@@ -378,13 +558,13 @@ async def save_candidates(youtube_id: str, body: dict, db: AsyncSession = Depend
     await db.commit()
     return {"id": str(record.id), "saved": len(record.candidates)}
 
+
 @router.post("/candidates")
 async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_db)):
     """Analizuje transkrypt VTT i zwraca propozycje kandydatów na shorty."""
     provider = req.provider or os.getenv("DEFAULT_LLM_PROVIDER", "claude")
     api_key = os.getenv("ANTHROPIC_API_KEY", "") if provider == "claude" else os.getenv("GEMINI_API_KEY", "")
 
-    # Fallback jeśli wybrany provider nie ma klucza w środowisku
     if not api_key:
         if os.getenv("ANTHROPIC_API_KEY"):
             provider = "claude"
@@ -397,7 +577,6 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
     vtt_path = req.vtt_path
     tmp_file = None
 
-    # 1. Sprawdz plik na dysku jeśli podano youtube_id / youtube_url
     if not vtt_path and yt_id:
         candidates_paths = [
             f"/home/ubuntu/video-seo-engine/data/vtt/{yt_id}.vtt",
@@ -408,7 +587,6 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
                 vtt_path = p
                 break
 
-    # 2. Jeśli brak pliku na dysku — pobierz transkrypt z bazy PostgreSQL
     if not vtt_path or not os.path.exists(vtt_path):
         conditions = [TranscriptJob.transcript.isnot(None)]
         if yt_id:
@@ -452,7 +630,6 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
         result_candidates = []
         for c in candidates:
             c_dict = c.to_dict()
-            # Dodaj segmenty VTT dla tego kandydata (+/-60s kontekstu)
             c_dict["vtt_segments"] = get_vtt_segments_for_candidate(
                 vtt_path=vtt_path,
                 start_sec=c.start_sec,
@@ -498,7 +675,6 @@ async def regenerate_title(req: TitleRequest, db: AsyncSession = Depends(get_db)
     """
     CO: Regeneruje tytuł i tagi dla shorta na podstawie nowych czasów.
     PO CO: Gdy user zmienia start/end sekund, tytuł powinien odzwierciedlać nowy zakres.
-    JAK: Wyciąga segmenty VTT z pliku/DB, buduje krótki prompt, zwraca title+tags.
     """
     import json
     from core.generator import _call_llm
@@ -511,7 +687,6 @@ async def regenerate_title(req: TitleRequest, db: AsyncSession = Depends(get_db)
         if not vtt_path:
             raise HTTPException(status_code=404, detail=f"VTT not found for youtube_id={yt_id}. Generate SEO first.")
 
-        # Jeśli _resolve_vtt_path stworzył plik tymczasowy, zapamiętaj go do usunięcia
         if vtt_path.startswith("/tmp/") and "_title_" in vtt_path:
             tmp_file = vtt_path
 
@@ -523,7 +698,6 @@ async def regenerate_title(req: TitleRequest, db: AsyncSession = Depends(get_db)
             f"[{s['time_str']}] {s['text']}" for s in segments if s['in_range']
         ])
         if not vtt_text.strip():
-            # Fallback: użyj wszystkich segmentów z kontekstem
             vtt_text = "\n".join([f"[{s['time_str']}] {s['text']}" for s in segments])
 
         prompt = f"""Na podstawie tego fragmentu transkryptu wygeneruj:
@@ -638,20 +812,9 @@ async def submit_short_result(job_id: UUID, req: ResultRequest, db: AsyncSession
 
 @router.get("/history/{youtube_id}")
 async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """Pobiera historię szortów (kandydaci + joby renderowania) dla danego wideo.
-    
-    CO: Endpoint odtwarzania stanu ShortMachine po odświeżeniu strony (F5).
-    PO CO: smJobStatus żyje wyłącznie w RAM przeglądarki — po F5 znika.
-           Ten endpoint pozwala frontendowi odtworzyć stan z bazy danych.
-    JAK: Zwraca ostatni ShortCandidateSet + ostatnie 20 ShortJob dla youtube_id.
-         Frontend dopasowuje joby do kandydatów po start_sec/end_sec.
-    
-    UWAGA: Zadeklarowany przed /{job_id} żeby FastAPI nie próbował parsować
-           "history" jako UUID.
-    """
+    """Pobiera historię szortów (kandydaci + joby renderowania) dla danego wideo."""
     yt_id = _extract_youtube_id(youtube_id) or youtube_id
 
-    # 1. Pobierz ostatni ShortCandidateSet dla tego wideo
     cand_conditions = [ShortCandidateSet.youtube_id == yt_id]
     if portal_id:
         cand_conditions.append(ShortCandidateSet.portal_id == portal_id)
@@ -680,7 +843,6 @@ async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, d
                 if not is_dup:
                     merged_candidates.append(c)
 
-    # 2. Pobierz ostatnie 20 jobów renderowania dla tego wideo
     jobs_query = (
         select(ShortJob)
         .where(ShortJob.youtube_id == yt_id)
@@ -713,13 +875,10 @@ async def get_shorts_history(youtube_id: str, portal_id: Optional[str] = None, d
 async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     """
     CO: Generuje pakiet 3 plików SRT dla danego wideo YouTube.
-    # --- FREEMIUM LIMIT: 2 filmy/mc dla anonimowych (brak portal_id) ---
-    # Pobierz portal_id z query param lub header X-Portal-ID
-    # Jeśli brak portal_id — pozwól (free anonymous, liczymy per youtube_id)
-    # Jeśli jest portal_id — sprawdź count w tym miesiącu
+    """
     FREE_MONTHLY_LIMIT = 2
     if portal_id:
-        from datetime import datetime, timezone
+        from datetime import timezone
         from sqlalchemy import func, extract
         now = datetime.now(timezone.utc)
         count_stmt = select(func.count(ShortSrtPackage.id)).where(
@@ -734,19 +893,9 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
                 status_code=429,
                 detail=f"Limit free: {FREE_MONTHLY_LIMIT} filmy/miesiąc. Przejdź na ADVANCED aby kontynuować."
             )
-    # --- END FREEMIUM LIMIT ---
 
-    PO CO: SRT-Only Shorts workflow — montazysci pobieraja SRT i tna ręcznie w Premiere.
-    JAK:
-        1. Pobiera kandydatów z short_candidate_sets
-        2. Pobiera VTT z dysku/DB
-        3. Generuje 3 pliki SRT
-        4. Zapisuje do short_srt_packages
-        5. Zwraca JSON z treścią plików
-    """
     yt_id = _extract_youtube_id(youtube_id) or youtube_id
     
-    # 1. Pobierz kandydatów
     cand_conditions = [ShortCandidateSet.youtube_id == yt_id]
     if portal_id:
         cand_conditions.append(ShortCandidateSet.portal_id == portal_id)
@@ -755,7 +904,7 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
     cand_res = await db.execute(cand_query)
     cand_set = cand_res.scalar_one_or_none()
     
-    candidates = merged_candidates if cand_set else []
+    candidates = cand_set.candidates if cand_set and cand_set.candidates else []
     
     if not candidates:
         raise HTTPException(
@@ -763,23 +912,21 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
             detail=f"Brak kandydatów dla youtube_id={yt_id}. Najpierw wygeneruj kandydatów przez /v1/shorts/candidates."
         )
     
-    # 2. Pobierz VTT
     tmp_file = None
     vtt_path = await _resolve_vtt_path(yt_id, db)
     if vtt_path and vtt_path.startswith("/tmp/") and "_title_" in vtt_path:
         tmp_file = vtt_path
     
     try:
-        # 3. Generuj SRT
         pelny_film = _generate_pelny_film_srt(vtt_path) if vtt_path else ""
         napisy_shortow = _generate_napisy_shortow_srt(candidates)
         shorts_markers = _generate_shorts_markers_srt(candidates)
         youtube_chapters = _generate_youtube_chapters(candidates)
         
-        # 4. Zapisz do bazy
         srt_package = ShortSrtPackage(
             youtube_id=yt_id,
             portal_id=portal_id,
+            status="done",
             candidate_count=len(candidates),
             pelny_film_srt=pelny_film,
             napisy_shortow_srt=napisy_shortow,
@@ -792,7 +939,6 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
         
         logger.info("SRT package generated for youtube_id=%s, id=%s", yt_id, srt_package.id)
         
-        # 5. Zwroc pakiet
         return {
             "id": str(srt_package.id),
             "youtube_id": yt_id,
@@ -831,10 +977,7 @@ async def generate_srt_package(youtube_id: str, portal_id: Optional[str] = None,
 
 @router.get("/srt/{youtube_id}")
 async def get_srt_package(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    """
-    CO: Pobiera ostatnio wygenerowany pakiet SRT dla youtube_id.
-    PO CO: Frontend może sprawdzić czy SRT już istnieje przed regeneracją.
-    """
+    """Pobiera ostatnio wygenerowany pakiet SRT dla youtube_id."""
     yt_id = _extract_youtube_id(youtube_id) or youtube_id
     
     conditions = [ShortSrtPackage.youtube_id == yt_id]
