@@ -15,8 +15,9 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
   const session = await getSession()
   const token = (session as { accessToken?: string } | null)?.accessToken
 
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const baseHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
   const merged: Record<string, string> = {
@@ -52,6 +53,18 @@ export async function apiPost<T = unknown>(path: string, body?: unknown): Promis
   const res = await fetchWithAuth(`${API_URL}${path}`, {
     method: 'POST',
     body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail || `HTTP ${res.status}`)
+  }
+  return res.json() as Promise<T>
+}
+
+export async function apiPostForm<T = unknown>(path: string, formData: FormData): Promise<T> {
+  const res = await fetchWithAuth(`${API_URL}${path}`, {
+    method: 'POST',
+    body: formData,
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
