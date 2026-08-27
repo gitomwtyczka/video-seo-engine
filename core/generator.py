@@ -115,7 +115,7 @@ FORMAT_INSTRUCTIONS: dict[str, str] = {
     # Backward compat
     "full_analysis": "Napisz pogłębiony artykuł analityczny.",
     "watching_page": "Napisz krótki opis wideo (2-3 akapity). Styl: informacyjny.",
-    "discover": "Napisz krótki artykuł pod Google Discover: emocjonalny hook, krótkie zdania, mobile-first.",
+    "discover": "Krótki artykuł Discover (500-600 słów). Zasady Google Discover 2026: TYTUŁ: Sedno informacji w tytule — zakaz clickbaitu i curiosity gap. Czytelnik musi wiedzieć co dostanie. LEAD: Rzetelny, informacyjny — odpowiada na 'co i dlaczego ważne', nie 'jak bardzo zaskakujące'. STRUKTURA: max 2 śródtytuły H3, krótkie akapity (2-3 zdania), prosty język. ZAKAZ: Tytułów zaczynających się od pytania retorycznego ('Czy wiesz że...', 'Oto dlaczego...'). Fraza kluczowa naturalna, wpleciona bez wymuszania.",
 }
 
 def _get_target_words(publication_type: str) -> int:
@@ -487,7 +487,7 @@ def _sanitize_llm_json(raw_text: str) -> str:
         # Replace: attr="val" → attr='val'
         # The pattern is anchored to look like HTML attr=" ... "
         fixed = re.sub(
-            r'(\b[\w-]+)=\\"((?:[^\\\\\\"]|\\\\.)*)\\"',
+            r'(\b[\w-]+)=\\"((?:[^\\\"]|\\.)*)\\"',
             r"\1='\2'",
             raw_text,
         )
@@ -604,17 +604,13 @@ Zastosuj ZMODYFIKOWANE reguły:
 
 ## UWAGA — TYP PUBLIKACJI: GOOGLE DISCOVER
 
-To jest artykuł zoptymalizowany pod Google Discover.
-Zastosuj ZMODYFIKOWANE reguły:
-- **article_body**: 3-4 krótkie akapity (każdy max 2-3 zdania).
-  Pierwszy akapit to HOOK — przyciągający uwagę, emocjonalny.
-  Reszta: krótkie fakty, konkrety, bez akademickiego stylu.
-  Formatuj pod mobile: krótkie zdania, dużo enterów.
-- **post_title**: max 65 zn, z emocjonalnym hakiem (Discover lubi klikalne tytuły)
-- **faq**: POMINĄ (nie generuj FAQ dla Discover)
+To jest krótki artykuł Discover (500-600 słów). Zasady Google Discover 2026:
+- **post_title**: max 65 zn. Sedno informacji w tytule — zakaz clickbaitu i curiosity gap. Czytelnik musi wiedzieć co dostanie. ZAKAZ tytułów zaczynających się od pytania retorycznego ('Czy wiesz że...', 'Oto dlaczego...').
+- **lead**: 1-2 zdania, max 150 zn. Rzetelny, informacyjny — odpowiada na 'co i dlaczego ważne', nie 'jak bardzo zaskakujące'.
+- **article_body**: max 2 śródtytuły H3, krótkie akapity (2-3 zdania), prosty język. Formatuj pod mobile: krótkie zdania, dużo enterów. Fraza kluczowa naturalna, wpleciona bez wymuszania.
+- **faq**: POMIŃ (nie generuj FAQ dla Discover)
 - **quotes**: MAX 2 krótkie cytaty
 - **chapters**: generuj normalnie
-- **lead**: 1-2 zdania, MAX 150 zn, hook style
 """
     else:  # full_analysis or unknown — no override
         return ""
@@ -803,7 +799,7 @@ Rozdzialy musza:
 Twoja odpowiedz MUSI byc poprawnym JSON. Pamietaj:
 - W polach HTML (article_body) ZAWSZE uzywaj APOSTROFOW (') w atrybutach tagow HTML.
 - NIGDY nie wstawiaj surowych podwojnych cudzyslowow (") wewnatrz wartosci JSON string.
-- Jesli musisz uzyc cudzysłowu w tekscie, escape'uj go jako \\".
+- Jesli musisz uzyc cudzysłowu w tekscie, escape'uj go jako \\\".
 - Poprawne: <a href='https://example.com' target='_blank'>tekst</a>
 - BLEDNE: <a href="https://example.com" target="_blank">tekst</a> (LAMIE JSON!)
 
@@ -1107,8 +1103,6 @@ Odpowiedz TYLKO JSON (bez markdown):
     import asyncio
     try:
         loop = asyncio.get_event_loop()
-        # if loop is running, we cannot use run_until_complete, but process_video is normally called in a thread where loop is not running.
-        # Fallback to asyncio.run if get_event_loop fails with "There is no current event loop"
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
