@@ -9,9 +9,13 @@ interface ShortMachineTabProps {
   initialYoutubeId?: string
   accessToken?: string
   session?: any
+  source?: string
+  isAudio?: boolean
 }
 
-export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, session }: ShortMachineTabProps) {
+export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, session, source, isAudio }: ShortMachineTabProps) {
+  const isAudioSource = isAudio || source === 'audio' || (initialYoutubeId ? (initialYoutubeId.startsWith('audio_') || initialYoutubeId.startsWith('audio://')) : false)
+
   // ShortMachine state
   const [smYoutubeId, setSmYoutubeId] = useState(initialYoutubeId || '')
   const [smCustomQuery, setSmCustomQuery] = useState('')
@@ -28,7 +32,6 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
   const [smTitleLoading, setSmTitleLoading] = useState<Record<number, boolean>>({})
 
   // Auto-populate smYoutubeId from current video URL or initialYoutubeId
-  // Fix: reaguj na zmiane initialYoutubeId nawet gdy smYoutubeId jest pusty (async load from history/job_id)
   useEffect(() => {
     if (initialYoutubeId && !smYoutubeId) {
       setSmYoutubeId(initialYoutubeId)
@@ -38,16 +41,20 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
       const urlParams = new URLSearchParams(window.location.search)
       const jobVideoUrl = urlParams.get('video_url') || ''
       if (jobVideoUrl) {
-        const match = jobVideoUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)
-        if (match) setSmYoutubeId(match[1])
-        else if (jobVideoUrl.length === 11) setSmYoutubeId(jobVideoUrl)
+        if (jobVideoUrl.startsWith('audio://')) {
+          setSmYoutubeId(jobVideoUrl.replace('audio://', ''))
+        } else {
+          const match = jobVideoUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)
+          if (match) setSmYoutubeId(match[1])
+          else if (jobVideoUrl.length === 11 || jobVideoUrl.startsWith('audio_')) setSmYoutubeId(jobVideoUrl)
+        }
       }
     }
   }, [initialYoutubeId])
 
   useEffect(() => {
     if (!smYoutubeId) return
-    const cleanId = extractYoutubeId(smYoutubeId)
+    const cleanId = extractYoutubeId(smYoutubeId) || smYoutubeId
     if (!cleanId) return
     const apiBase = process.env.NEXT_PUBLIC_API_URL || ''
     fetch(`${apiBase}/v1/shorts/history/${cleanId}`)
@@ -243,11 +250,12 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
       const effectiveToken = accessToken || session?.accessToken
+      const cleanId = extractYoutubeId(smYoutubeId) || smYoutubeId
       const res = await fetch(`${apiUrl}/v1/shorts/candidates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}) },
         body: JSON.stringify({
-          youtube_id: smYoutubeId.length === 11 ? smYoutubeId : undefined,
+          youtube_id: cleanId,
           youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : undefined,
           custom_query: smCustomQuery,
           count_emotional: smCountEmotional,
@@ -283,7 +291,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
         headers: { 'Content-Type': 'application/json', ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}) },
         body: JSON.stringify({
           youtube_url: smYoutubeId.startsWith('http') ? smYoutubeId : `https://www.youtube.com/watch?v=${smYoutubeId}`,
-          youtube_id: extractYoutubeId(smYoutubeId) || undefined,
+          youtube_id: extractYoutubeId(smYoutubeId) || smYoutubeId,
           start_sec: candidate.start_sec,
           end_sec: candidate.end_sec,
           candidate_data: candidate,
@@ -328,13 +336,13 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
           <h3 className="text-lg font-medium text-white">Propozycje kandydatów</h3>
           
           <div>
-            <label className="block text-sm text-gray-400 mb-1">YouTube ID lub URL</label>
+            <label className="block text-sm text-gray-400 mb-1">Źródło wideo/audio (ID lub URL)</label>
             <input
               id="sm-youtube-id"
               type="text"
               value={smYoutubeId}
               onChange={e => setSmYoutubeId(e.target.value)}
-              placeholder="np. dQw4w9WgXcQ"
+              placeholder="np. dQw4w9WgXcQ lub audio_1234abcd"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -345,14 +353,14 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
               type="text"
               value={shortLocalPath}
               onChange={e => setShortLocalPath(e.target.value)}
-              placeholder="C:\\Users\\...\\video.mp4 (opcjonalny)"
+              placeholder="C:\Users\...\video.mp4 (opcjonalny)"
               className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200 placeholder-gray-500"
             />
             <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 border border-gray-500 rounded px-3 py-1 text-sm text-gray-200 flex items-center gap-1">
               📁 Browse
               <input
                 type="file"
-                accept="video/*,.mp4,.mov,.mkv,.avi"
+                accept="video/*,.mp4,.mov,.mkv,.avi,audio/*,.mp3,.wav,.m4a"
                 className="hidden"
                 onChange={e => {
                   const file = e.target.files?.[0]
@@ -369,7 +377,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
               type="text"
               value={smCustomQuery}
               onChange={e => setSmCustomQuery(e.target.value)}
-              placeholder="np. Niemcy teściową Europy"
+              placeholder="np. najważniejsze wnioski"
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -410,7 +418,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                 </svg>
                 Analizuję transkrypt AI...
               </>
-            ) : '🎯 Analizuj wideo'}
+            ) : '🎯 Analizuj materiał'}
           </button>
         </div>
         
@@ -435,7 +443,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
         </div>
 
         {/* Globalny selektor kanału YT */}
-        {ytChannels.length > 0 && (
+        {ytChannels.length > 0 && !isAudioSource && (
           <div className="flex items-center gap-3 mb-4 px-1">
             <span className="text-xs text-gray-400 whitespace-nowrap">Kanał YT:</span>
             <select
@@ -443,7 +451,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
               value={smGlobalChannelId}
               onChange={e => setSmGlobalChannelId(e.target.value)}
             >
-              {ytChannels.map((ch: any) => (
+              {ytChannels.map((ch: any) => (\
                 <option key={ch.channel_id} value={ch.channel_id}>
                   {ch.is_default ? '★ ' : ''}{ch.channel_title}
                 </option>
@@ -458,7 +466,7 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-white">📄 Pakiet SRT</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Pobierz pakiet SRT + YouTube Chapters do montażu w Premiere/DaVinci lub ze smartfona przez YT Studio</p>
+                <p className="text-xs text-gray-400 mt-0.5">Pobierz pakiet SRT + rozdziały do montażu w Premiere/DaVinci lub publikacji</p>
               </div>
               <button
                 onClick={handleGenerateSrt}
@@ -550,7 +558,13 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                 
                 {smExpandedIdx === i && (
                   <div style={{marginBottom:'12px',border:'1px solid #334155',borderRadius:'8px',overflow:'hidden',background:'#0f172a'}}>
-                    {(() => {
+                    {isAudioSource ? (
+                      <div className="bg-gray-800/50 rounded-xl p-6 text-center text-gray-400 m-3 border border-gray-700/50">
+                        <span className="text-3xl block mb-2">🎤</span>
+                        <p className="font-medium text-gray-200 text-sm">Analiza oparta na transkrypcji audio</p>
+                        <p className="text-xs text-gray-400 mt-1">Timing i kandydaci shortów wyliczone z Whisper — brak podglądu wideo</p>
+                      </div>
+                    ) : (() => {
                       const ytMatch = (c.youtube_url||'').match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
                       const ytId = ytMatch ? ytMatch[1] : null
                       const adjStart = getAdj(i, c).start
@@ -611,74 +625,77 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                   </div>
                 </div>
 
-                <div className="mb-2">
-                  <button
-                    onClick={() => {
-                      if (smPreviewIdx === i) {
-                        setSmPreviewIdx(null)
-                        if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
-                        return
-                      }
-                      setSmPreviewIdx(i)
-                      const adj2 = getAdj(i, c)
-                      const videoId2 = smYoutubeId.length === 11 ? smYoutubeId : smYoutubeId.match(/[a-zA-Z0-9_-]{11}/)?.[0] || ''
-                      setTimeout(() => {
-                        if (!(window as any).YT?.Player) return
-                        if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()
-                        if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
-                        ytPlayerRef.current = new (window as any).YT.Player(`yt-preview-${i}`, {
-                          height: '100%',
-                          width: '100%',
-                          videoId: videoId2,
-                          playerVars: { start: Math.floor(adj2.start), autoplay: 1, rel: 0, modestbranding: 1 },
-                          events: {
-                            onReady: (e: any) => {
-                              e.target.seekTo(adj2.start, true)
-                              e.target.playVideo()
-                              ytIntervalRef.current = setInterval(() => {
-                                const t = e.target.getCurrentTime()
-                                if (t >= adj2.end) {
-                                  e.target.pauseVideo()
-                                  clearInterval(ytIntervalRef.current)
-                                }
-                              }, 250)
+                {!isAudioSource && (
+                  <div className="mb-2">
+                    <button
+                      onClick={() => {
+                        if (smPreviewIdx === i) {
+                          setSmPreviewIdx(null)
+                          if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
+                          return
+                        }
+                        setSmPreviewIdx(i)
+                        const adj2 = getAdj(i, c)
+                        const videoId2 = smYoutubeId.length === 11 ? smYoutubeId : smYoutubeId.match(/[a-zA-Z0-9_-]{11}/)?.[0] || ''
+                        setTimeout(() => {
+                          if (!(window as any).YT?.Player) return
+                          if (ytPlayerRef.current?.destroy) ytPlayerRef.current.destroy()
+                          if (ytIntervalRef.current) clearInterval(ytIntervalRef.current)
+                          ytPlayerRef.current = new (window as any).YT.Player(`yt-preview-${i}`, {
+                            height: '100%',
+                            width: '100%',
+                            videoId: videoId2,
+                            playerVars: { start: Math.floor(adj2.start), autoplay: 1, rel: 0, modestbranding: 1 },
+                            events: {
+                              onReady: (e: any) => {
+                                e.target.seekTo(adj2.start, true)
+                                e.target.playVideo()
+                                ytIntervalRef.current = setInterval(() => {
+                                  const t = e.target.getCurrentTime()
+                                  if (t >= adj2.end) {
+                                    e.target.pauseVideo()
+                                    clearInterval(ytIntervalRef.current)
+                                  }
+                                }, 250)
+                              }
                             }
-                          }
-                        })
-                      }, 100)
-                    }}
-                    className="text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
-                  >
-                    {smPreviewIdx === i ? '▼ Zamknij podgląd' : '▶ Podgląd'}
-                  </button>
+                          })
+                        }, 100)
+                      }}
+                      className="text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                    >
+                      {smPreviewIdx === i ? '▼ Zamknij podgląd' : '▶ Podgląd'}
+                    </button>
 
-                  {smPreviewIdx === i && (
-                    <div className="mt-2 rounded-lg overflow-hidden w-full max-w-2xl border border-gray-700 bg-black">
-                      <div className="relative w-full aspect-video min-h-[220px] sm:min-h-[315px]">
-                        <div id={`yt-preview-${i}`} className="w-full h-full" />
+                    {smPreviewIdx === i && (
+                      <div className="mt-2 rounded-lg overflow-hidden w-full max-w-2xl border border-gray-700 bg-black">
+                        <div className="relative w-full aspect-video min-h-[220px] sm:min-h-[315px]">
+                          <div id={`yt-preview-${i}`} className="w-full h-full" />
+                        </div>
+                        <div className="text-xs text-gray-400 px-3 py-1.5 bg-gray-900 border-t border-gray-800 flex items-center justify-between">
+                          <span>Zakres: {fmtSec(getAdj(i,c).start)} → {fmtSec(getAdj(i,c).end)}</span>
+                          <span>{Math.round(getAdj(i,c).end-getAdj(i,c).start)}s</span>
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-400 px-3 py-1.5 bg-gray-900 border-t border-gray-800 flex items-center justify-between">
-                        <span>Zakres: {fmtSec(getAdj(i,c).start)} → {fmtSec(getAdj(i,c).end)}</span>
-                        <span>{Math.round(getAdj(i,c).end-getAdj(i,c).start)}s</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'8px',fontSize:'12px',color:'#888'}}>
                   <span>✂ Start:</span>
-                  {([-5,-2,-1] as number[]).map(d=>(
+                  {([-5,-2,-1] as number[]).map(d=>(\
                     <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>
                   ))}
                   <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).start)}</span>
-                  {([1,2,5] as number[]).map(d=>(
+                  {([1,2,5] as number[]).map(d=>(\
                     <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:(p[i]?.startDelta??0)+d,endDelta:p[i]?.endDelta??0}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>
                   ))}
                   <span style={{marginLeft:'8px'}}>Koniec:</span>
-                  {([-5,-2,-1] as number[]).map(d=>(
+                  {([-5,-2,-1] as number[]).map(d=>(\
                     <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>{d}s</button>
                   ))}
                   <span style={{color:'#e2e8f0',minWidth:'36px',textAlign:'center'}}>{fmtSec(getAdj(i,c).end)}</span>
-                  {([1,2,5] as number[]).map(d=>(
+                  {([1,2,5] as number[]).map(d=>(\
                     <button key={d} onClick={()=>setSmTrimAdj(p=>({...p,[i]:{startDelta:p[i]?.startDelta??0,endDelta:(p[i]?.endDelta??0)+d}}))} style={{padding:'1px 5px',fontSize:'11px',background:'#1e293b',border:'1px solid #334155',borderRadius:'3px',color:'#94a3b8',cursor:'pointer'}}>+{d}s</button>
                   ))}
                   <span style={{marginLeft:'6px',color:'#64748b'}}>{Math.round(getAdj(i,c).end-getAdj(i,c).start)}s</span>
@@ -745,77 +762,79 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
                 )}
                 
                 {/* YouTube Inject Block */}
-                <div className="border-t border-gray-600 pt-3 mt-1">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">► Wstrzyknij metadane na YouTube</p>
-                  {ytChannels.length > 1 && (
-                    <select
-                      className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 mb-2 focus:outline-none focus:border-blue-500"
-                      value={smChannelOverride[i] ?? ''}
-                      onChange={e => {
-                        const val = e.target.value
-                        setSmChannelOverride(prev => ({...prev, [i]: val}))
-                        const targetCh = val || smGlobalChannelId
-                        if (targetCh && !smPlaylistsByChannel[targetCh]) {
-                          fetchPlaylistsForChannel(targetCh)
-                        }
-                      }}
-                    >
-                      <option value="">🌐 {ytChannels.find((ch: any) => ch.channel_id === smGlobalChannelId)?.channel_title || 'Kanał globalny'}</option>
-                      {ytChannels.filter((ch: any) => ch.channel_id !== smGlobalChannelId).map((ch: any) => (
-                        <option key={ch.channel_id} value={ch.channel_id}>{ch.channel_title}</option>
-                      ))}
-                    </select>
-                  )}
-                  <input
-                    type="text"
-                    placeholder="URL lub ID YouTube (wgrany z Premiere Pro)"
-                    className="w-full bg-gray-700 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none mb-2"
-                    value={smTargetYtId[i] || ''}
-                    onChange={e => setSmTargetYtId(prev => ({...prev, [i]: e.target.value}))}
-                  />
-                  <div className="grid grid-cols-3 gap-2 mb-2">
-                    {(() => {
-                      const candidateChannelId = smChannelOverride[i] || smGlobalChannelId || ytChannels[0]?.channel_id
-                      const channelPlaylistsList = (candidateChannelId ? smPlaylistsByChannel[candidateChannelId] : null) || smPlaylists || []
-                      return (
-                        <select
-                          className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
-                          value={smSelectedPlaylist[i] || ''}
-                          onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
-                        >
-                          <option value="">
-                            {playlistsLoading && channelPlaylistsList.length === 0 ? 'Ładowanie playlist...' : 'Playlista (opcj.)'}
-                          </option>
-                          {channelPlaylistsList.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
-                        </select>
-                      )
-                    })()}
+                {!isAudioSource && (
+                  <div className="border-t border-gray-600 pt-3 mt-1">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">► Wstrzyknij metadane na YouTube</p>
+                    {ytChannels.length > 1 && (
+                      <select
+                        className="w-full bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600 mb-2 focus:outline-none focus:border-blue-500"
+                        value={smChannelOverride[i] ?? ''}
+                        onChange={e => {
+                          const val = e.target.value
+                          setSmChannelOverride(prev => ({...prev, [i]: val}))
+                          const targetCh = val || smGlobalChannelId
+                          if (targetCh && !smPlaylistsByChannel[targetCh]) {
+                            fetchPlaylistsForChannel(targetCh)
+                          }
+                        }}
+                      >
+                        <option value="">🌐 {ytChannels.find((ch: any) => ch.channel_id === smGlobalChannelId)?.channel_title || 'Kanał globalny'}</option>
+                        {ytChannels.filter((ch: any) => ch.channel_id !== smGlobalChannelId).map((ch: any) => (\
+                          <option key={ch.channel_id} value={ch.channel_id}>{ch.channel_title}</option>
+                        ))}
+                      </select>
+                    )}
                     <input
-                      type="datetime-local"
-                      className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
-                      value={smPublishAt[i] || ''}
-                      onChange={e => setSmPublishAt(prev => ({...prev, [i]: e.target.value}))}
+                      type="text"
+                      placeholder="URL lub ID YouTube (wgrany z Premiere Pro)"
+                      className="w-full bg-gray-700 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none mb-2"
+                      value={smTargetYtId[i] || ''}
+                      onChange={e => setSmTargetYtId(prev => ({...prev, [i]: e.target.value}))}
                     />
-                    <select
-                      className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
-                      value={smPrivacyStatus[i] || 'private'}
-                      onChange={e => setSmPrivacyStatus(prev => ({...prev, [i]: e.target.value}))}
-                    >
-                      <option value="private">Prywatny</option>
-                      <option value="unlisted">Niepubliczny</option>
-                      <option value="public">Publiczny</option>
-                    </select>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      {(() => {
+                        const candidateChannelId = smChannelOverride[i] || smGlobalChannelId || ytChannels[0]?.channel_id
+                        const channelPlaylistsList = (candidateChannelId ? smPlaylistsByChannel[candidateChannelId] : null) || smPlaylists || []
+                        return (
+                          <select
+                            className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
+                            value={smSelectedPlaylist[i] || ''}
+                            onChange={e => setSmSelectedPlaylist(prev => ({...prev, [i]: e.target.value}))}
+                          >
+                            <option value="">
+                              {playlistsLoading && channelPlaylistsList.length === 0 ? 'Ładowanie playlist...' : 'Playlista (opcj.)'}
+                            </option>
+                            {channelPlaylistsList.map(pl => <option key={pl.id} value={pl.id}>{pl.title}</option>)}
+                          </select>
+                        )
+                      })()}
+                      <input
+                        type="datetime-local"
+                        className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                        value={smPublishAt[i] || ''}
+                        onChange={e => setSmPublishAt(prev => ({...prev, [i]: e.target.value}))}
+                      />
+                      <select
+                        className="bg-gray-700 text-white text-sm rounded px-2 py-2 border border-gray-600"
+                        value={smPrivacyStatus[i] || 'private'}
+                        onChange={e => setSmPrivacyStatus(prev => ({...prev, [i]: e.target.value}))}
+                      >
+                        <option value="private">Prywatny</option>
+                        <option value="unlisted">Niepubliczny</option>
+                        <option value="public">Publiczny</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSmModalOpenFor(i)}
+                        disabled={!smTargetYtId[i]}
+                        className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
+                      >
+                        ► Podgląd i publikacja
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setSmModalOpenFor(i)}
-                      disabled={!smTargetYtId[i]}
-                      className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
-                    >
-                      ► Podgląd i publikacja
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
             ))}
             {smSelected.size > 0 && (
@@ -839,11 +858,10 @@ export function ShortMachineTab({ ytChannels, initialYoutubeId, accessToken, ses
       {smModalOpenFor !== null && smCandidates[smModalOpenFor] && (() => {
         const i = smModalOpenFor
         const c = smCandidates[i]
-        // Generowanie opisu z hooka, body i puenty
-        const hookTxt = c.hook_text || c.hook || '';
-        const bodySum = c.body_summary || '';
-        const punchTxt = c.punchline_text || c.puenta || '';
-        const combinedBody = [hookTxt, bodySum, punchTxt].filter(Boolean).join('\n\n');
+        const hookTxt = c.hook_text || c.hook || ''
+        const bodySum = c.body_summary || ''
+        const punchTxt = c.punchline_text || c.puenta || ''
+        const combinedBody = [hookTxt, bodySum, punchTxt].filter(Boolean).join('\n\n')
 
         const smSchemaData = {
           youtube_description_body: combinedBody,
