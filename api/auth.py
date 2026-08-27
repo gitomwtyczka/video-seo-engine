@@ -6,6 +6,7 @@ import os
 import bcrypt as _bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import hashlib
 
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
@@ -15,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from api.db import get_db
-from api.models.user import User
+from api.models.user import User, ApiKey
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
 ALGORITHM = "HS256"
@@ -73,6 +74,30 @@ async def get_current_user(
     )
     if credentials is None:
         raise credentials_exception
+
+    if credentials.credentials.startswith("vse_"):
+        raw_key = credentials.credentials
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        result = await db.execute(
+            select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)
+        )
+        api_key = result.scalar_one_or_none()
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        
+        api_key.last_used_at = datetime.now(timezone.utc)
+        await db.commit()
+        
+        user_result = await db.execute(
+            select(User)
+            .options(selectinload(User.plan))
+            .where(User.id == api_key.user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise credentials_exception
+        return user
+
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")

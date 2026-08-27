@@ -53,6 +53,7 @@ from api.routers import generate, inject, monitor, process, sitemap, shorts, soc
 from api.routers.audio import router as audio_router
 from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
+from api.routers.api_keys import router as api_keys_router
 from api.routers.jobs import router as jobs_router
 from api.routers.admin import router as admin_router
 from api.routers.portals import router as portals_router
@@ -105,6 +106,7 @@ app.include_router(audio_router, prefix="/v1")
 # Auth & user management routers
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(api_keys_router)
 
 # Local Transcript Runner router
 app.include_router(jobs_router)
