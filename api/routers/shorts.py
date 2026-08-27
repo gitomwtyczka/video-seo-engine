@@ -76,10 +76,14 @@ class TitleRequest(BaseModel):
 # --- Helpers ---
 
 def _extract_youtube_id(url_or_id: Optional[str]) -> Optional[str]:
-    """Wyciąga 11-znakowy identyfikator wideo YouTube z URL lub stringu."""
+    """Wyciąga 11-znakowy identyfikator wideo YouTube lub media_id audio z URL lub stringu."""
     if not url_or_id:
         return None
     cleaned = url_or_id.strip()
+    if cleaned.startswith("audio://"):
+        return cleaned[len("audio://"):]
+    if cleaned.startswith("audio_"):
+        return cleaned
     if re.match(r'^[a-zA-Z0-9_-]{11}$', cleaned):
         return cleaned
     patterns = [
@@ -522,7 +526,7 @@ async def download_transcribe_srt(job_id: UUID, db: AsyncSession = Depends(get_d
 
 
 @router.get("/candidates/{youtube_id}")
-async def get_saved_candidates(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def get_saved_candidates(youtube_id: str, portal_id: Optional[str] = None, db: AsyncSession = Depends(get_db)) :
     """Pobiera ostatnio zapisanych kandydatów dla youtube_id z DB."""
     yt_id = _extract_youtube_id(youtube_id) or youtube_id
     conditions = [ShortCandidateSet.youtube_id == yt_id]
