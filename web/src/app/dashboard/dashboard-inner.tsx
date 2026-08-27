@@ -109,7 +109,7 @@ function extractChapters(schema: SchemaData | null | undefined): ChapterItem[] {
       (n) => n['@type'] === 'Clip'
     )
     if (clips.length > 0)
-      return clips.map((c) => ({\
+      return clips.map((c) => ({
         name: c.name as string | undefined,\
         startOffset: c.startOffset as number | undefined,\
         endOffset: c.endOffset as number | undefined,\
@@ -206,7 +206,7 @@ function extractVideoId(url: string): string {
   if (!url) return ''
   if (url.startsWith('audio://')) return url.replace('audio://', '')
   if (url.startsWith('audio_')) return url
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\s]{11})/)
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\\s]{11})/)
   return match ? match[1] : (url.length === 11 ? url : '')
 }
 
@@ -400,12 +400,12 @@ export default function DashboardInner() {
 
         data = await apiPostForm<GenerateResponse>('/v1/audio/generate', formData)
       } else {
-        data = await apiPost<GenerateResponse>('/v1/generate', {
-          video_url: url.trim(),
-          llm_provider: 'claude',
-          lang: 'pl',
-          publication_type: publicationType,
-          portal_id: portalIdParam,
+        data = await apiPost<GenerateResponse>('/v1/generate', {\
+          video_url: url.trim(),\
+          llm_provider: 'claude',\
+          lang: 'pl',\
+          publication_type: publicationType,\
+          portal_id: portalIdParam,\
         })
       }
 
@@ -418,10 +418,10 @@ export default function DashboardInner() {
       const effectiveInputUrl = inputMode === 'audio' ? `audio://${data.video_id}` : url.trim()
       setResult({ raw: schema, videoId: data.video_id, time: data.processing_time_s, inputUrl: effectiveInputUrl })
       setActiveTab('article')
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Nieznany błąd')
-    } finally {
-      setLoading(false)
+    } catch (err: unknown) {\
+      setError(err instanceof Error ? err.message : 'Nieznany błąd')\
+    } finally {\
+      setLoading(false)\
     }
   }
 
@@ -524,20 +524,20 @@ export default function DashboardInner() {
               Wklej link YouTube lub wgraj plik MP3 — AI wygeneruje kompletny pakiet SEO, transkrypcję i artykuł.
             </p>
 
-            {jobLoading && (
+            {jobLoading && (\
               <div className="mb-6 flex items-center gap-3 p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl">
                 <span className="animate-spin inline-block w-4 h-4 border-2 border-violet-300/30 border-t-violet-400 rounded-full" />
                 <span className="text-sm text-violet-300">Ładowanie wyników z historii...</span>
               </div>
             )}
 
-            {jobError && (
+            {jobError && (\
               <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
                 ⚠️ {jobError}
               </div>
             )}
 
-            {jobId && result && (
+            {jobId && result && (\
               <div className="mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
                 <span className="text-xs text-blue-400">📋 Wyniki załadowane z historii</span>
                 <Link href="/historia" className="text-xs text-gray-500 hover:text-white ml-auto transition-colors">
@@ -550,12 +550,12 @@ export default function DashboardInner() {
             <div className="grid grid-cols-2 gap-3 mb-5">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Portal docelowy</label>
-                {portalsLoading ? (
+                {portalsLoading ? (\
                   <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
                     <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
                     Ładowanie...
                   </div>
-                ) : portals.length === 0 ? (
+                ) : portals.length === 0 ? (\
                   <select
                     value=""
                     onChange={(e) => {
@@ -567,13 +567,13 @@ export default function DashboardInner() {
                       }
                     }}
                     className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                   >
                     <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
                     <option value="__add__">+ Dodaj nowy portal...</option>
                     <option value="__manual__">✏️ Wpisz ręcznie...</option>
                   </select>
-                ) : (
+                ) : (\
                   <select
                     id="portal-selector"
                     value={selectedPortalId}
@@ -588,7 +588,7 @@ export default function DashboardInner() {
                       }
                     }}
                     className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                   >
                     {portals.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -608,7 +608,7 @@ export default function DashboardInner() {
                   value={publicationType}
                   onChange={(e) => setPublicationType(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                 >
                   <option value="full_analysis">📝 Pełna analiza</option>
                   <option value="watching_page">🎬 Strona z filmem</option>
