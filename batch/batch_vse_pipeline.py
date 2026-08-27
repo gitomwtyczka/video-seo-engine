@@ -7,6 +7,7 @@ Uzycie:
   python batch_vse_pipeline.py --single Gz7WIgjQLuI
   python batch_vse_pipeline.py --batch
   python batch_vse_pipeline.py --list
+  python batch_vse_pipeline.py --rerender Gz7WIgjQLuI
 """
 import argparse
 import json
@@ -29,41 +30,37 @@ HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 # === LISTA FILMÓW DO PRZETWORZENIA ===
 FILMS = [
-    {"youtube_id": "Gz7WIgjQLuI", "title": "Plużanski - Frakckowiak Muzeum emisja KIEDY"},
-    {"youtube_id": "G8Bmml4Ys_4", "title": "Klimczak Sliwka Ukraina KIEDY"},
-    {"youtube_id": "C2w6nnFB9vc", "title": "Klimczak Operator Mobbing I KIEDY"},
-    {"youtube_id": "KCLzwiDPIdU", "title": "Klimczak Operator Mobbing II proces sadowy KIEDY"},
-    {"youtube_id": "EQAB8t_gZ6M", "title": "Stacey Halwa Wychowanie emisja KIEDY"},
-    {"youtube_id": "zXdP34T01R4", "title": "Stacey Halwa Nowacka laczyce ze Sliwka emisja KIEDY"},
+    {"youtube_id": "Gz7WIgjQLuI", "title": "Pluzanski Frackowiak Muzeum", "local_path": r"C:\Users\tomas2\Videos\Prawy\Płużański - Frąckowiak Muzeum emisja KIEDY.mp4"},
+    {"youtube_id": "G8Bmml4Ys_4", "title": "Klimczak Sliwka Ukraina KIEDY", "local_path": r"C:\Users\tomas2\Videos\Prawy\Klimczak Śliwka Ukraina KIEDY.mp4"},
+    {"youtube_id": "C2w6nnFB9vc", "title": "Klimczak Operator Mobbing I KIEDY", "local_path": r"C:\Users\tomas2\Videos\Prawy\Klimczak Operator Mobbing I KIEDY.mp4"},
+    {"youtube_id": "KCLzwiDPIdU", "title": "Klimczak Operator Mobbing II proces sadowy KIEDY", "local_path": r"C:\Users\tomas2\Videos\Prawy\Klimczak Operator Mobbing II proces sądowy KIEDY.mp4"},
+    {"youtube_id": "EQAB8t_gZ6M", "title": "Stacey Halwa Wychowanie emisja KIEDY", "local_path": r"C:\Users\tomas2\Videos\Prawy\Stacey Halwa Wychowanie emisja KIEDY.mp4"},
+    {"youtube_id": "zXdP34T01R4", "title": "Stacey Halwa Nowacka laczyce ze Sliwka emisja KIEDY", "local_path": r"C:\Users\tomas2\Videos\Prawy\Stacey Halwa Nowacka łączyć ze Śliwką emisja KIEDY.mp4"},
 ]
-
 
 def load_state():
     if STATE_FILE.exists():
         return json.loads(STATE_FILE.read_text(encoding="utf-8"))
     return {}
 
-
 def save_state(state):
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
-
-def find_local_file(youtube_id: str, title: str) -> str | None:
-    """Szuka pliku MP4 w LOCAL_VIDEO_DIR po youtube_id lub fragmencie tytułu."""
+def find_local_file(film: dict) -> str | None:
+    # Najpierw sprawdz explicit local_path
+    if film.get('local_path'):
+        p = Path(film['local_path'])
+        if p.exists():
+            return str(p)
+    # Fallback: szukaj po youtube_id w nazwie
     video_dir = Path(LOCAL_VIDEO_DIR)
     if not video_dir.exists():
         return None
-    # Po youtube_id w nazwie
-    for f in video_dir.glob(f"*{youtube_id}*"):
-        if f.suffix.lower() in (".mp4", ".mov", ".mkv"):
-            return str(f)
-    # Po pierwszych słowach tytułu
-    keywords = title.split()[:3]
-    for f in video_dir.glob("*.mp4"):
-        if all(kw.lower() in f.name.lower() for kw in keywords):
+    youtube_id = film['youtube_id']
+    for f in video_dir.glob(f'*{youtube_id}*'):
+        if f.suffix.lower() in ('.mp4', '.mov', '.mkv'):
             return str(f)
     return None
-
 
 def step_generate(youtube_id: str) -> dict:
     """KROK 1: Generuj SEO z YouTube URL."""
@@ -84,7 +81,6 @@ def step_generate(youtube_id: str) -> dict:
     resp.raise_for_status()
     return resp.json()
 
-
 def step_shorts_candidates(youtube_id: str) -> list:
     """KROK 2: Generuj propozycje shortów."""
     print(f"  [2/4] Short candidates dla {youtube_id}...")
@@ -104,7 +100,6 @@ def step_shorts_candidates(youtube_id: str) -> list:
     resp.raise_for_status()
     data = resp.json()
     return data.get("candidates", [])
-
 
 def step_render_shorts(youtube_id: str, candidates: list, local_path: str | None):
     """KROK 3: Zlec renderowanie top kandydatów."""
@@ -131,7 +126,6 @@ def step_render_shorts(youtube_id: str, candidates: list, local_path: str | None
         time.sleep(1)
     return job_ids
 
-
 def step_inject(youtube_id: str, schema_data: dict) -> dict:
     """KROK 4: Wstrzyknij artykuł do prawy.pl jako draft."""
     print(f"  [4/4] Inject do prawy.pl (draft)...")
@@ -150,7 +144,6 @@ def step_inject(youtube_id: str, schema_data: dict) -> dict:
     )
     resp.raise_for_status()
     return resp.json()
-
 
 def process_film(film: dict, state: dict) -> bool:
     youtube_id = film["youtube_id"]
@@ -185,7 +178,7 @@ def process_film(film: dict, state: dict) -> bool:
 
         # KROK 3: Render shorts
         if not film_state.get("render_jobs"):
-            local_path = find_local_file(youtube_id, title)
+            local_path = find_local_file(film)
             if local_path:
                 print(f"  Znaleziono lokalny plik: {local_path}")
             job_ids = step_render_shorts(youtube_id, candidates, local_path)
@@ -217,13 +210,13 @@ def process_film(film: dict, state: dict) -> bool:
         save_state(state)
         return False
 
-
 def main():
     parser = argparse.ArgumentParser(description="Video prawy-YT wysylka")
     parser.add_argument("--single", metavar="YOUTUBE_ID", help="Przetworz jeden film")
     parser.add_argument("--batch", action="store_true", help="Przetworz wszystkie filmy z listy")
     parser.add_argument("--list", action="store_true", help="Pokaz liste filmow i status")
     parser.add_argument("--reset", metavar="YOUTUBE_ID", help="Reset checkpointu dla filmu")
+    parser.add_argument('--rerender', metavar='YOUTUBE_ID', help='Re-renderuj shorty dla filmu (pomija generate/candidates/inject)')
     args = parser.parse_args()
 
     state = load_state()
@@ -239,6 +232,26 @@ def main():
         state.pop(args.reset, None)
         save_state(state)
         print(f"Reset: {args.reset}")
+        return
+
+    if args.rerender:
+        film = next((f for f in FILMS if f['youtube_id'] == args.rerender), 
+                    {'youtube_id': args.rerender, 'title': args.rerender})
+        film_state = state.get(args.rerender, {})
+        candidates = film_state.get('candidates', [])
+        if not candidates:
+            print('BLAD: brak candidates w checkpoincie. Uruchom --single najpierw.')
+            return
+        local_path = find_local_file(film)
+        if local_path:
+            print(f'Lokalny plik: {local_path}')
+        else:
+            print('UWAGA: brak lokalnego pliku — VSE pobierze z YouTube (może nie zadzialać)')
+        job_ids = step_render_shorts(args.rerender, candidates, local_path)
+        film_state['render_jobs'] = job_ids
+        state[args.rerender] = film_state
+        save_state(state)
+        print(f'Rerender OK: {len(job_ids)} jobów')
         return
 
     if args.single:
@@ -262,7 +275,6 @@ def main():
         return
 
     parser.print_help()
-
 
 if __name__ == "__main__":
     main()
