@@ -101,6 +101,12 @@ LOCAL_RUNNER_POLL_TIMEOUT = 120  # max sekund czekania
 
 def _extract_video_id(url: str) -> str:
     """Extract YouTube video ID from URL or return as-is."""
+    if not url:
+        return ""
+    if url.startswith("audio://"):
+        return url[len("audio://"):]
+    if url.startswith("audio_"):
+        return url
     import re
     patterns = [
         r'(?:youtube\.com/watch\?v=)([a-zA-Z0-9_-]{11})',
@@ -496,14 +502,16 @@ async def run_generate(
     FIX A: When transcript is unavailable, continues with vtt_path=None
     and generates partial SEO schema (VideoObject + meta, no chapters/FAQ).
     Returns has_transcript=False and partial_result=True in result dict.
+    Supports audio uploads with audio:// scheme.
     """
     from core.fetcher import process_video as fetch_video
     from core.fetcher import fetch_video_thumbnails
     from core.generator import process_video as generate_schema
 
     video_id = _extract_video_id(video_url)
-    logger.info("[generate] video_id=%s provider=%s type=%s portal_id=%s",
-                video_id, llm_provider, publication_type, portal_id)
+    is_audio = video_url.startswith("audio://") or video_url.startswith("audio_")
+    logger.info("[generate] video_id=%s is_audio=%s provider=%s type=%s portal_id=%s",
+                video_id, is_audio, llm_provider, publication_type, portal_id)
 
     profile_config = None
     site_brand = None
@@ -563,162 +571,44 @@ async def run_generate(
                 len(internal_links),
             )
 
+    if is_audio:
+        # Audio path: faster-whisper on VPS
+        meta = {
+            "id": video_id,
+            "title": post_title_override or f"Audio {video_id}",
+            "webpage_url": video_url,
+            "duration": 0,
+            "source": "audio",
+            "media_id": video_id,
+        }
+        image_data: list[dict] = []
+        vtt_path: Optional[str] = None
+        for p in [f"/tmp/{video_id}.vtt", f"/home/ubuntu/video-seo-engine/data/vtt/{video_id}.vtt"]:
+            if os.path.exists(p):
+                vtt_path = p
+                break
 
-    access_token = None
-    if user_id:
-        async with AsyncSessionLocal() as db:
-            from sqlalchemy import select
-            from api.models.youtube_channel import YouTubeChannel
-            try:
-                uid = uuid.UUID(user_id)
+        if not vtt_path:
+            async with AsyncSessionLocal() as db:
                 result = await db.execute(
-                    select(YouTubeChannel)
-                    .where(YouTubeChannel.user_id == uid)
-                    .where(YouTubeChannel.is_active == True)
-                    .order_by(YouTubeChannel.updated_at.desc())
+                    select(TranscriptJob)
+                    .where(TranscriptJob.video_url.contains(video_id))
+                    .where(TranscriptJob.transcript.isnot(None))
+                    .order_by(desc(TranscriptJob.created_at))
                     .limit(1)
                 )
-                channel = result.scalar_one_or_none()
-                if channel:
-                    if hasattr(channel, 'access_token') and getattr(channel, 'access_token'):
-                        access_token = channel.access_token
-                    elif channel.refresh_token:
-                        import requests
-                        client_id = os.environ.get("GOOGLE_CLIENT_ID", "") or os.environ.get("YT_CLIENT_ID", "")
-                        client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "") or os.environ.get("YT_CLIENT_SECRET", "")
-                        if client_id and client_secret:
-                            resp = requests.post(
-                                "https://oauth2.googleapis.com/token",
-                                data={
-                                    "client_id": client_id,
-                                    "client_secret": client_secret,
-                                    "refresh_token": channel.refresh_token,
-                                    "grant_type": "refresh_token",
-                                },
-                                timeout=15,
-                            )
-                            if resp.status_code == 200:
-                                access_token = resp.json().get("access_token")
-                                logger.info("[generate] Got access_token from refresh_token")
-                            else:
-                                logger.warning("[generate] Failed to get access_token: %s", resp.text)
-                        else:
-                            logger.warning("[generate] Missing OAuth client credentials")
-            except Exception as exc:
-                logger.warning("[generate] Error getting channel access_token: %s", exc)
+                job = result.scalar_one_or_none()
+                if job and job.transcript:
+                    vtt_path = f"/tmp/{video_id}.vtt"
+                    with open(vtt_path, "w", encoding="utf-8") as f:
+                        f.write(job.transcript)
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang, access_token)
-        if not meta or meta.get("error"):
-            raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
-
-        num_screenshots = 2 if publication_type in ("full_analysis", "discover") else 1
-        thumbnails = await asyncio.to_thread(
-            fetch_video_thumbnails, video_id, tmp_dir, num_screenshots
-        )
-        logger.info(
-            "[generate] D11 thumbnails: %d downloaded for %s (wanted %d)",
-            len(thumbnails), video_id, num_screenshots,
-        )
-
-        image_data: list[dict] = []
-        post_title_for_desc = post_title_override or meta.get("title", video_id)
-        keyphrases_for_desc = priority_keywords[:3] if priority_keywords else []
-
-        for idx, thumb in enumerate(thumbnails):
-            yt_thumb_url = thumb.get("url", "")
-            if not yt_thumb_url:
-                continue
-
-            saas_desc = await _describe_image_via_saas(
-                yt_thumb_url,
-                post_title_for_desc,
-                keyphrases_for_desc,
-                site_brand or "",
-            )
-            if saas_desc:
-                image_data.append({
-                    "path": thumb["path"],
-                    "url": yt_thumb_url,
-                    "width": thumb.get("width", 1280),
-                    "height": thumb.get("height", 720),
-                    "source": thumb.get("source", "youtube"),
-                    "descriptions": saas_desc,
-                    "description_source": "saas_vision",
-                })
-                logger.info(
-                    "[generate] D11 image[%d]: SAAS Vision description OK", idx,
-                )
-            else:
-                image_data.append({
-                    "path": thumb["path"],
-                    "url": yt_thumb_url,
-                    "width": thumb.get("width", 1280),
-                    "height": thumb.get("height", 720),
-                    "source": thumb.get("source", "youtube"),
-                    "descriptions": None,
-                    "description_source": "pending_llm_fallback",
-                })
-                logger.info(
-                    "[generate] D11 image[%d]: SAAS Vision unavailable — LLM fallback pending", idx,
-                )
-
-        # FIX A: Transcript branch with graceful degradation
-        vtt_path: Optional[str] = None
-        has_transcript = True
-
-        if local_runner_mode:
-            logger.info(
-                "[generate] LOCAL_RUNNER_MODE=true — delegating transcript to Local Runner"
-            )
-            try:
-                transcript_text = await _fetch_transcript_local_runner(
-                    f"https://www.youtube.com/watch?v={video_id}"
-                )
-
-                import pathlib
-                vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")
-
-                if transcript_text.startswith("__VTT__"):
-                    logger.info(
-                        "[generate] __VTT__ format detected — converting to WebVTT for generator"
-                    )
-                    webvtt_content = _vtt_runner_to_webvtt(transcript_text)
-                    pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
-                else:
-                    logger.warning(
-                        "[generate] Plain text transcript (no timestamps) — "
-                        "chapters will have approximate times. Upgrade runner to v2.0."
-                    )
-                    pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
-
-                meta["vtt_path"] = vtt_path
-
-            except RuntimeError as e:
-                exc_str = str(e)
-                # FIX A: Graceful degradation — no transcript → continue without
-                if "No transcript available" in exc_str:
-                    logger.warning(
-                        "[generate] FIX A: No transcript available for %s — "
-                        "continuing without (partial_result=True)", video_id
-                    )
-                    vtt_path = None
-                    has_transcript = False
-                else:
-                    # Other errors (timeout, DB failure) — re-raise
-                    raise RuntimeError(f"Local Runner transcript failed: {e}") from e
-        else:
-            # FIX A: No hard RuntimeError when vtt_path missing — graceful degradation
-            vtt_path = meta.get("vtt_path")
-            if not vtt_path:
-                logger.warning(
-                    "[generate] FIX A: No transcript (vtt_path) for %s — "
-                    "continuing without (partial_result=True)", video_id
-                )
-                has_transcript = False
+        has_transcript = bool(vtt_path and os.path.exists(vtt_path))
+        if not has_transcript:
+            vtt_path = None
 
         post_title = post_title_override or meta.get("title", video_id)
-        yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
+        yt_url = video_url
         wp_id_placeholder = 0
 
         seo = await asyncio.to_thread(
@@ -727,7 +617,7 @@ async def run_generate(
             wp_id_placeholder,
             post_title,
             yt_url,
-            vtt_path,  # FIX A: may be None — generator handles it
+            vtt_path,
             api_key,
             None,
             0,
@@ -736,39 +626,12 @@ async def run_generate(
             internal_links if internal_links else None,
             site_brand,
             publication_type,
-            meta,  # FIX A: pass meta for partial schema (description, duration)
+            meta,
         )
 
-        llm_img_descs = seo.get("image_descriptions", [])
-        for idx, img in enumerate(image_data):
-            if img["descriptions"] is None and idx < len(llm_img_descs):
-                llm_desc = llm_img_descs[idx]
-                img["descriptions"] = {
-                    "alt_text": llm_desc.get("alt_text", ""),
-                    "title": llm_desc.get("alt_text", "")[:100],
-                    "caption": llm_desc.get("caption", ""),
-                    "description": llm_desc.get("caption", ""),
-                    "filename": None,
-                }
-                img["description_source"] = "llm_fallback"
-                logger.info(
-                    "[generate] D11 image[%d]: filled from LLM fallback alt=%r",
-                    idx, img["descriptions"]["alt_text"][:60],
-                )
-            elif img["descriptions"] is None:
-                focus_kp = seo.get("focus_keyphrase", "")
-                img["descriptions"] = {
-                    "alt_text": f"{focus_kp} — kadr z materiału wideo" if focus_kp else "Kadr z materiału wideo",
-                    "title": seo.get("post_title", "")[:100],
-                    "caption": f"Kadr z nagrania: {seo.get('post_title', '')[:80]}",
-                    "description": "",
-                    "filename": None,
-                }
-                img["description_source"] = "generic_fallback"
-                logger.warning(
-                    "[generate] D11 image[%d]: using generic fallback (no SAAS, no LLM desc)", idx,
-                )
-
+        seo["source"] = "audio"
+        seo["media_id"] = video_id
+        seo["thumbnail_url"] = None
         seo["image_data"] = image_data
 
         # --- PressAI YT Description ---
@@ -794,9 +657,245 @@ async def run_generate(
             seo["youtube_credits"] = pressai_yt.get("youtube_credits", {})
             if pressai_yt.get("youtube_hashtags"):
                 seo["youtube_hashtags"] = pressai_yt["youtube_hashtags"]
-            logger.info("[pipeline] PressAI YT fields merged into schema_data")
+            logger.info("[pipeline] PressAI YT fields merged into schema_data (audio)")
         else:
-            logger.info("[pipeline] Using fallback: youtube_description_hook from generator")
+            logger.info("[pipeline] Using fallback: youtube_description_hook from generator (audio)")
+
+    else:
+        # Standard YouTube flow
+        access_token = None
+        if user_id:
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy import select
+                from api.models.youtube_channel import YouTubeChannel
+                try:
+                    uid = uuid.UUID(user_id)
+                    result = await db.execute(
+                        select(YouTubeChannel)
+                        .where(YouTubeChannel.user_id == uid)
+                        .where(YouTubeChannel.is_active == True)
+                        .order_by(YouTubeChannel.updated_at.desc())
+                        .limit(1)
+                    )
+                    channel = result.scalar_one_or_none()
+                    if channel:
+                        if hasattr(channel, 'access_token') and getattr(channel, 'access_token'):
+                            access_token = channel.access_token
+                        elif channel.refresh_token:
+                            import requests
+                            client_id = os.environ.get("GOOGLE_CLIENT_ID", "") or os.environ.get("YT_CLIENT_ID", "")
+                            client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "") or os.environ.get("YT_CLIENT_SECRET", "")
+                            if client_id and client_secret:
+                                resp = requests.post(
+                                    "https://oauth2.googleapis.com/token",
+                                    data={
+                                        "client_id": client_id,
+                                        "client_secret": client_secret,
+                                        "refresh_token": channel.refresh_token,
+                                        "grant_type": "refresh_token",
+                                    },
+                                    timeout=15,
+                                )
+                                if resp.status_code == 200:
+                                    access_token = resp.json().get("access_token")
+                                    logger.info("[generate] Got access_token from refresh_token")
+                                else:
+                                    logger.warning("[generate] Failed to get access_token: %s", resp.text)
+                            else:
+                                logger.warning("[generate] Missing OAuth client credentials")
+                except Exception as exc:
+                    logger.warning("[generate] Error getting channel access_token: %s", exc)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang, access_token)
+            if not meta or meta.get("error"):
+                raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
+
+            num_screenshots = 2 if publication_type in ("full_analysis", "discover") else 1
+            thumbnails = await asyncio.to_thread(
+                fetch_video_thumbnails, video_id, tmp_dir, num_screenshots
+            )
+            logger.info(
+                "[generate] D11 thumbnails: %d downloaded for %s (wanted %d)",
+                len(thumbnails), video_id, num_screenshots,
+            )
+
+            image_data: list[dict] = []
+            post_title_for_desc = post_title_override or meta.get("title", video_id)
+            keyphrases_for_desc = priority_keywords[:3] if priority_keywords else []
+
+            for idx, thumb in enumerate(thumbnails):
+                yt_thumb_url = thumb.get("url", "")
+                if not yt_thumb_url:
+                    continue
+
+                saas_desc = await _describe_image_via_saas(
+                    yt_thumb_url,
+                    post_title_for_desc,
+                    keyphrases_for_desc,
+                    site_brand or "",
+                )
+                if saas_desc:
+                    image_data.append({
+                        "path": thumb["path"],
+                        "url": yt_thumb_url,
+                        "width": thumb.get("width", 1280),
+                        "height": thumb.get("height", 720),
+                        "source": thumb.get("source", "youtube"),
+                        "descriptions": saas_desc,
+                        "description_source": "saas_vision",
+                    })
+                    logger.info(
+                        "[generate] D11 image[%d]: SAAS Vision description OK", idx,
+                    )
+                else:
+                    image_data.append({
+                        "path": thumb["path"],
+                        "url": yt_thumb_url,
+                        "width": thumb.get("width", 1280),
+                        "height": thumb.get("height", 720),
+                        "source": thumb.get("source", "youtube"),
+                        "descriptions": None,
+                        "description_source": "pending_llm_fallback",
+                    })
+                    logger.info(
+                        "[generate] D11 image[%d]: SAAS Vision unavailable — LLM fallback pending", idx,
+                    )
+
+            # FIX A: Transcript branch with graceful degradation
+            vtt_path: Optional[str] = None
+            has_transcript = True
+
+            if local_runner_mode:
+                logger.info(
+                    "[generate] LOCAL_RUNNER_MODE=true — delegating transcript to Local Runner"
+                )
+                try:
+                    transcript_text = await _fetch_transcript_local_runner(
+                        f"https://www.youtube.com/watch?v={video_id}"
+                    )
+
+                    import pathlib
+                    vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")
+
+                    if transcript_text.startswith("__VTT__"):
+                        logger.info(
+                            "[generate] __VTT__ format detected — converting to WebVTT for generator"
+                        )
+                        webvtt_content = _vtt_runner_to_webvtt(transcript_text)
+                        pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
+                    else:
+                        logger.warning(
+                            "[generate] Plain text transcript (no timestamps) — "
+                            "chapters will have approximate times. Upgrade runner to v2.0."
+                        )
+                        pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
+
+                    meta["vtt_path"] = vtt_path
+
+                except RuntimeError as e:
+                    exc_str = str(e)
+                    # FIX A: Graceful degradation — no transcript → continue without
+                    if "No transcript available" in exc_str:
+                        logger.warning(
+                            "[generate] FIX A: No transcript available for %s — "
+                            "continuing without (partial_result=True)", video_id
+                        )
+                        vtt_path = None
+                        has_transcript = False
+                    else:
+                        # Other errors (timeout, DB failure) — re-raise
+                        raise RuntimeError(f"Local Runner transcript failed: {e}") from e
+            else:
+                # FIX A: No hard RuntimeError when vtt_path missing — graceful degradation
+                vtt_path = meta.get("vtt_path")
+                if not vtt_path:
+                    logger.warning(
+                        "[generate] FIX A: No transcript (vtt_path) for %s — "
+                        "continuing without (partial_result=True)", video_id
+                    )
+                    has_transcript = False
+
+            post_title = post_title_override or meta.get("title", video_id)
+            yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
+            wp_id_placeholder = 0
+
+            seo = await asyncio.to_thread(
+                generate_schema,
+                video_id,
+                wp_id_placeholder,
+                post_title,
+                yt_url,
+                vtt_path,  # FIX A: may be None — generator handles it
+                api_key,
+                None,
+                0,
+                llm_provider,
+                priority_keywords if priority_keywords else None,
+                internal_links if internal_links else None,
+                site_brand,
+                publication_type,
+                meta,  # FIX A: pass meta for partial schema (description, duration)
+            )
+
+            llm_img_descs = seo.get("image_descriptions", [])
+            for idx, img in enumerate(image_data):
+                if img["descriptions"] is None and idx < len(llm_img_descs):
+                    llm_desc = llm_img_descs[idx]
+                    img["descriptions"] = {
+                        "alt_text": llm_desc.get("alt_text", ""),
+                        "title": llm_desc.get("alt_text", "")[:100],
+                        "caption": llm_desc.get("caption", ""),
+                        "description": llm_desc.get("caption", ""),
+                        "filename": None,
+                    }
+                    img["description_source"] = "llm_fallback"
+                    logger.info(
+                        "[generate] D11 image[%d]: filled from LLM fallback alt=%r",
+                        idx, img["descriptions"]["alt_text"][:60],
+                    )
+                elif img["descriptions"] is None:
+                    focus_kp = seo.get("focus_keyphrase", "")
+                    img["descriptions"] = {
+                        "alt_text": f"{focus_kp} — kadr z materiału wideo" if focus_kp else "Kadr z materiału wideo",
+                        "title": seo.get("post_title", "")[:100],
+                        "caption": f"Kadr z nagrania: {seo.get('post_title', '')[:80]}",
+                        "description": "",
+                        "filename": None,
+                    }
+                    img["description_source"] = "generic_fallback"
+                    logger.warning(
+                        "[generate] D11 image[%d]: using generic fallback (no SAAS, no LLM desc)", idx,
+                    )
+
+            seo["image_data"] = image_data
+
+            # --- PressAI YT Description ---
+            vtt_content = ""
+            if vtt_path and os.path.exists(vtt_path):
+                with open(vtt_path, "r", encoding="utf-8") as f:
+                    vtt_content = f.read()
+
+            pressai_yt = await fetch_yt_description_from_pressai(
+                vtt_content=vtt_content,
+                video_title=seo.get("post_title", ""),
+                video_id=video_id,
+                chapters=seo.get("chapters", []),
+                focus_keyphrases=seo.get("focus_keyphrases", []),
+                wp_url="",
+                portal_name=site_brand or "",
+                portal_topic="",
+            )
+
+            if pressai_yt:
+                seo["youtube_description_body"] = pressai_yt.get("youtube_description_body", "")
+                seo["youtube_mid_cta"] = pressai_yt.get("youtube_mid_cta", "")
+                seo["youtube_credits"] = pressai_yt.get("youtube_credits", {})
+                if pressai_yt.get("youtube_hashtags"):
+                    seo["youtube_hashtags"] = pressai_yt["youtube_hashtags"]
+                logger.info("[pipeline] PressAI YT fields merged into schema_data")
+            else:
+                logger.info("[pipeline] Using fallback: youtube_description_hook from generator")
 
     partial_result = not has_transcript
     logger.info(
