@@ -5,7 +5,7 @@
  * PO CO: Daje użytkownikowi dwie ścieżki:
  *   A (Free/Starter) — generuje SEO i pokazuje gotowe snippety HTML do skopiowania
  *   B (Pro/Agency)   — dodatkowo umożliwia automatyczną publikację na WordPress
- * JAK: Wywołuje POST /v1/generate → schema_data → renderuje zakładki wynikowe
+ * JAK: Wywołuje POST /v1/generate lub POST /v1/audio/generate → schema_data → renderuje zakładki wynikowe
  *      (Schemat, Artykuł, Rozdziały, Opis YouTube, ShortMachine). Dla planu pro/agency InjectModal → POST /v1/inject.
  */
 
@@ -13,7 +13,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import { apiGet, apiPost } from '../lib/api-client'
+import { apiGet, apiPost, apiPostForm } from '../lib/api-client'
 import { useJobLoader } from './use-job-loader'
 import { usePortals, type Portal } from './use-portals'
 import { useProfiles, type Profile } from './use-profiles'
@@ -51,6 +51,8 @@ interface SchemaData {
   wp_article_url?: string
   published_url?: string
   wp_url?: string
+  source?: string
+  media_id?: string
   [key: string]: unknown
 }
 
@@ -107,17 +109,17 @@ function extractChapters(schema: SchemaData | null | undefined): ChapterItem[] {
       (n) => n['@type'] === 'Clip'
     )
     if (clips.length > 0)
-      return clips.map((c) => ({
-        name: c.name as string | undefined,
-        startOffset: c.startOffset as number | undefined,
-        endOffset: c.endOffset as number | undefined,
+      return clips.map((c) => ({\
+        name: c.name as string | undefined,\
+        startOffset: c.startOffset as number | undefined,\
+        endOffset: c.endOffset as number | undefined,\
       }))
   }
   if (Array.isArray(schema.chapters)) {
-    return schema.chapters.map((c: ChapterItem) => ({
-      name: c.name ?? c.label,
-      startOffset: c.startOffset ?? c.time,
-      endOffset: c.endOffset,
+    return schema.chapters.map((c: ChapterItem) => ({\
+      name: c.name ?? c.label,\
+      startOffset: c.startOffset ?? c.time,\
+      endOffset: c.endOffset,\
     }))
   }
   return []
@@ -132,10 +134,10 @@ function extractFaq(schema: SchemaData | null | undefined): FaqItem[] {
     )
     if (faqPage) {
       const items = faqPage['mainEntity']
-      if (Array.isArray(items))
-        return (items as Record<string, unknown>[]).map((q) => ({
-          question: q['name'] as string | undefined,
-          answer: ((q['acceptedAnswer'] as Record<string, unknown>)?.['text']) as string | undefined,
+      if (Array.isArray(items))\
+        return (items as Record<string, unknown>[]).map((q) => ({\
+          question: q['name'] as string | undefined,\
+          answer: ((q['acceptedAnswer'] as Record<string, unknown>)?.['text']) as string | undefined,\
         }))
     }
   }
@@ -143,7 +145,7 @@ function extractFaq(schema: SchemaData | null | undefined): FaqItem[] {
   return []
 }
 
-function secToTimestamp(sec?: number): string {
+function secToTimestamp(sec?: number): string {\
   if (sec == null) return '?'
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
@@ -202,7 +204,9 @@ function saveWpCredentials(creds: { wpUrl: string; wpUser: string; wpPassword: s
 
 function extractVideoId(url: string): string {
   if (!url) return ''
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\\s]{11})/)
+  if (url.startsWith('audio://')) return url.replace('audio://', '')
+  if (url.startsWith('audio_')) return url
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\s]{11})/)
   return match ? match[1] : (url.length === 11 ? url : '')
 }
 
@@ -270,6 +274,8 @@ export default function DashboardInner() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
+  const [inputMode, setInputMode] = useState<'url' | 'audio'>('url')
+  const [audioFile, setAudioFile] = useState<File | null>(null)
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{ raw: SchemaData; videoId: string; time?: number; inputUrl: string } | null>(null)
@@ -286,7 +292,7 @@ export default function DashboardInner() {
   useEffect(() => {
     apiGet<any[]>('/v1/youtube/channels')
       .then((data) => setYtChannels(Array.isArray(data) ? data : []))
-      .catch(() => setYtChannels([]))
+      .catch(() => setYtChannels([]))\
   }, [])
 
 
@@ -368,20 +374,40 @@ export default function DashboardInner() {
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!url.trim()) return
+    if (inputMode === 'url' && !url.trim()) return
+    if (inputMode === 'audio' && !audioFile) return
 
     setLoading(true)
     setError('')
     setResult(null)
 
     try {
-      const data = await apiPost<GenerateResponse>('/v1/generate', {
-        video_url: url.trim(),
-        llm_provider: 'claude',
-        lang: 'pl',
-        publication_type: publicationType,
-        portal_id: selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId ? undefined : selectedPortalId.trim(),
-      })
+      let data: GenerateResponse | null = null
+      const portalIdParam =
+        selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId
+          ? undefined
+          : selectedPortalId.trim()
+
+      if (inputMode === 'audio' && audioFile) {
+        const formData = new FormData()
+        formData.append('file', audioFile)
+        formData.append('publication_type', publicationType)
+        if (portalIdParam) {
+          formData.append('portal_id', portalIdParam)
+        }
+        formData.append('lang', 'pl')
+        formData.append('llm_provider', 'claude')
+
+        data = await apiPostForm<GenerateResponse>('/v1/audio/generate', formData)
+      } else {
+        data = await apiPost<GenerateResponse>('/v1/generate', {
+          video_url: url.trim(),
+          llm_provider: 'claude',
+          lang: 'pl',
+          publication_type: publicationType,
+          portal_id: portalIdParam,
+        })
+      }
 
       if (!data) throw new Error('Pusta odpowiedź serwera')
       if (data.error) throw new Error(data.error)
@@ -389,7 +415,8 @@ export default function DashboardInner() {
       const schema = data.schema_data ?? null
       if (!schema) throw new Error('Serwer nie zwrócił schema_data')
 
-      setResult({ raw: schema, videoId: data.video_id, time: data.processing_time_s, inputUrl: url.trim() })
+      const effectiveInputUrl = inputMode === 'audio' ? `audio://${data.video_id}` : url.trim()
+      setResult({ raw: schema, videoId: data.video_id, time: data.processing_time_s, inputUrl: effectiveInputUrl })
       setActiveTab('article')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Nieznany błąd')
@@ -492,9 +519,9 @@ export default function DashboardInner() {
               accessToken={(session as { accessToken?: string })?.accessToken}
             />
 
-            <h1 className="text-2xl font-bold text-white mb-1">Video SEO Engine</h1>
+            <h1 className="text-2xl font-bold text-white mb-1">Video & Audio SEO Engine</h1>
             <p className="text-gray-400 mb-8">
-              Wklej URL YouTube — AI wygeneruje schema VideoObject + Clip + FAQPage.
+              Wklej link YouTube lub wgraj plik MP3 — AI wygeneruje kompletny pakiet SEO, transkrypcję i artykuł.
             </p>
 
             {jobLoading && (
@@ -540,7 +567,7 @@ export default function DashboardInner() {
                       }
                     }}
                     className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                   >
                     <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
                     <option value="__add__">+ Dodaj nowy portal...</option>
@@ -561,7 +588,7 @@ export default function DashboardInner() {
                       }
                     }}
                     className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                   >
                     {portals.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -581,7 +608,7 @@ export default function DashboardInner() {
                   value={publicationType}
                   onChange={(e) => setPublicationType(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
-                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                 >
                   <option value="full_analysis">📝 Pełna analiza</option>
                   <option value="watching_page">🎬 Strona z filmem</option>
@@ -590,25 +617,81 @@ export default function DashboardInner() {
               </div>
             </div>
 
-            {/* URL Form */}
+            {/* Input Mode Selector */}
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => { setInputMode('url'); setError('') }}
+                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1.5 ${
+                  inputMode === 'url'
+                    ? 'bg-violet-600/20 text-violet-300 border-violet-500/50 shadow-sm'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+              >
+                🎬 YouTube URL
+              </button>
+              <button
+                type="button"
+                onClick={() => { setInputMode('audio'); setError('') }}
+                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1.5 ${
+                  inputMode === 'audio'
+                    ? 'bg-violet-600/20 text-violet-300 border-violet-500/50 shadow-sm'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+              >
+                🎤 Plik MP3 / Audio
+              </button>
+            </div>
+
+            {/* URL / Audio Form */}
             <form onSubmit={handleGenerate} className="mb-8">
               <div className="flex gap-3">
-                <input
-                  id="youtube-url-input"
-                  type="text"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-                />
+                {inputMode === 'url' ? (
+                  <input
+                    id="youtube-url-input"
+                    type="text"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                ) : (
+                  <div className="flex-1 flex items-center">
+                    <label className="w-full flex items-center justify-between bg-gray-900 border border-dashed border-gray-700 hover:border-violet-500 rounded-xl px-4 py-3 cursor-pointer transition-colors group">
+                      <div className="flex items-center gap-3 truncate">
+                        <span className="text-xl">🎙️</span>
+                        <div className="truncate">
+                          <p className="text-sm text-white font-medium truncate">
+                            {audioFile ? audioFile.name : 'Wybierz lub upuść plik audio (MP3, WAV, M4A)...'}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {audioFile ? `${(audioFile.size / (1024 * 1024)).toFixed(2)} MB` : 'Obsługiwane formaty: MP3, WAV, M4A, OGG, FLAC'}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs bg-gray-800 group-hover:bg-violet-600 text-gray-300 group-hover:text-white px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ml-2">
+                        {audioFile ? 'Zmień plik' : 'Wybierz plik'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".mp3,.wav,.m4a,.ogg,.aac,.flac,.wma,.mp4,audio/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) setAudioFile(f)
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
                 <button
                   id="generate-btn"
                   type="submit"
-                  disabled={loading || !url.trim()}
+                  disabled={loading || (inputMode === 'url' ? !url.trim() : !audioFile)}
                   className="px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
                 >
                   {loading ? (
-                    <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Generuję...</>
+                    <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> {inputMode === 'audio' ? 'Transkrypcja i AI...' : 'Generuję...'}</>
                   ) : (
                     <>✦ Generuj SEO</>
                   )}
@@ -618,7 +701,9 @@ export default function DashboardInner() {
               {loading && (
                 <div className="mt-3 flex items-center gap-2 text-sm text-gray-400">
                   <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
-                  Pobieranie transkryptu i generowanie schema... (~50s)
+                  {inputMode === 'audio'
+                    ? 'Transkrypcja audio (faster-whisper) i generowanie schema... (~30-60s)'
+                    : 'Pobieranie transkryptu i generowanie schema... (~50s)'}
                 </div>
               )}
 
@@ -637,7 +722,7 @@ export default function DashboardInner() {
               <>
                 <div className="grid grid-cols-3 gap-4 mb-8">
                   {[
-                    { label: 'Filmy w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
+                    { label: 'Materiały w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
                     { label: 'Benchmark score', value: '8/10', sub: 'vs 2—3/10 konkurencja' },
                     { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },
                   ].map((stat) => (
@@ -659,7 +744,7 @@ export default function DashboardInner() {
                   <div>
                     <h2 className="text-lg font-semibold text-white">Wyniki SEO</h2>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Video: <span className="font-mono">{result.videoId}</span>
+                      Źródło: <span className="font-mono">{result.videoId}</span>
                       {result.time && <> • {result.time.toFixed(1)}s</>}
                     </p>
                   </div>
@@ -675,7 +760,7 @@ export default function DashboardInner() {
                         🚀 Wyślij do portalu
                       </button>
                     )}
-                    {ytChannels.length > 0 && (
+                    {ytChannels.length > 0 && !result?.inputUrl?.startsWith('audio://') && !result?.videoId?.startsWith('audio_') && (
                       <button
                         onClick={() => setYtModalOpen(true)}
                         className="px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2"
@@ -720,6 +805,8 @@ export default function DashboardInner() {
                     initialYoutubeId={result?.videoId || extractVideoId(url) || extractVideoId(result?.inputUrl || '')}
                     accessToken={accessToken}
                     session={session}
+                    source={(result?.raw?.source as string) || (result?.inputUrl?.startsWith('audio://') || result?.videoId?.startsWith('audio_') ? 'audio' : 'youtube')}
+                    isAudio={result?.raw?.source === 'audio' || result?.inputUrl?.startsWith('audio://') || result?.videoId?.startsWith('audio_')}
                   />
                 )}
               </div>
