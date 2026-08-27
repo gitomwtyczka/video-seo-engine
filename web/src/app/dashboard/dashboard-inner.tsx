@@ -663,7 +663,22 @@ export default function DashboardInner() {
                   />
                 ) : (
                   <div className="flex-1 flex items-center">
-                    <label className="w-full flex items-center justify-between bg-gray-900 border border-dashed border-gray-700 hover:border-violet-500 rounded-xl px-4 py-3 cursor-pointer transition-colors group">
+                    <label
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.style.borderColor = '#a855f7'
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.style.borderColor = ''
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.style.borderColor = ''
+                        const file = e.dataTransfer.files?.[0]
+                        if (file) setAudioFile(file)
+                      }}
+                      className="w-full flex items-center justify-between bg-gray-900 border border-dashed border-gray-700 hover:border-violet-500 rounded-xl px-4 py-3 cursor-pointer transition-colors group"
+                    >
                       <div className="flex items-center gap-3 truncate">
                         <span className="text-xl">🎙️</span>
                         <div className="truncate">
