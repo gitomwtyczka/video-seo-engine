@@ -142,15 +142,15 @@ def _validate_and_enrich_candidate_texts(
 
     # Walidacja hook_text
     hook_text = str(cand.get("hook_text", "")).strip()
-    hook_words = set(re.findall(r"\b\w{4,}\b", hook_text.lower()))
-    if not hook_text or (len(hook_words) >= 4 and len(hook_words & seg_words) == 0):
+    # Tylko fallback na pusty/za krótki hook — nie zastępuj kreatywnych parafraz
+    if not hook_text or len(hook_text.strip()) < 10:
         logger.warning("hook_text out of context for [%.1f-%.1f], auto-repairing from transcript", start, end)
         cand["hook_text"] = opening_text
 
     # Walidacja punchline_text
     punchline_text = str(cand.get("punchline_text", "")).strip()
-    punch_words = set(re.findall(r"\b\w{4,}\b", punchline_text.lower()))
-    if not punchline_text or (len(punch_words) >= 4 and len(punch_words & seg_words) == 0):
+    # Tylko fallback na pusty/za krótki punchline — nie zastępuj kreatywnych parafraz
+    if not punchline_text or len(punchline_text.strip()) < 10:
         logger.warning("punchline_text out of context for [%.1f-%.1f], auto-repairing from transcript", start, end)
         cand["punchline_text"] = closing_text
 
