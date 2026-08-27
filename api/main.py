@@ -6,6 +6,7 @@ Port: 8085 (Docker: -p 8085:8085)
 Endpoints:
   GET  /health                — health check
   POST /v1/generate           — fetch + generate schema (no WP write)
+  POST /v1/audio/generate     — upload audio + transcribe + generate schema
   POST /v1/process            — full pipeline: fetch + generate + inject
   POST /v1/inject             — inject pre-generated schema to WP
   POST /v1/jobs/              — create transcript job for Local Runner
@@ -49,6 +50,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from api.routers import generate, inject, monitor, process, sitemap, shorts, socials
+from api.routers.audio import router as audio_router
 from api.routers.auth import router as auth_router
 from api.routers.users import router as users_router
 from api.routers.jobs import router as jobs_router
@@ -96,6 +98,9 @@ app.add_middleware(
 for _router in [process.router, generate.router, inject.router,
                 monitor.router, sitemap.router]:
     app.include_router(_router)
+
+# Audio upload & transcription router
+app.include_router(audio_router, prefix="/v1")
 
 # Auth & user management routers
 app.include_router(auth_router)
