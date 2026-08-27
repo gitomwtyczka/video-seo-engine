@@ -735,7 +735,12 @@ Rozdzialy musza:
 
 ## CO WYGENEROWAC
 
-1. **focus_keyphrases** \u2014 lista 2-3 naturalnych fraz kluczowych Google (kazda 2-4 slowa). Pierwsza fraza to glowna, reszta to warianty tematyczne. Format: lista stringow.
+1. **focus_keyphrases** — Lista: PIERWSZA fraza = Glowna (2-4 slowa, naturalna, wyszukiwalna). POZOSTALE = Poboczne LSI (5-8 fraz, 2-5 slow, semantycznie powiazane).
+   ZASADY POLSKIEJ GRAMATYKI (KRYTYCZNE):
+   - ZAKAZ Title Case (zle: "Nowe Przepisy Podatkowe", dobrze: "Nowe przepisy podatkowe")
+   - Fraza MUSI byc odmieniona naturalnie — zakaz wklejania z malej litery na poczatku zdania
+   - Glowna fraza MUSI pojawic sie w minimum 1 srodtytule H3
+   - Frazy poboczne: w pozostalych H3 i FAQ
 2. **post_title** \u2014 max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac glowna focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
 3. {seo_title_instruction}
 4. **yt_title** \u2014 KRYTYCZNE ZASADY:
@@ -1012,7 +1017,12 @@ URL: {yt_url}{desc_section}
 {saas_section}
 ## CO WYGENEROWAC
 
-1. **focus_keyphrases** — lista 2-3 fraz kluczowych (kazda 2-4 slowa).
+1. **focus_keyphrases** — Lista: PIERWSZA fraza = Glowna (2-4 slowa, naturalna, wyszukiwalna). POZOSTALE = Poboczne LSI (5-8 fraz, 2-5 slow, semantycznie powiazane).
+   ZASADY POLSKIEJ GRAMATYKI (KRYTYCZNE):
+   - ZAKAZ Title Case (zle: "Nowe Przepisy Podatkowe", dobrze: "Nowe przepisy podatkowe")
+   - Fraza MUSI byc odmieniona naturalnie — zakaz wklejania z malej litery na poczatku zdania
+   - Glowna fraza MUSI pojawic sie w minimum 1 srodtytule H3
+   - Frazy poboczne: w pozostalych H3 i FAQ
 2. **post_title** — max 80 znakow, SEO-first, z glowna fraza.
 3. {seo_title_instruction}
 4. **yt_title** — 40-65 znakow, inny niz post_title, angazujacy YouTubowy tytul.
