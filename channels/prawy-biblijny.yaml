@@ -1,0 +1,39 @@
+# channels/prawy-biblijny.yaml
+# Kanał YouTube: Prawy Biblijny — Słowo na dziś
+# Utworzono: 2026-08-29 | media-strateg-01
+
+channel_id: "prawy-biblijny"
+display_name: "Prawy Biblijny"
+yt_channel_id: "${BIBLIA_CHANNEL_ID}"  # do uzupełnienia po pobraniu z API
+
+# Ten sam OAuth co prawy-tv (to samo konto tobroz@gmail.com)
+yt_oauth:
+  client_id: "${YT_CLIENT_ID}"
+  client_secret: "${YT_CLIENT_SECRET}"
+  refresh_token: "${YT_REFRESH_TOKEN}"
+
+yt_api_key: "${YT_API_KEY}"
+yt_update_enabled: true
+yt_category_id: "22"  # People & Blogs (Religious content)
+
+yt_playlist_id: "PLw7UeigJuyWkUzzvhS1vZX0H251raaYa7"
+
+yt_hashtags:
+  - "#Biblia"
+  - "#Ewangelia"
+  - "#PrawyBiblijny"
+  - "#SłowoNaDziś"
+  - "#KsiądzHalwa"
+
+yt_footer: |
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  📖 PRAWY BIBLIJNY — Słowo na dziś
+  Codzienna Ewangelia z komentarzem ks. Ryszarda Halwy
+  🌐 https://prawy.pl
+  📻 Podcast: https://prawy.pl/podcast-rss/prawy-biblijny/
+  ▶️ YouTube: https://www.youtube.com/@PrawyBiblijny
+
+  ❤️ WESPRZYJ NASZĄ MISJĘ:
+  👶 Fundacja S.O.S. Obrony Poczętego Życia
+     Nr konta: 32 1140 1010 0000 4777 8600 1001
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
