@@ -2,13 +2,15 @@
   "callsign": "media-dev-01",
   "status": "working",
   "current_task": "Biblia pipeline: MP3 -> VTT -> YT schedule -> WP draft",
-  "timestamp": "2026-08-29T23:25:00+02:00",
+  "timestamp": "2026-08-29T23:37:00+02:00",
   "last_completed": [
-    "Naprawa ścieżki generowania w UI (ShortMachineTab.tsx) - usunięcie wielokrotnych backslashy"
+    "Naprawa ścieżki generowania w UI (ShortMachineTab.tsx) - usunięcie wielokrotnych backslashy",
+    "Wygenerowanie JWT tokena dla VSE",
+    "Uruchomienie VSE API pipeline (audio/generate) dla 7 filmów"
   ],
   "pending": [
-    "Generate VTT for 7 videos",
-    "Upload to YouTube",
-    "Create WordPress drafts"
+    "Czekam na zakonczenie procesowania wideo",
+    "Wgranie transkrypcji na YouTube (captions.insert)",
+    "Ustawienie scheduledPublishAt i dodanie do playlisty YT"
   ]
 }
