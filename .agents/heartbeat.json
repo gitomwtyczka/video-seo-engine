@@ -1,10 +1,14 @@
 {
-  "callsign": "shadow-dev-01",
-  "status": "done",
-  "current_task": "Fix backslashes in ShortMachineTab.tsx output_dir",
-  "timestamp": "2026-08-26T16:06:25.031814",
+  "callsign": "media-dev-01",
+  "status": "working",
+  "current_task": "Biblia pipeline: MP3 -> VTT -> YT schedule -> WP draft",
+  "timestamp": "2026-08-29T23:25:00+02:00",
   "last_completed": [
-    "Naprawa \u015bcie\u017cki generowania w UI (ShortMachineTab.tsx) - usuni\u0119cie wielokrotnych backslashy"
+    "Naprawa ścieżki generowania w UI (ShortMachineTab.tsx) - usunięcie wielokrotnych backslashy"
   ],
-  "pending": []
+  "pending": [
+    "Generate VTT for 7 videos",
+    "Upload to YouTube",
+    "Create WordPress drafts"
+  ]
 }
