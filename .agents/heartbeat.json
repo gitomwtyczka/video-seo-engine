@@ -1,16 +1,14 @@
 {
   "callsign": "media-dev-01",
-  "status": "working",
+  "status": "done",
   "current_task": "Biblia pipeline: MP3 -> VTT -> YT schedule -> WP draft",
-  "timestamp": "2026-08-29T23:37:00+02:00",
+  "timestamp": "2026-08-29T23:55:00+02:00",
   "last_completed": [
-    "Naprawa ścieżki generowania w UI (ShortMachineTab.tsx) - usunięcie wielokrotnych backslashy",
-    "Wygenerowanie JWT tokena dla VSE",
-    "Uruchomienie VSE API pipeline (audio/generate) dla 7 filmów"
+    "Uruchomienie VSE API pipeline (audio/generate) dla 7 filmów - Zakończone sukcesem",
+    "Wygenerowanie szkiców postów WordPress (prawy.pl) z odpowiednią datą publikacji i kategoriami dla wszystkich 7 filmów"
   ],
   "pending": [
-    "Czekam na zakonczenie procesowania wideo",
-    "Wgranie transkrypcji na YouTube (captions.insert)",
-    "Ustawienie scheduledPublishAt i dodanie do playlisty YT"
+    "BLOKER: Wgranie transkrypcji na YouTube (captions.insert) - token wygasł (invalid_grant)",
+    "BLOKER: Ustawienie scheduledPublishAt i dodanie do playlisty YT - token wygasł (invalid_grant)"
   ]
 }
