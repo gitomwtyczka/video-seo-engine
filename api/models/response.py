@@ -101,3 +101,19 @@ class JobStatusResponse(BaseModel):
     status: str
     result: Optional[dict] = None
     error: Optional[str] = None
+
+
+class DescribeResponse(BaseModel):
+    """Response model dla metadanych i opisu Shorta (YouTube best practices 2025/2026)."""
+
+    status: str = "ok"
+    optimized_title: str = ""
+    suggested_title: str = ""  # alias dla backward compatibility
+    description: str = ""
+    hashtags: List[str] = []
+    tags: List[str] = []  # alias dla backward compatibility
+    pinned_comment: str = ""
+    related_video_id: Optional[str] = None
+    start_sec: Optional[float] = None
+    end_sec: Optional[float] = None
+    error: Optional[str] = None
