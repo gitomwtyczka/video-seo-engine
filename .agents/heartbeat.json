@@ -1,14 +1,13 @@
 {
-  "callsign": "media-dev-01",
-  "status": "done",
-  "current_task": "Biblia pipeline: MP3 -> VTT -> YT schedule -> WP draft",
-  "timestamp": "2026-08-29T23:55:00+02:00",
+  "callsign": "vse-dev-01",
+  "status": "working",
+  "current_task": "Update Short Machine prompts for YouTube 2025/2026 best practices and add related_video_id",
+  "timestamp": "2026-08-31T22:25:10+02:00",
   "last_completed": [
-    "Uruchomienie VSE API pipeline (audio/generate) dla 7 filmów - Zakończone sukcesem",
-    "Wygenerowanie szkiców postów WordPress (prawy.pl) z odpowiednią datą publikacji i kategoriami dla wszystkich 7 filmów"
+    "Biblia pipeline: MP3 -> VTT -> YT schedule -> WP draft"
   ],
   "pending": [
-    "BLOKER: Wgranie transkrypcji na YouTube (captions.insert) - token wygasł (invalid_grant)",
-    "BLOKER: Ustawienie scheduledPublishAt i dodanie do playlisty YT - token wygasł (invalid_grant)"
+    "Update Short Machine prompts and response schema",
+    "Pre-deploy backup and deploy to VPS"
   ]
 }
