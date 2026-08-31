@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -27,7 +27,8 @@ from api.models.job import TranscriptJob
 from api.models.short_job import ShortJob
 from api.models.short_candidate import ShortCandidateSet
 from api.models.short_srt import ShortSrtPackage
-from core.shorts import propose_shorts, get_vtt_segments_for_candidate, get_segments_for_range
+from api.models.response import DescribeResponse
+from core.shorts import propose_shorts, get_vtt_segments_for_candidate, get_segments_for_range, _sanitize_short_title, _sanitize_hashtags
 from api.services.whisper_service import transcribe_audio
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,8 @@ class CandidatesRequest(BaseModel):
     count_custom: int = 3
     provider: Optional[str] = None
     portal_id: Optional[str] = None
+    channel_name: Optional[str] = None
+    related_video_id: Optional[str] = None
 
 
 class RenderRequest(BaseModel):
@@ -71,6 +74,19 @@ class TitleRequest(BaseModel):
     youtube_id: str
     start_sec: float
     end_sec: float
+    channel_name: Optional[str] = None
+    related_video_id: Optional[str] = None
+
+
+class DescribeRequest(BaseModel):
+    youtube_id: Optional[str] = None
+    related_video_id: Optional[str] = None
+    start_sec: float
+    end_sec: float
+    channel_name: Optional[str] = None
+    hook_text: Optional[str] = None
+    punchline_text: Optional[str] = None
+    provider: Optional[str] = None
 
 
 # --- Helpers ---
@@ -161,7 +177,7 @@ def _convert_transcript_to_webvtt(transcript: str) -> str:
 async def _resolve_vtt_path(youtube_id: str, db: AsyncSession) -> Optional[str]:
     """
     CO: Znajduje plik VTT dla danego youtube_id.
-    PO CO: Współdzielona logika szukania VTT — używana przez /candidates i /title.
+    PO CO: Współdzielona logika szukania VTT — używana przez /candidates, /title i /describe.
     JAK: Sprawdza dysk VPS, potem bazę danych TranscriptJob.
     
     Returns:
@@ -273,7 +289,7 @@ def _generate_napisy_shortow_srt(candidates: list) -> str:
     for c in candidates:
         start_sec = c.get('start_sec', 0)
         end_sec = c.get('end_sec', start_sec + 60)
-        title = c.get('suggested_title') or c.get('title') or f"Short {counter}"
+        title = c.get('optimized_title') or c.get('suggested_title') or c.get('title') or f"Short {counter}"
         
         # Header entry for this short
         entries.append(
@@ -313,7 +329,7 @@ def _generate_youtube_chapters(candidates: list) -> str:
     lines = ["00:00 Wstep"]
     for i, c in enumerate(candidates, 1):
         start_sec = c.get('start_sec', 0)
-        title = c.get('suggested_title') or c.get('title') or f"Short {i}"
+        title = c.get('optimized_title') or c.get('suggested_title') or c.get('title') or f"Short {i}"
         title = title.replace('"', '').replace('[', '').replace(']', '').strip()
         minutes = int(start_sec // 60)
         seconds = int(start_sec % 60)
@@ -333,7 +349,7 @@ def _generate_shorts_markers_srt(candidates: list) -> str:
     for i, c in enumerate(candidates, 1):
         start_sec = c.get('start_sec', 0)
         end_sec = c.get('end_sec', start_sec + 60)
-        title = c.get('suggested_title') or c.get('title') or f"Short {i}"
+        title = c.get('optimized_title') or c.get('suggested_title') or c.get('title') or f"Short {i}"
         short_type = c.get('type', 'short').upper()
         score = c.get('score', 0)
         stars = '\u2605' * round(score * 5) + '\u2606' * (5 - round(score * 5))
@@ -565,7 +581,7 @@ async def save_candidates(youtube_id: str, body: dict, db: AsyncSession = Depend
 
 @router.post("/candidates")
 async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_db)):
-    """Analizuje transkrypt VTT i zwraca propozycje kandydatów na shorty."""
+    """Analizuje transkrypt VTT i zwraca propozycje kandydatów na shorty wg standardów 2025/2026."""
     provider = req.provider or os.getenv("DEFAULT_LLM_PROVIDER", "claude")
     api_key = os.getenv("ANTHROPIC_API_KEY", "") if provider == "claude" else os.getenv("GEMINI_API_KEY", "")
 
@@ -578,6 +594,7 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
             api_key = os.getenv("GEMINI_API_KEY", "")
 
     yt_id = _extract_youtube_id(req.youtube_id) or _extract_youtube_id(req.youtube_url) or req.youtube_id
+    related_vid = req.related_video_id or yt_id or ""
     vtt_path = req.vtt_path
     tmp_file = None
 
@@ -630,10 +647,13 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
             count_custom=req.count_custom,
             api_key=api_key,
             provider=provider,
+            channel_name=req.channel_name or "",
+            related_video_id=related_vid,
         )
         result_candidates = []
         for c in candidates:
             c_dict = c.to_dict()
+            c_dict["related_video_id"] = related_vid
             c_dict["vtt_segments"] = get_vtt_segments_for_candidate(
                 vtt_path=vtt_path,
                 start_sec=c.start_sec,
@@ -677,13 +697,14 @@ async def get_candidates(req: CandidatesRequest, db: AsyncSession = Depends(get_
 @router.post("/title")
 async def regenerate_title(req: TitleRequest, db: AsyncSession = Depends(get_db)):
     """
-    CO: Regeneruje tytuł i tagi dla shorta na podstawie nowych czasów.
-    PO CO: Gdy user zmienia start/end sekund, tytuł powinien odzwierciedlać nowy zakres.
+    CO: Regeneruje tytuł, tagi, opis i pinned comment dla shorta wg standardów 2025/2026.
+    PO CO: Gdy user zmienia start/end sekund, metadane powinny odzwierciedlać nowy zakres.
     """
     import json
-    from core.generator import _call_llm
+    from core.generator import _call_llm, _sanitize_llm_json
 
     yt_id = _extract_youtube_id(req.youtube_id) or req.youtube_id
+    related_vid = req.related_video_id or yt_id
     tmp_file = None
 
     try:
@@ -704,14 +725,17 @@ async def regenerate_title(req: TitleRequest, db: AsyncSession = Depends(get_db)
         if not vtt_text.strip():
             vtt_text = "\n".join([f"[{s['time_str']}] {s['text']}" for s in segments])
 
-        prompt = f"""Na podstawie tego fragmentu transkryptu wygeneruj:
-1. suggested_title: chwytliwy tytuł shorta (5-9 słów po polsku)
-2. tags: do 10 hashtagów (format #słowo)
+        channel_mention = f"@{req.channel_name.lstrip('@')}" if req.channel_name else "@naszym kanale"
+        prompt = f"""Na podstawie tego fragmentu transkryptu wygeneruj metadane YouTube Short wg standardów 2025/2026:
+1. optimized_title (oraz suggested_title): chwytliwy tytuł (TWARDE OGRANICZENIE: MAX 45 ZNAKÓW, front-loading najważniejszych słów w pierwszych 30 znakach, emocja/curiosity gap, KATEGORYCZNY ZAKAZ wstawiania #Shorts).
+2. hashtags (oraz tags): 3-5 hashtagów tematycznych/niszowych (KATEGORYCZNY ZAKAZ #Shorts).
+3. description: 1-3 zwięzłe zdania (150-350 znaków) ze słowami kluczowymi z transkrypcji, CTA z mentionem {channel_mention} i hashtagami na końcu (KATEGORYCZNY ZAKAZ wklejania URLi).
+4. pinned_comment: emoji + pytanie polaryzujące na bazie puenty + CTA: „całą rozmowę znajdziesz w powiązanym filmie poniżej” (KATEGORYCZNY ZAKAZ URLi).
 
 Transkrypt:
 {vtt_text}
 
-Odpowiedź TYLKO JSON: {{"suggested_title": "...", "tags": ["#tag1", "#tag2"]}}"""
+Odpowiedź TYLKO JSON: {{"optimized_title": "...", "suggested_title": "...", "hashtags": ["#tag1", "#tag2"], "tags": ["#tag1", "#tag2"], "description": "...", "pinned_comment": "..."}}"""
 
         provider = os.getenv("DEFAULT_LLM_PROVIDER", "claude")
         api_key = os.getenv("ANTHROPIC_API_KEY", "") if provider == "claude" else os.getenv("GEMINI_API_KEY", "")
@@ -723,12 +747,40 @@ Odpowiedź TYLKO JSON: {{"suggested_title": "...", "tags": ["#tag1", "#tag2"]}}"
 
         raw = _call_llm(prompt, api_key, provider)
         raw = raw.strip().lstrip("```json").rstrip("```").strip()
+        raw = _sanitize_llm_json(raw)
         try:
             data = json.loads(raw)
-            return {"title": data.get("suggested_title", ""), "tags": data.get("tags", [])}
+            raw_title = data.get("optimized_title") or data.get("suggested_title", "")
+            title = _sanitize_short_title(raw_title, max_len=45)
+            raw_tags = data.get("hashtags") or data.get("tags") or []
+            tags = _sanitize_hashtags(raw_tags)
+            desc = re.sub(r"https?://\S+", "", data.get("description", "")).strip()[:350]
+            pinned = re.sub(r"https?://\S+", "", data.get("pinned_comment", "")).strip()
+            if not pinned:
+                pinned = "💬 Co sądzisz o tym temacie? Zostaw komentarz! 👇\n\n🎬 Całą rozmowę znajdziesz w powiązanym filmie poniżej!"
+
+            return {
+                "title": title,
+                "optimized_title": title,
+                "suggested_title": title,
+                "tags": tags,
+                "hashtags": tags,
+                "description": desc,
+                "pinned_comment": pinned,
+                "related_video_id": related_vid,
+            }
         except Exception:
             logger.warning("regenerate_title: JSON parse failed, raw=%s", raw[:200])
-            return {"title": "", "tags": []}
+            return {
+                "title": "",
+                "optimized_title": "",
+                "suggested_title": "",
+                "tags": [],
+                "hashtags": [],
+                "description": "",
+                "pinned_comment": "",
+                "related_video_id": related_vid,
+            }
 
     except HTTPException:
         raise
@@ -741,6 +793,101 @@ Odpowiedź TYLKO JSON: {{"suggested_title": "...", "tags": ["#tag1", "#tag2"]}}"
                 os.remove(tmp_file)
             except Exception as cleanup_err:
                 logger.warning("Failed to remove temp VTT file %s: %s", tmp_file, cleanup_err)
+
+
+@router.post("/describe", response_model=DescribeResponse)
+async def describe_short(req: DescribeRequest, db: AsyncSession = Depends(get_db)) -> DescribeResponse:
+    """
+    CO: Generuje komplet metadanych dla wycinka Shorta (tytuł max 45 zn, opis bez linków, tagi bez #Shorts, pinned comment).
+    PO CO: Standard YouTube 2025/2026 dla publikacji Short Machine.
+    JAK: Pobiera transkrypt fragmentu, wywołuje LLM, sanitizuje i zwraca DescribeResponse z related_video_id.
+    """
+    import json
+    from core.generator import _call_llm, _sanitize_llm_json
+
+    yt_id = _extract_youtube_id(req.youtube_id) or _extract_youtube_id(req.related_video_id) or req.youtube_id or req.related_video_id or ""
+    parent_id = req.related_video_id or yt_id
+    tmp_file = None
+
+    try:
+        vtt_path = await _resolve_vtt_path(yt_id, db) if yt_id else None
+        vtt_text = ""
+        if vtt_path:
+            if vtt_path.startswith("/tmp/") and "_title_" in vtt_path:
+                tmp_file = vtt_path
+            segments = get_segments_for_range(vtt_path, req.start_sec, req.end_sec, context_sec=3.0)
+            if segments:
+                vtt_text = "\n".join([f"[{s['time_str']}] {s['text']}" for s in segments if s['in_range']])
+                if not vtt_text.strip():
+                    vtt_text = "\n".join([f"[{s['time_str']}] {s['text']}" for s in segments])
+
+        if not vtt_text and req.hook_text:
+            vtt_text = f"Hook: {req.hook_text}\nPunchline: {req.punchline_text or ''}"
+
+        if not vtt_text:
+            vtt_text = f"Fragment wideo od sekundy {req.start_sec} do {req.end_sec}."
+
+        channel_mention = f"@{req.channel_name.lstrip('@')}" if req.channel_name else "@naszym kanale"
+        prompt = f"""Na podstawie tego fragmentu transkryptu wygeneruj metadane YouTube Short wg standardów 2025/2026:
+1. optimized_title: chwytliwy tytuł (TWARDE OGRANICZENIE: MAX 45 ZNAKÓW, front-loading najważniejszych słów w pierwszych 30 znakach, emocja/curiosity gap, KATEGORYCZNY ZAKAZ wstawiania #Shorts).
+2. hashtags: 3-5 hashtagów tematycznych/niszowych (KATEGORYCZNY ZAKAZ #Shorts).
+3. description: 1-3 zwięzłe zdania (150-350 znaków) ze słowami kluczowymi z transkrypcji, CTA z mentionem {channel_mention} i hashtagami na końcu (KATEGORYCZNY ZAKAZ wklejania URLi).
+4. pinned_comment: emoji + pytanie polaryzujące na bazie puenty + CTA: „całą rozmowę znajdziesz w powiązanym filmie poniżej” (KATEGORYCZNY ZAKAZ URLi).
+
+Transkrypt:
+{vtt_text}
+
+Odpowiedź TYLKO JSON: {{"optimized_title": "...", "suggested_title": "...", "hashtags": ["#tag1", "#tag2"], "tags": ["#tag1", "#tag2"], "description": "...", "pinned_comment": "..."}}"""
+
+        provider = req.provider or os.getenv("DEFAULT_LLM_PROVIDER", "claude")
+        api_key = os.getenv("ANTHROPIC_API_KEY", "") if provider == "claude" else os.getenv("GEMINI_API_KEY", "")
+        if not api_key:
+            if os.getenv("ANTHROPIC_API_KEY"):
+                provider, api_key = "claude", os.getenv("ANTHROPIC_API_KEY", "")
+            elif os.getenv("GEMINI_API_KEY"):
+                provider, api_key = "gemini", os.getenv("GEMINI_API_KEY", "")
+
+        raw = _call_llm(prompt, api_key, provider)
+        raw = raw.strip().lstrip("```json").rstrip("```").strip()
+        raw = _sanitize_llm_json(raw)
+        data = json.loads(raw)
+
+        raw_title = data.get("optimized_title") or data.get("suggested_title", "")
+        title = _sanitize_short_title(raw_title, max_len=45)
+        raw_tags = data.get("hashtags") or data.get("tags") or []
+        tags = _sanitize_hashtags(raw_tags)
+        desc = re.sub(r"https?://\S+", "", data.get("description", "")).strip()[:350]
+        pinned = re.sub(r"https?://\S+", "", data.get("pinned_comment", "")).strip()
+        if not pinned:
+            pinned = "💬 Co sądzisz o tym temacie? Zostaw swój komentarz! 👇\n\n🎬 Całą rozmowę znajdziesz w powiązanym filmie poniżej!"
+
+        return DescribeResponse(
+            status="ok",
+            optimized_title=title,
+            suggested_title=title,
+            description=desc,
+            hashtags=tags,
+            tags=tags,
+            pinned_comment=pinned,
+            related_video_id=parent_id,
+            start_sec=req.start_sec,
+            end_sec=req.end_sec,
+        )
+    except Exception as e:
+        logger.error("describe_short error: %s", e)
+        return DescribeResponse(
+            status="error",
+            related_video_id=parent_id,
+            start_sec=req.start_sec,
+            end_sec=req.end_sec,
+            error=str(e),
+        )
+    finally:
+        if tmp_file and os.path.exists(tmp_file):
+            try:
+                os.remove(tmp_file)
+            except Exception:
+                pass
 
 
 @router.post("/render")
