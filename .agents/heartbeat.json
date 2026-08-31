@@ -1,13 +1,13 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
+  "status": "done",
   "current_task": "Update Short Machine prompts for YouTube 2025/2026 best practices and add related_video_id",
-  "timestamp": "2026-08-31T22:25:10+02:00",
+  "timestamp": "2026-08-31T22:32:15+02:00",
   "last_completed": [
-    "Biblia pipeline: MP3 -> VTT -> YT schedule -> WP draft"
+    "c7e5fd384c7a073c01243a84c33a5d421a57d05b: add DescribeResponse model with related_video_id (2026-08-31)",
+    "4659a18ad15f3bb939976c9a6f34f511545cb3fc: update SHORTS_SELECTION_PROMPT and ShortCandidate with 2025/2026 rules (2026-08-31)",
+    "1af70b476576bccc7165564a5da24f24f9eaf888: add /v1/shorts/describe endpoint and update title prompt / router models (2026-08-31)",
+    "Pre-deploy backup executed successfully on VPS (2026-08-31)"
   ],
-  "pending": [
-    "Update Short Machine prompts and response schema",
-    "Pre-deploy backup and deploy to VPS"
-  ]
+  "pending": []
 }
