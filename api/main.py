@@ -40,6 +40,11 @@ Endpoints:
   GET  /v1/podcast/shows      — list podcast shows for profile
   GET  /v1/podcast/shows/{slug} — podcast show config
   POST /v1/podcast/link-mp3   — link MP3 to WordPress post
+  POST /v1/plugin/keys        — generate WP plugin API key
+  GET  /v1/plugin/keys        — list WP plugin API keys
+  POST /v1/plugin/validate    — validate WP plugin API key & domain
+  POST /v1/plugin/preview     — preview Video SEO Score & Rich Result
+  POST /v1/plugin/inject-data — generate Schema JSON-LD & Meta SEO for WP plugin
   GET  /docs                  — Swagger UI
 """
 import logging
@@ -61,6 +66,7 @@ from api.routers.profiles import router as profiles_router
 from api.routers.payments import router as payments_router
 from api.routers.youtube import router as youtube_router
 from api.routers.podcast import router as podcast_router
+from api.routers.plugin import router as plugin_router
 from api.models.response import HealthResponse
 from api.middleware.error_logging import ErrorLoggingMiddleware
 from api.db import engine, Base, AsyncSessionLocal
@@ -137,6 +143,9 @@ app.include_router(youtube_router)
 # Podcast router (multi-show management)
 app.include_router(podcast_router, prefix="/v1")
 
+# WordPress Micro-Plugin router (/v1/plugin/*)
+app.include_router(plugin_router)
+
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 async def health() -> HealthResponse:
@@ -155,24 +164,62 @@ async def _seed_plans() -> None:
     (idempotent). Required because register endpoint has FK to plans table.
     """
     plans = [
-        {"id": "free",    "display_name": "Free",    "monthly_quota": 5,    "wp_sites_limit": 1,   "api_access": False, "price_pln": 0},
-        {"id": "starter", "display_name": "Starter", "monthly_quota": 50,   "wp_sites_limit": 3,   "api_access": True,  "price_pln": 49},
-        {"id": "pro",     "display_name": "Pro",     "monthly_quota": 300,  "wp_sites_limit": 10,  "api_access": True,  "price_pln": 149},
-        {"id": "agency",  "display_name": "Agency",  "monthly_quota": 9999, "wp_sites_limit": 999, "api_access": True,  "price_pln": 499},
+        {
+            "id": "free",
+            "display_name": "Free",
+            "monthly_quota": 5,
+            "wp_sites_limit": 1,
+            "api_access": False,
+            "price_pln": 0,
+            "stripe_price_id": None,
+        },
+        {
+            "id": "starter",
+            "display_name": "Starter",
+            "monthly_quota": 50,
+            "wp_sites_limit": 3,
+            "api_access": True,
+            "price_pln": 49,
+            "stripe_price_id": os.getenv("STRIPE_PRICE_STARTER", "price_1To7dAQpm4UmxYABGIq9xztn"),
+        },
+        {
+            "id": "pro",
+            "display_name": "Pro",
+            "monthly_quota": 250,
+            "wp_sites_limit": 10,
+            "api_access": True,
+            "price_pln": 149,
+            "stripe_price_id": os.getenv("STRIPE_PRICE_PRO", "price_1To7dAQpm4UmxYABJDZg6rRE"),
+        },
+        {
+            "id": "agency",
+            "display_name": "Agency",
+            "monthly_quota": 1000,
+            "wp_sites_limit": 50,
+            "api_access": True,
+            "price_pln": 499,
+            "stripe_price_id": os.getenv("STRIPE_PRICE_AGENCY", "price_1To7dBQpm4UmxYAB8x6Guqcf"),
+        },
     ]
     async with AsyncSessionLocal() as db:
         for plan in plans:
             await db.execute(
                 text(
                     "INSERT INTO plans "
-                    "(id, display_name, monthly_quota, wp_sites_limit, api_access, price_pln) "
-                    "VALUES (:id, :display_name, :monthly_quota, :wp_sites_limit, :api_access, :price_pln) "
-                    "ON CONFLICT (id) DO NOTHING"
+                    "(id, display_name, monthly_quota, wp_sites_limit, api_access, price_pln, stripe_price_id) "
+                    "VALUES (:id, :display_name, :monthly_quota, :wp_sites_limit, :api_access, :price_pln, :stripe_price_id) "
+                    "ON CONFLICT (id) DO UPDATE SET "
+                    "display_name = EXCLUDED.display_name, "
+                    "monthly_quota = EXCLUDED.monthly_quota, "
+                    "wp_sites_limit = EXCLUDED.wp_sites_limit, "
+                    "api_access = EXCLUDED.api_access, "
+                    "price_pln = EXCLUDED.price_pln, "
+                    "stripe_price_id = CASE WHEN plans.stripe_price_id IS NULL THEN EXCLUDED.stripe_price_id ELSE plans.stripe_price_id END"
                 ),
                 plan,
             )
         await db.commit()
-    logger.info("Plans seeded (4 plans, ON CONFLICT DO NOTHING).")
+    logger.info("Plans seeded/updated with Stripe prices and accurate quotas.")
 
 
 @app.on_event("startup")
@@ -194,7 +241,29 @@ async def startup_event() -> None:
         from api.models.short_srt import ShortSrtPackage # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created (incl. transcript_jobs, app_settings, wp_portals, youtube_channels, short_srt_packages).")
+            # Safe migrations for existing PostgreSQL tables
+            await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS input_tokens INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS output_tokens INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(50);"))
+            await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS estimated_cost_usd DOUBLE PRECISION;"))
+            await conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS api_keys ("
+                "id UUID PRIMARY KEY, "
+                "user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+                "key_hash VARCHAR(255) NOT NULL UNIQUE, "
+                "key_prefix VARCHAR(50) DEFAULT 'vse_live_...', "
+                "name VARCHAR(100) NOT NULL DEFAULT 'Default', "
+                "allowed_domain VARCHAR(255), "
+                "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+                "last_used_at TIMESTAMPTZ, "
+                "created_at TIMESTAMPTZ DEFAULT NOW()"
+                ");"
+            ))
+            await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_prefix VARCHAR(50) DEFAULT 'vse_live_...';"))
+            await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS allowed_domain VARCHAR(255);"))
+            await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'Default';"))
+            await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;"))
+        logger.info("Database tables verified/created and usage_logs + api_keys columns migrated.")
         
         from sqlalchemy import delete
         from datetime import datetime, timezone

@@ -1,0 +1,63 @@
+/**
+ * VSE Video SEO — Interactive Chapters Styles
+ */
+.vse-chapters-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 20px 0;
+}
+
+.vse-chapters-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vse-chapters-list {
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vse-chapter,
+[data-vse-seek] {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    text-decoration: none !important;
+    color: #1e293b;
+    font-size: 14px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.vse-chapter:hover,
+[data-vse-seek]:hover,
+.vse-chapter.is-active,
+[data-vse-seek].is-active {
+    background-color: #ffe4e6;
+    color: #be123c;
+}
+
+.vse-chapter-time {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    background: #e11d48;
+    color: #ffffff;
+    padding: 2px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}

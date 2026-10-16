@@ -6,7 +6,7 @@ from enum import Enum as PyEnum
 import uuid
 
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Integer,
+    Column, String, Boolean, DateTime, Integer, Float,
     ForeignKey, Enum, Text, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -84,20 +84,26 @@ class UsageLog(Base):
     youtube_id = Column(String(50), nullable=True)
     success = Column(Boolean, default=True)
     error_msg = Column(Text, nullable=True)
+    input_tokens = Column(Integer, nullable=True, default=0)
+    output_tokens = Column(Integer, nullable=True, default=0)
+    llm_provider = Column(String(50), nullable=True)
+    estimated_cost_usd = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="usage_logs")
 
 
 class ApiKey(Base):
-    """API key for Pro/Agency users (programmatic access)."""
+    """API key for Pro/Agency users and WordPress plugin (vse-video-seo)."""
     __tablename__ = "api_keys"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    key_hash = Column(String(255), nullable=False, unique=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    key_hash = Column(String(255), nullable=False, unique=True, index=True)
+    key_prefix = Column(String(50), nullable=True, default="vse_live_...")
     name = Column(String(100), nullable=False, default="Default")
-    is_active = Column(Boolean, default=True)
+    allowed_domain = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
