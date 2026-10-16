@@ -937,42 +937,45 @@ async def run_process(video_url: str, site_config: dict, options: dict,
     saas_data = gen_result.get("saas_data")
 
     final_wp_id = wp_post_id
-    if final_wp_id is None:
-        logger.warning("[process] No wp_post_id provided — skipping injection")
-        return {
-            "status": "ok",
-            "video_id": video_id,
-            "wp_post_id": None,
-            "schema_generated": True,
-            "injected": False,
-            "youtube_updated": False,
-            "processing_time_s": round(time.time() - start, 2),
-            "focus_keyphrase": seo.get("focus_keyphrase"),
-            "post_title": seo.get("post_title"),
-            "error": None,
-        }
-
     injected = False
     youtube_updated = False
 
     if options.get("auto_inject", True):
-        inject_result = await asyncio.to_thread(
-            inject_video,
-            final_wp_id,
-            video_id,
-            seo,
-            site_config["wp_base_url"],
-            site_config["wp_user"],
-            site_config["wp_app_password"],
-            None,
-            False,
-            False,
-            None,
-            saas_data,
-        )
-        injected = inject_result.get("ok", False)
-        youtube_updated = inject_result.get("yt_update_ok", False)
-        logger.info("[process] inject done: ok=%s yt_updated=%s", injected, youtube_updated)
+        if final_wp_id is None:
+            logger.info("[process] No wp_post_id provided — creating new WP post via _create_wp_post")
+            create_res = await asyncio.to_thread(
+                _create_wp_post,
+                seo,
+                video_id,
+                site_config["wp_base_url"],
+                site_config["wp_user"],
+                site_config["wp_app_password"],
+                None,
+                "draft",
+                "video",
+                saas_data,
+            )
+            final_wp_id = create_res.get("wp_post_id")
+            injected = create_res.get("status") == "ok"
+            youtube_updated = create_res.get("youtube_updated", False)
+        else:
+            inject_result = await asyncio.to_thread(
+                inject_video,
+                final_wp_id,
+                video_id,
+                seo,
+                site_config["wp_base_url"],
+                site_config["wp_user"],
+                site_config["wp_app_password"],
+                None,
+                False,
+                False,
+                None,
+                saas_data,
+            )
+            injected = inject_result.get("ok", False)
+            youtube_updated = inject_result.get("yt_update_ok", False)
+        logger.info("[process] inject done: ok=%s yt_updated=%s wp_id=%s", injected, youtube_updated, final_wp_id)
 
     return {
         "status": "ok",
@@ -1005,7 +1008,15 @@ def _create_wp_post(
     auth = _make_auth(wp_user, wp_app_pass)
 
     post_title = seo.get("post_title", "").strip() or seo.get("seo_title", "").strip() or video_id
-    excerpt = _strip_html(seo.get("lead", ""))[:300] if seo.get("lead") else ""
+
+    # Determine default categories
+    categories = None
+    if profile_config and profile_config.get("default_categories"):
+        categories = profile_config.get("default_categories")
+    elif seo.get("categories"):
+        categories = seo.get("categories")
+    elif "prawy.pl" in wp_base_url:
+        categories = [2, 2472]  # Polska (2) + Prawy TV (2472)
 
     create_payload: dict = {
         "title": post_title,
@@ -1013,8 +1024,10 @@ def _create_wp_post(
         "content": "",
         "format": post_format,
     }
-    if excerpt:
-        create_payload["excerpt"] = excerpt
+    if categories:
+        create_payload["categories"] = categories
+
+    # excerpt removed — lead is displayed in post_content only (fix lead-excerpt 2026-07-23)
 
     create_url = f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/posts"
     try:
