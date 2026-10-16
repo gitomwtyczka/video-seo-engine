@@ -905,7 +905,15 @@ def _create_wp_post(
     auth = _make_auth(wp_user, wp_app_pass)
 
     post_title = seo.get("post_title", "").strip() or seo.get("seo_title", "").strip() or video_id
-    excerpt = _strip_html(seo.get("lead", ""))[:300] if seo.get("lead") else ""
+
+    # Determine default categories
+    categories = None
+    if profile_config and profile_config.get("default_categories"):
+        categories = profile_config.get("default_categories")
+    elif seo.get("categories"):
+        categories = seo.get("categories")
+    elif "prawy.pl" in wp_base_url:
+        categories = [2, 2472]  # Polska (2) + Prawy TV (2472)
 
     create_payload: dict = {
         "title": post_title,
@@ -913,8 +921,10 @@ def _create_wp_post(
         "content": "",
         "format": post_format,
     }
-    if excerpt:
-        create_payload["excerpt"] = excerpt
+    if categories:
+        create_payload["categories"] = categories
+
+    # excerpt removed — lead is displayed in post_content only (fix lead-excerpt 2026-07-23)
 
     create_url = f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/posts"
     try:
