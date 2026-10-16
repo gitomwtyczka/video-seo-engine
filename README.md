@@ -204,61 +204,69 @@ video-seo-engine/
 
 ---
 
-## 🗺️ Roadmap
+## 🗺️ Roadmap (Master Roadmap v2.0 — 16.10.2026)
 
-### ✅ Faza 1 — CLI Pipeline (DONE)
-- [x] Core pipeline v5.4 (VideoObject + Clip + FAQ + interactionStatistic)
-- [x] VTT fetching bez API key
-- [x] Video sitemap generation
-- [x] Claude (Anthropic) LLM provider
-- [x] inject_video + YouTube description update (OAuth)
-- [x] RankMath integration
+> Pełny dokument strategiczny i techniczny: **[ROADMAP.md](ROADMAP.md)**
 
-### ✅ Faza 2A — VSE API Service (DONE)
-- [x] FastAPI app (api/ moduł)
-- [x] PostgreSQL + plans seed (auto przy starcie)
-- [x] Auth: register, login, JWT
-- [x] POST /v1/generate — **OPERACYJNY**
-- [x] POST /v1/inject, /v1/process, /v1/monitor/start
-- [x] Next.js 14 dashboard (2 ścieżki: Free/Pro)
-- [x] Deployment oracle-crimson — **LIVE**
+### 📊 Zatwierdzone Pakiety i Twarde Limity (Brak strat na tokenach)
+- **FREE:** 0 zł | 5 filmów/mies. | 0 Claude (tylko Gemini Flash 0,016 zł) | 1 portal WP | CAC = 0,08 zł
+- **STARTER:** 49 zł brutto (38,10 zł netto) | 50 filmów/mies. | 0 Claude | 3 portale | Marża: **+37,30 zł (97,9% 🟢)**
+- **PRO:** 149 zł brutto (117,90 zł netto) | 250 filmów/mies. | do 30 Claude Sonnet | 10 portali | Marża: **+91,88 zł (77,9% 🟢)**
+- **AGENCY:** 499 zł brutto (397,20 zł netto) | 1 000 filmów/mies. | do 150 Claude Sonnet | 50 portali | Marża: **+271,10 zł (68,3% 🟢)**
 
-### 🟡 Faza 2B — YouTube Unblock + E2E + Security (IN PROGRESS)
-- [x] ✅ Security: auth na POST /v1/inject + user_id isolation audit (2026-07-11)
-- [x] ✅ YouTube OAuth: connect/disconnect kanałów, toast UX, yt_channel_ids do inject (2026-07-11)
-- [x] ✅ YouTube publishing UX: podgląd edycji + per-channel footer (2026-07-13)
-- [x] ✅ Fix VTT Truncation: runner nie ucinał transkryptu — poprawka logiki coverage (2026-07-20)
-- [ ] Local Runner: weryfikacja mechanizmu VTT coverage — runner powinien raportować `last segment at Xs` dla każdej metody fetchu, nie tylko yt-dlp
-- [ ] Local Runner: auto-update yt-dlp — runner jako długożyjący proces powinien raz dziennie (lub w idle) sprawdzać czy yt-dlp jest aktualny (`pip install -U yt-dlp`) i aktualizować bez restartu
-- [ ] cookies.txt strategy — fetcher.py + docker volume
-- [ ] End-to-end test z realnym video PrawyTV
-- [ ] POST /v1/monitor/start — testy E2E
-- [ ] deno JS runtime w api/Dockerfile (eliminuje WARNING yt-dlp)
+---
 
-### 🔴 Faza 3 — VSE Komercjalizacja MVP (BLOCKER)
-- [ ] 🔴 Stripe checkout flow (Products + Prices + Webhooks)
-- [ ] 🔴 Terms of Service + Privacy Policy (EU/RODO)
-- [ ] 🟡 System kuponów promocyjnych dla Stripe (rabaty na upgrade / nowe abonamenty)
-- [ ] 🟡 Email verification flow (token exists, flow TBD)
-- [ ] 🟡 Google OAuth login (google_id exists, flow TBD)
-- [ ] 🟡 Landing page visual polish + pricing page
-- [ ] ✅ Pre-deploy backup system (VPS cron + deploy gate)
-- [ ] ✅ `org_id` nullable column prep (future org layer)
+### ✅ FAZA 1 & 2A — CLI Pipeline, API & Dashboard (ZREALIZOWANE)
+- [x] Core pipeline v5.4 (`VideoObject` + `Clip` + `FAQPage` + artykuł HTML + integracja RankMath)
+- [x] VTT fetching z fallbackiem (`youtube-transcript-api` → `yt-dlp` → Graceful Degradation bez napisów)
+- [x] `VSELocalRunner` (usługa Windows omijająca blokady IP datacenter + fix ucinania transkrypcji)
+- [x] FastAPI app + PostgreSQL + Auth JWT + Next.js 14 Dashboard + Admin Panel wdrożone na `vse.impresjapr.pl`
+- [x] YouTube OAuth2: podpinanie kanałów, publikacja opisów M1-M8 (`build_yt_description`), tytuły `yt_title`, stopka `footer_text`
 
-### 🔵 Faza 4 — VSE Growth (po PMF validation)
-- [ ] Batch processing (wiele wideo naraz)
-- [ ] SEO Scoring dashboard
-- [ ] Channel Monitor E2E
-- [ ] API keys for Pro/Agency (model exists)
+---
 
-### 🟣 Faza 5 — Integracja z ekosystemem PressAI (po komercjalizacji PressAI)
-- [ ] Opcjonalna user federation VSE↔PressAI
-- [ ] S2S user-scoped izolacja (competing tenants scenario)
-- [ ] Organization/Tenant layer
-- [ ] WordPress plugin (pressai-video-seo) freemium
-- [ ] Bundle pricing VSE+PressAI
+### 🟡 FAZA 2B — Stabilizacja Kodu, Naprawa Bomb P0 i Porządek w Git (W TOKU / PRZYGOTOWANE W ETAPIE 1)
+- [x] **Modularność Dashboardu:** Podział monolitu `dashboard-inner.tsx` na komponenty (`types.ts`, `utils.ts`, `YouTubePublishModal` obsługa `overrideDescription`).
+- [x] **Hotfix P0 #1 (White-Label):** Neutralizacja promptu w `core/generator.py` (usunięcie tożsamości `prawy.pl` na rzecz dynamicznej nazwy portalu).
+- [x] **Hotfix P0 #2 (SaaS Transcript 403):** Przekazywanie `user_id` do `_create_transcript_job()` i poprawka uprawnień w `api/routers/jobs.py`.
+- [x] **Hotfix P0 #3 (Twarde Limity & Model Tiering):** Wymuszenie Gemini Flash w planach Free/Starter, blokada `monthly_quota`, auto-fallback `Claude → Gemini` przy 429/529.
+- [x] **Precyzyjne Logowanie Tokenów & Kosztów:** Rejestracja `input_tokens`, `output_tokens`, `estimated_cost_usd` w `UsageLog` + migracja bazy `ALTER TABLE`.
+- [x] **Lokalny Punkt One-Click Revert:** Branch `backup/pre-v2-commercial-20261016` oraz `backup_pre_v2_commercial_diff.patch`.
+- [ ] **Wdrożenie Produkcyjne Etapu 1:** Przegląd QA, merge do `main`, backup VPS (`backup_pre_deploy.sh`) i deploy na `vse.impresjapr.pl`.
+
+---
+
+### 💰 FAZA 3 — Domknięcie Komercjalizacji Portalu VSE i Płatności Stripe
+- [x] Ujednolicenie cennika w Landing Page, `/cennik` oraz `_seed_plans()` z ID Stripe.
+- [ ] Pełna integracja Stripe Checkout & Webhooków (`subscription_update`, proration, kupony promocyjne).
+- [ ] Wymogi prawne: `/regulamin` (ToS) i `/polityka-prywatnosci` (RODO).
+- [ ] Weryfikacja e-mail oraz logowanie Google OAuth.
+
+---
+
+### 🔌 FAZA 4 — Mikro-Wtyczka WordPress `vse-video-seo` (Lead Magnet → Portal)
+- [ ] Backend VSE: Tabela `api_keys`, walidacja `X-VSE-Key` + `X-Site-URL` i endpointy `/v1/plugin/*`.
+- [ ] Wtyczka WP (`vse-video-seo` na bazie 80% kodu `pressai-wp`):
+  - Clean Head Injection: wstrzykiwanie JSON-LD w `wp_head` przez pole `_vse_schema_json` (zero konfliktów z `wp_kses_post`).
+  - Uniwersalny adapter SEO dla RankMath, Yoast SEO i SEOPress.
+  - Lekki asset `assets/js/player.js` do obsługi rozdziałów wideo.
+- [ ] Gutenberg Sidebar UI: Wklejenie linku YT → podgląd Rich Result + Video SEO Score (Aha-moment) + upsell do planów Pro.
+
+---
+
+### 🎬 FAZA 5 — YouTube OAuth Captions & Zaawansowane SEO
+- [ ] **5.1. YouTube Data API v3 OAuth Captions (`captions.download`):** Przekazywanie tokena kanału do `fetch_transcript_api_v3()` — pobieranie napisów na VPS bez blokad IP oraz obsługa filmów **Prywatnych i Zaplanowanych**.
+- [ ] **5.2. Ręczny upload pliku `.vtt` / `.srt`** w dashboardzie (dla nagrań bez automatycznych napisów).
+- [ ] **5.3. Moduł M4B:** Cytaty z klikalnymi deep-linkami czasowymi.
+- [ ] **5.4. Przeglądarka kanału (`/channels`) i Channel Monitor E2E.**
+
+---
+
+### 🌐 FAZA 6 — Integracja Ekosystemu (VSE + PressAI + SocialPulse)
+- [ ] Wspólny standard kluczy API (`X-VSE-Key` / `X-PressAI-Key`).
+- [ ] Pakiet łączony (Bundle Pricing) oraz izolacja multi-tenant (`org_id`).
 
 ---
 
 *Część ekosystemu [ImpresjaAI](https://impresjapr.pl) — platforma PressAI.*  
-*Roadmap zaktualizowany: 2026-07-20 [Supervisor-01] — VTT fix done + runner VTT coverage + yt-dlp auto-update*
+*Roadmap zaktualizowany: 16.10.2026 [Supervisor 01] — Master Roadmap v2.0*
