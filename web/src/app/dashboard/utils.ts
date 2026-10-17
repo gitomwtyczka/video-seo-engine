@@ -106,6 +106,8 @@ export function saveWpCredentials(creds: { wpUrl: string; wpUser: string; wpPass
 
 export function extractVideoId(url: string): string {
   if (!url) return ''
+  if (url.startsWith('audio://')) return url.replace('audio://', '')
+  if (url.startsWith('audio_')) return url
   const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|shorts\/)([^"&?\/\s]{11})/)
   return match ? match[1] : (url.length === 11 ? url : '')
 }

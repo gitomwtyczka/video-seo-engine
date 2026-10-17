@@ -10,6 +10,7 @@ export interface GenerateResponse {
 }
 
 export interface SchemaData {
+  video_id?: string
   focus_keyphrase?: string
   post_title?: string
   meta_description?: string
@@ -29,6 +30,8 @@ export interface SchemaData {
   wp_article_url?: string
   published_url?: string
   wp_url?: string
+  source?: string
+  media_id?: string
   [key: string]: unknown
 }
 

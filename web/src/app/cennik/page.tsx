@@ -27,8 +27,9 @@ const plans = [
     price: "149",
     description: "Dla profesjonalnych twórców treści",
     features: [
-      "300 filmów / miesiąc",
+      "250 filmów / miesiąc",
       "10 portali WordPress",
+      "Pakiet analiz Premium AI",
       "VideoObject Schema",
       "Chapters + FAQ AI",
       "Dostęp do API",
@@ -43,8 +44,9 @@ const plans = [
     price: "499",
     description: "Dla agencji i dużych wydawców",
     features: [
-      "Nielimitowane filmy",
-      "999 portali WordPress",
+      "1 000 filmów / miesiąc",
+      "50 portali WordPress",
+      "Priorytetowe AI & wsparcie",
       "VideoObject Schema",
       "Chapters + FAQ AI",
       "Dostęp do API",

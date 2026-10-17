@@ -25,10 +25,42 @@ const features = [
 ]
 
 const plans = [
-  { name: 'Free', price: '0', quota: '5 filmów/mies.', features: ['Schema VideoObject', 'Rozdziały AI', 'FAQ generation'], cta: 'Zacznij za darmo', highlighted: false },
-  { name: 'Starter', price: '29', quota: '50 filmów/mies.', features: ['Wszystko z Free', 'WordPress inject', '1 WP site', 'Email support'], cta: 'Wybierz Starter', highlighted: false },
-  { name: 'Pro', price: '99', quota: 'Nieograniczony', features: ['Wszystko ze Starter', '5 WP sites', 'API Access', 'Priority support'], cta: 'Wybierz Pro', highlighted: true },
-  { name: 'Agency', price: '299', quota: 'Nieograniczony', features: ['Wszystko z Pro', 'Bez limitu WP sites', 'White-label', 'SLA 99.9%'], cta: 'Kontakt', highlighted: false },
+  {
+    name: 'Free',
+    price: '0',
+    quota: '5 filmów / mies.',
+    features: ['Schema VideoObject', 'Rozdziały AI', 'FAQ generation', '1 portal WP'],
+    cta: 'Zacznij za darmo',
+    href: '/register',
+    highlighted: false,
+  },
+  {
+    name: 'Starter',
+    price: '49',
+    quota: '50 filmów / mies.',
+    features: ['Wszystko z Free', 'WordPress inject', '3 portale WP', 'Email support'],
+    cta: 'Wybierz Starter',
+    href: '/register?plan=starter',
+    highlighted: false,
+  },
+  {
+    name: 'Pro',
+    price: '149',
+    quota: '250 filmów / mies.',
+    features: ['Wszystko ze Starter', '10 portali WP', 'Pakiet analiz Premium AI', 'API Access', 'Priority support'],
+    cta: 'Wybierz Pro',
+    href: '/register?plan=pro',
+    highlighted: true,
+  },
+  {
+    name: 'Agency',
+    price: '499',
+    quota: '1 000 filmów / mies.',
+    features: ['Wszystko z Pro', '50 portali WP', 'Priorytetowe AI & wsparcie', 'White-label', 'SLA 99.9%'],
+    cta: 'Wybierz Agency',
+    href: '/register?plan=agency',
+    highlighted: false,
+  },
 ]
 
 export default function Home() {
@@ -164,7 +196,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <Link
-                  href="/register"
+                  href={plan.href || "/register"}
                   className={`w-full py-3 rounded-xl text-center font-medium transition-smooth ${
                     plan.highlighted
                       ? 'bg-brand-500 hover:bg-brand-400 text-white'

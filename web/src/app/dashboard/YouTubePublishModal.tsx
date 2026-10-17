@@ -9,32 +9,34 @@ interface Channel { channel_id: string; channel_title: string; footer_text?: str
 
 
 interface Props {
-
   isOpen: boolean;
-
   onClose: () => void;
-
   videoId: string;
-
   schemaData: any;
-
   wpUrl: string;
-
   channels: Channel[];
-
   accessToken: string;
-
   apiUrl: string;
-
   publishAt?: string;
-
   privacyStatus?: string;
-
   playlistId?: string;
-
+  overrideDescription?: string;
 }
 
-export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUrl, channels, accessToken, apiUrl, publishAt, privacyStatus, playlistId }: Props) {
+export function YouTubePublishModal({
+  isOpen,
+  onClose,
+  videoId,
+  schemaData,
+  wpUrl,
+  channels,
+  accessToken,
+  apiUrl,
+  publishAt,
+  privacyStatus,
+  playlistId,
+  overrideDescription,
+}: Props) {
 
   const [selected, setSelected] = useState<string[]>([])
 
@@ -45,16 +47,16 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUr
   }, [channels]);
 
   const [status, setStatus] = useState<"idle"|"loading"|"done"|"error">("idle");
-
   const [result, setResult] = useState<Record<string,string>>({});
+  const [previewText, setPreviewText] = useState<string>(overrideDescription || '');
+  const [showPreview, setShowPreview] = useState<boolean>(!!overrideDescription);
 
-  
-
-  const [previewText, setPreviewText] = useState<string>('');
-
-  const [showPreview, setShowPreview] = useState<boolean>(false);
-
-
+  useEffect(() => {
+    if (overrideDescription) {
+      setPreviewText(overrideDescription);
+      setShowPreview(true);
+    }
+  }, [overrideDescription]);
 
   if (!isOpen) return null;
 
@@ -124,36 +126,27 @@ export function YouTubePublishModal({ isOpen, onClose, videoId, schemaData, wpUr
   }
 
   useEffect(() => {
-    if (showPreview) {
+    if (showPreview && !overrideDescription) {
       setPreviewText(buildPreview())
     }
-  }, [selected, schemaData, wpUrl])
+  }, [selected, schemaData, wpUrl, overrideDescription])
+
   const handlePreviewClick = () => {
-
-    setPreviewText(buildPreview())
-
+    if (!previewText) {
+      setPreviewText(overrideDescription || buildPreview())
+    }
     setShowPreview(true)
-
   }
 
-
-
   const publish = async () => {
-
     if (!selected.length) return;
-
     setStatus("loading");
-
     console.log('[YT-DEBUG] videoId:', videoId, 'schemaData keys:', Object.keys(schemaData).length);
-
     try {
-
       const bodyPayload: any = { channel_ids: selected, video_id: videoId, schema_data: schemaData, wp_article_url: wpUrl }
-
-      if (showPreview && previewText) {
-
-        bodyPayload.override_description = previewText
-
+      const finalDesc = (showPreview && previewText) ? previewText : (overrideDescription || (previewText || undefined));
+      if (finalDesc) {
+        bodyPayload.override_description = finalDesc;
       }
 
       if (publishAt) bodyPayload.publish_at = new Date(publishAt).toISOString();
