@@ -70,6 +70,7 @@ async def create_checkout_session(
     try:
         session_kwargs: dict = {
             "mode": "subscription",
+            "allow_promotion_codes": True,
             "line_items": [
                 {"price": plan.stripe_price_id, "quantity": 1}
             ],
@@ -137,10 +138,12 @@ async def stripe_webhook(
 
     elif event["type"] == "invoice.payment_failed":
         invoice = event["data"]["object"]
+        cust_id = invoice["customer"] if "customer" in invoice else getattr(invoice, "customer", None)
+        inv_id = invoice["id"] if "id" in invoice else getattr(invoice, "id", None)
         logger.warning(
             "invoice.payment_failed: customer=%s, invoice=%s",
-            invoice.get("customer"),
-            invoice.get("id"),
+            cust_id,
+            inv_id,
         )
 
     return {"received": True}

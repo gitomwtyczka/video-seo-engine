@@ -2,6 +2,7 @@
 Quota middleware: checks user's monthly usage before allowing pipeline execution.
 """
 from datetime import datetime, timezone
+from typing import Any, Optional
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -42,31 +43,46 @@ async def check_quota(
     )
     used = result.scalar_one()
 
-    if used >= plan.monthly_quota:
+    if plan.monthly_quota != -1 and used >= plan.monthly_quota:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"Monthly quota exceeded ({used}/{plan.monthly_quota}). "
-                "Upgrade your plan at https://vse.impresjapr.pl/pricing"
-            )
+            detail="Miesięczny limit filmów w Twoim planie został wyczerpany. Przejdź na wyższy plan."
         )
 
     return current_user
 
 
 async def log_usage(
-    user_id: str,
+    user_id: Any,
     db: AsyncSession,
     youtube_id: str = None,
     success: bool = True,
-    error_msg: str = None
+    error_msg: str = None,
+    endpoint: str = "/v1/generate",
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    llm_provider: str = None,
+    estimated_cost_usd: float = None,
 ) -> None:
     """Record a pipeline execution in usage_logs."""
+    import uuid
+    uid = user_id
+    if isinstance(uid, str):
+        try:
+            uid = uuid.UUID(uid)
+        except Exception:
+            pass
+
     log = UsageLog(
-        user_id=user_id,
+        user_id=uid,
+        endpoint=endpoint,
         youtube_id=youtube_id,
         success=success,
-        error_msg=error_msg
+        error_msg=error_msg,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        llm_provider=llm_provider,
+        estimated_cost_usd=estimated_cost_usd,
     )
     db.add(log)
     await db.commit()

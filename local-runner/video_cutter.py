@@ -5,7 +5,7 @@ Działa wyłącznie na lokalnym PC użytkownika (Windows Service).
 
 CO: Wycina fragment wideo ze źródła (YouTube lub plik lokalny) i eksportuje
     dwa pliki: surowy (stream copy) i social (zakodowany 9:16 lub 16:9).
-PO CO: ShortMachine — użytkownik zatwierdza kandydata, worker wycina i zapisuje.
+PO CO: ShortMachine — użytkownik zatwierży kandydata, worker wycina i zapisuje.
 JAK: yt-dlp --download-sections dla YT | ffmpeg -ss -to dla plików lokalnych.
     Dwa eksporty: -c copy (surowy, dla Premiere/FinalCut) + libx264 veryfast (social).
 
@@ -56,7 +56,7 @@ def check_dependencies() -> dict[str, bool]:
     """Sprawdza dostępność wymaganych binarów."""
     deps = {
         "yt-dlp": _check_binary("yt-dlp"),
-        "ffmpeg": _check_binary("ffmpeg"),
+        r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe": _check_binary(r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe"),
     }
     for name, ok in deps.items():
         if ok:
@@ -558,7 +558,7 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
 
             if audio_url:
                 cmd_ff = [
-                    "ffmpeg", "-y",
+                    r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe", "-y",
                     "-ss", str(buf_start), "-to", str(buf_end),
                     "-i", video_url,
                     "-ss", str(buf_start), "-to", str(buf_end),
@@ -569,7 +569,7 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
                 ]
             else:
                 cmd_ff = [
-                    "ffmpeg", "-y",
+                    r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe", "-y",
                     "-ss", str(buf_start), "-to", str(buf_end),
                     "-i", video_url,
                     "-c", "copy",
@@ -597,7 +597,7 @@ def _download_fragment(youtube_url: str, start_sec: float, end_sec: float, outpu
             return False
 
         cmd_cut = [
-            "ffmpeg", "-y",
+            r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe", "-y",
             "-ss", str(start_sec), "-to", str(end_sec),
             "-i", tmp_video,
             "-c", "copy",
@@ -620,7 +620,7 @@ def _cut_local_segment(config: CutConfig, output_path: str) -> None:
         raise FileNotFoundError(f"Local video not found: {config.local_path!r}")
 
     cmd = [
-        "ffmpeg", "-y",
+        r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe", "-y",
         "-ss", str(config.start_sec),
         "-to", str(config.end_sec),
         "-i", config.local_path,
@@ -635,7 +635,7 @@ def _cut_local_segment(config: CutConfig, output_path: str) -> None:
 
 def _export_raw(input_path: str, output_path: str) -> None:
     """Eksport surowy — stream copy, zero re-encode (dla Premiere/FinalCut)."""
-    cmd = ["ffmpeg", "-y", "-i", input_path, "-c", "copy", output_path]
+    cmd = [r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe", "-y", "-i", input_path, "-c", "copy", output_path]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg raw export failed: {result.stderr[:500]}")
@@ -654,7 +654,7 @@ def _export_social(input_path: str, output_path: str, render_format: str = "9:16
         vf = "scale=1920:-2,crop=1920:1080"
 
     cmd = [
-        "ffmpeg", "-y",
+        r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe", "-y",
         "-i", input_path,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
         "-vf", vf,

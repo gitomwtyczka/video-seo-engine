@@ -29,11 +29,13 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
-from api.auth import get_current_user
-from api.models.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
-from api.db import AsyncSessionLocal
+from api.auth import get_current_user
+from api.db import AsyncSessionLocal, get_db
+from api.models.user import User
+from api.quota import check_quota, log_usage
 from api.models.job import TranscriptJob
 from api.models.request import GenerateRequest
 from api.models.response import GenerateResponse
@@ -140,7 +142,11 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(get_current_user)) -> GenerateResponse:
+async def generate_endpoint(
+    req: GenerateRequest,
+    current_user: User = Depends(check_quota),
+    db: AsyncSession = Depends(get_db),
+) -> GenerateResponse:
     """Fetch YouTube transcript and generate SEO schema via LLM.
 
     Does NOT write to WordPress. Returns the full schema_data dict
@@ -151,16 +157,26 @@ async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(g
     D9: Accepts portal_id to select server-side YAML profile.
     FIX D: RuntimeError messages parsed to user-friendly Polish messages + error_code.
     FIX A: transcript_available and partial_result propagated from pipeline.
+    Quota & Tiering:
+      - Twarda blokada limitu (check_quota zwraca 429).
+      - Dla Free i Starter wymuszony tani i szybki gemini-2.5-flash.
     """
+    plan_id = getattr(current_user, "plan_id", "free") or "free"
+    effective_provider = req.llm_provider
+    if plan_id in ("free", "starter"):
+        effective_provider = "gemini"
+    elif not effective_provider:
+        effective_provider = "gemini"
+
     logger.info(
-        "[/v1/generate] video_url=%s provider=%s type=%s portal_id=%s",
-        req.video_url, req.llm_provider, req.publication_type, req.portal_id,
+        "[/v1/generate] video_url=%s requested_provider=%s effective_provider=%s plan=%s type=%s portal_id=%s",
+        req.video_url, req.llm_provider, effective_provider, plan_id, req.publication_type, req.portal_id,
     )
     start = time.time()
     try:
         result = await run_generate(
             video_url=req.video_url,
-            llm_provider=req.llm_provider,
+            llm_provider=effective_provider,
             lang=req.lang,
             post_title_override=req.post_title,
             publication_type=req.publication_type,  # D6b
@@ -172,6 +188,20 @@ async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(g
 
         # Persystuj schema do DB dla historii
         await _save_schema_to_job(req.video_url, schema_data, req.portal_id, current_user.id)
+
+        # Loguj udane wykonanie do miesięcznego limitu
+        video_id = result.get("video_id") or ""
+        await log_usage(
+            user_id=current_user.id,
+            db=db,
+            youtube_id=video_id,
+            success=True,
+            endpoint="/v1/generate",
+            llm_provider=result.get("llm_provider") or effective_provider,
+            input_tokens=result.get("input_tokens", 0),
+            output_tokens=result.get("output_tokens", 0),
+            estimated_cost_usd=result.get("estimated_cost_usd", 0.0),
+        )
 
         # FIX A: propagate transcript availability flags from pipeline
         has_transcript = result.get("has_transcript", True)
@@ -187,9 +217,27 @@ async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(g
         )
     except ValueError as exc:
         logger.error("[/v1/generate] ValueError: %s", exc)
+        await log_usage(
+            user_id=current_user.id,
+            db=db,
+            youtube_id="",
+            success=False,
+            error_msg=str(exc),
+            endpoint="/v1/generate",
+            llm_provider=effective_provider,
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         logger.error("[/v1/generate] RuntimeError: %s", exc)
+        await log_usage(
+            user_id=current_user.id,
+            db=db,
+            youtube_id="",
+            success=False,
+            error_msg=str(exc),
+            endpoint="/v1/generate",
+            llm_provider=effective_provider,
+        )
         # FIX D: Parse error into user-friendly Polish message + error_code
         error_message, error_code = _parse_runtime_error(exc)
         return GenerateResponse(
@@ -201,4 +249,13 @@ async def generate_endpoint(req: GenerateRequest, current_user: User = Depends(g
         )
     except Exception as exc:
         logger.exception("[/v1/generate] Unexpected error")
+        await log_usage(
+            user_id=current_user.id,
+            db=db,
+            youtube_id="",
+            success=False,
+            error_msg=str(exc),
+            endpoint="/v1/generate",
+            llm_provider=effective_provider,
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc

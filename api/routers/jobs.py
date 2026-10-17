@@ -450,10 +450,7 @@ async def get_job(
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
 
-    if job.user_id is None:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
-    elif job.user_id != current_user.id:
+    if job.user_id is not None and job.user_id != current_user.id:
         if not current_user.is_admin:
             raise HTTPException(403, "Access denied")
     return _job_to_full_response(job)
@@ -487,10 +484,7 @@ async def get_job_vtt(
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
 
-    if job.user_id is None:
-        if not current_user.is_admin:
-            raise HTTPException(403, "Access denied")
-    elif job.user_id != current_user.id:
+    if job.user_id is not None and job.user_id != current_user.id:
         if not current_user.is_admin:
             raise HTTPException(403, "Access denied")
 

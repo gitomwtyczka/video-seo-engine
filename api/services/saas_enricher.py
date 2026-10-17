@@ -51,8 +51,8 @@ def _get_saas_config() -> tuple[Optional[str], Optional[str]]:
     Returns:
         Tuple of (saas_api_url, saas_api_token). Both None if not configured.
     """
-    url = os.environ.get("SAAS_API_URL", "").strip().rstrip("/")
-    token = os.environ.get("SAAS_API_TOKEN", "").strip()
+    url = (os.environ.get("SAAS_API_URL") or os.environ.get("PRESSAI_API_URL") or "").strip().rstrip("/")
+    token = (os.environ.get("SAAS_API_TOKEN") or os.environ.get("PRESSAI_EXTERNAL_TOKEN") or os.environ.get("EXTERNAL_API_TOKEN") or "").strip()
     if not url or not token:
         return None, None
     return url, token

@@ -145,7 +145,7 @@ log = _setup_logging()
 
 if _VIDEO_CUTTER_OK:
     deps = check_dependencies()
-    if not deps.get("ffmpeg"):
+    if not deps.get(r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe"):
         log.warning("ffmpeg not found — ShortMachine rendering will be unavailable")
 
 # ---------------------------------------------------------------------------
