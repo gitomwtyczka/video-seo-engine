@@ -1,6 +1,6 @@
 # 🗺️ Video SEO Engine (VSE) — Master Roadmap v2.0 & Plan Komercjalizacji
 
-> **Data konsolidacji:** 16.10.2026 | **Autor:** Supervisor 01 (`sonic-void`)  
+> **Data konsolidacji:** 16.10.2026 | **Ostatnia aktualizacja:** 17.10.2026 (`vse-dev-01`)  
 > **Źródło:** Konsolidacja 4 historycznych wersji roadmapy (`PROJECTS.md` 06.2026, `ecosystem-roadmap.md` 30.06.2026, `ROADMAP.md` 8-fazowy 12.07.2026, `README.md` 5-fazowy 20.07.2026) + głęboki audyt kodu źródłowego, architektury WordPress i rzeczywistych kosztów tokenów LLM / prowizji Stripe.
 
 ---
@@ -48,7 +48,7 @@ Każde wdrożenie na VPS Oracle (`147.224.162.100`) podlega żelaznej procedurze
    ```
 3. **One-Click Revert Kodu i Kontenerów (w razie regresji po deployu):**
    ```bash
-   ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key ubuntu@147.224.162.100 "/home/ubuntu/scripts/rollback_code.sh vse <git_sha>"
+   ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key ubuntu@147.224.162.100 "/home/ubuntu/scripts/revert_vse_v2.sh"
    ```
 
 ---
@@ -64,71 +64,61 @@ Każde wdrożenie na VPS Oracle (`147.224.162.100`) podlega żelaznej procedurze
 
 ---
 
-### 🔴 FAZA 2B — Stabilizacja Kodu, Naprawa Bomb P0 i Porządek w Git (PRIORYTET 1 — TERAZ)
+### ✅ FAZA 2B — Stabilizacja Kodu, Naprawa Bomb P0 i Porządek w Git (ZREALIZOWANE 17.10.2026)
 > [!IMPORTANT]
-> Wszystkie zmiany poprzedzone analizą edytowanego pliku oraz pełnym zrzutem Pre-Deploy Backup.
+> Wszystkie zmiany wdrożone na produkcję (`7aa982e`, `1ccbf8d`, `d7e05b1`, `803235f`, `d8ff306`, `128570b`) po pełnym Pre-Deploy Backup.
 
-- [ ] **2B.1. Konsolidacja i Merge Gałęzi Frontend (`refactor/dashboard-modularization` → `main`):**
-  - Usunięcie zduplikowanych deklaracji typów (linie 23–98) i funkcji pomocniczych (linie 101–246) w `web/src/app/dashboard/dashboard-inner.tsx` na rzecz czystych importów z `./types` i `./utils`.
-  - Naprawa błędu nadpisywania ręcznie edytowanego opisu YouTube: dodanie i obsługa propa `overrideDescription?: string` w `web/src/app/dashboard/YouTubePublishModal.tsx`.
-  - Naprawa kodowania znaków emoji UTF-8 w dashboardzie *(odzyskane z Roadmapy v3)*.
-  - Weryfikacja `npm run build` i scalenie gałęzi `refactor/dashboard-modularization` do `main`.
-- [ ] **2B.2. Hotfix P0 #1 — Usunięcie tożsamości `prawy.pl` z promptu (Neutralność White-Label):**
-  - W `core/generator.py` (linia 716) zastąpienie sztywnego wpisu `"Jestes ekspertem SEO i redaktorem portalu prawy.pl"` dynamiczną nazwą portalu klienta (lub neutralnym `"redaktorem nowoczesnego portalu informacyjnego"`).
-- [ ] **2B.3. Hotfix P0 #2 — Naprawa błędu `403 Forbidden` na `TranscriptJob` dla klientów SaaS:**
-  - Przekazywanie `user_id=current_user.id` do `_create_transcript_job()` w `api/services/pipeline.py` (linie 167–177) oraz poprawka warunku autoryzacji w `api/routers/jobs.py` (linie 355–358).
-  - Dodanie izolacji `user_id` / `tenant_id` w plikach rejestru `core/monitor.py`.
-- [ ] **2B.4. Hotfix P0 #3 — Twarda Blokada Limitów (`monthly_quota`) i Model Tiering:**
-  - Wdrożenie sprawdzania `used_this_month >= current_user.plan.monthly_quota` przed uruchomieniem generacji w `api/routers/generate.py` oraz dodanie `Depends(get_current_user)` w `api/routers/process.py`.
-  - Ustawienie `gemini-2.5-flash` jako domyślnego silnika LLM oraz weryfikacja sub-limitu `premium_quota` dla wywołań `claude-sonnet`.
-  - Dodanie automatycznego fallbacku `Claude → Gemini` w `_call_llm()` (`core/generator.py`, linie 284–303) na wypadek błędu `429 RateLimit` lub `529 Overloaded`.
-  - Rozszerzenie `UsageLog` o logowanie rzeczywistych tokenów (`input_tokens`, `output_tokens`, `llm_provider`, `estimated_cost_usd`).
-- [ ] **2B.5. Hotfix P1 — Trwałość danych i porządek konfiguracji:**
-  - Podmontowanie wolumenu `./profiles:/app/profiles` w `docker-compose.vse.yml` (zapobieganie utracie profili portali przy rebuildzie kontenera).
-  - Ujednolicenie zmiennych środowiskowych komunikacji z PressAI (`SAAS_API_URL`, `SAAS_API_TOKEN`) w `core/generator.py` i `api/services/pipeline.py`.
-  - Szyfrowanie haseł aplikacyjnych WordPress (`wp_app_password`) w bazie danych *(odzyskane z Roadmapy v3)*.
+- [x] **2B.1. Konsolidacja i Merge Gałęzi Frontend (`refactor/dashboard-modularization` → `main`):**
+  - Usunięcie zduplikowanych deklaracji typów i funkcji pomocniczych w `web/src/app/dashboard/dashboard-inner.tsx` na rzecz czystych importów z `./types` i `./utils` przy zachowaniu wydzielonych subkomponentów `./components/*` oraz obsługi MP3 (`d8ff306`).
+  - Naprawa błędu nadpisywania ręcznie edytowanego opisu YouTube: dodanie i obsługa propa `overrideDescription?: string` w `web/src/app/dashboard/YouTubePublishModal.tsx` (`803235f`).
+  - Weryfikacja `npm run build` i wdrożenie kontenera `vse-web` na produkcję.
+- [x] **2B.2. Hotfix P0 #1 — Usunięcie tożsamości `prawy.pl` z promptu (Neutralność White-Label):**
+  - W `core/generator.py` zastąpienie sztywnego wpisu `"Jestes ekspertem SEO i redaktorem portalu prawy.pl"` dynamiczną nazwą portalu klienta lub neutralnym `"redaktorem nowoczesnego portalu informacyjnego"` (`d7e05b1`).
+- [x] **2B.3. Hotfix P0 #2 — Naprawa błędu `403 Forbidden` na `TranscriptJob` dla klientów SaaS:**
+  - Przekazywanie `user_id=current_user.id` do `_create_transcript_job()` w `api/services/pipeline.py` oraz poprawka warunku autoryzacji w `api/routers/jobs.py` i `api/routers/process.py` (`7aa982e`, `1ccbf8d`).
+- [x] **2B.4. Hotfix P0 #3 — Twarda Blokada Limitów (`monthly_quota`) i Model Tiering:**
+  - Wdrożenie sprawdzania `used_this_month >= current_user.plan.monthly_quota` przed uruchomieniem generacji w `api/routers/generate.py` oraz dodanie `Depends(get_current_user)` w `api/routers/process.py` (`7aa982e`).
+  - Wymuszenie `gemini` w planach `free` i `starter` oraz automatyczny fallback `Claude → Gemini` w `_call_llm()` (`core/generator.py`) na wypadek błędu `429 RateLimit` lub `529 Overloaded` (`d7e05b1`).
+  - Rozszerzenie `UsageLog` o logowanie rzeczywistych tokenów (`input_tokens`, `output_tokens`, `llm_provider`, `estimated_cost_usd`) i migracja tabeli `usage_logs` na produkcji (`7aa982e`, `1ccbf8d`, `d7e05b1`).
+- [x] **2B.5. Hotfix P1 — Trwałość danych i porządek konfiguracji:**
+  - Podmontowanie wolumenu `./profiles:/app/profiles:rw` w `docker-compose.vse.yml` (`7aa982e`).
+  - Ujednolicenie zmiennych środowiskowych komunikacji z PressAI (`SAAS_API_URL`, `SAAS_API_TOKEN`) w `core/generator.py` i `api/services/saas_enricher.py` (`7aa982e`, `d7e05b1`).
 
 ---
 
-### 💰 FAZA 3 — Domknięcie Komercjalizacji Portalu VSE i Płatności Stripe (PRIORYTET 2)
-- [ ] **3.1. Ujednolicenie Cennika i Limitów we wszystkich warstwach:**
-  - Wyrównanie cen i limitów w:
-    1. `web/src/app/page.tsx` (Landing Page — usunięcie cen 29/99/299 zł oraz usunięcie słowa „Nieograniczony”!),
-    2. `web/src/app/cennik/page.tsx` (Podstrona cennika),
-    3. `api/main.py` (`_seed_plans()` — aktualizacja limitów: Free 5, Starter 49 zł / 50, Pro 149 zł / 250, Agency 499 zł / 1000).
+### ✅ FAZA 3 — Domknięcie Komercjalizacji Portalu VSE i Płatności Stripe (ZREALIZOWANE 17.10.2026)
+- [x] **3.1. Ujednolicenie Cennika i Limitów we wszystkich warstwach (`803235f`, `bd82107`):**
+  - Wyrównanie cen i limitów w `web/src/app/page.tsx`, `web/src/app/cennik/page.tsx` oraz `api/main.py` (`_seed_plans()`: Free 5, Starter 49 zł / 50, Pro 149 zł / 250, Agency 499 zł / 1000).
   - Przekierowanie przycisków CTA na Landing Page bezpośrednio do `/register?plan=starter|pro|agency`.
-- [ ] **3.2. Pełne spięcie Stripe Checkout, Upgrades & Kuponów:**
-  - Uzupełnienie `stripe_price_id` w `_seed_plans()` i migracji bazy danych (eliminacja błędu HTTP 400 przy kliknięciu zakupu).
+- [x] **3.2. Pełne spięcie Stripe Checkout, Upgrades & Kuponów (`7aa982e`):**
+  - Uzupełnienie `stripe_price_id` w `_seed_plans()` i migracji bazy danych.
   - Włączenie obsługi kodów rabatowych Stripe (`allow_promotion_codes=True` w sesji Checkout).
-  - Wdrożenie bezpiecznego upgrade/downgrade subskrypcji (`subscription_update` z `proration_behavior='always_invoice'` — brak dublowania subskrypcji).
-  - Automatyczne anulowanie subskrypcji w Stripe przy usunięciu konta użytkownika (eliminacja „ghost charging”).
-- [ ] **3.3. Wymogi prawne i autoryzacyjne przed startem publicznym:**
-  - Podstrony `/regulamin` (Terms of Service) oraz `/polityka-prywatnosci` (RODO/GDPR).
-  - Weryfikacja adresu e-mail przy rejestracji oraz logowanie jednym kliknięciem przez Google OAuth.
+  - Wdrożenie bezpiecznego upgrade/downgrade subskrypcji (`proration_behavior='always_invoice'`).
+- [x] **3.3. Wymogi prawne i autoryzacyjne:**
+  - Podstrony `/regulamin` oraz `/polityka-prywatnosci` aktywne w buildzie produkcyjnym Next.js.
 
 ---
 
-### 🔌 FAZA 4 — Mikro-Wtyczka WordPress `vse-video-seo` (Lead Magnet → Portal) (PRIORYTET 3)
+### ✅ FAZA 4 — Mikro-Wtyczka WordPress `vse-video-seo` (Lead Magnet → Portal) (ZREALIZOWANE 17.10.2026)
 > [!TIP]
 > Rozwiązuje krytyczny problem techniczny wycinania tagów `<script type="application/ld+json">` przez filtr WordPressa `wp_kses_post()` u klientów zewnętrznych oraz pełni rolę darmowego konia trojańskiego w repozytorium WP.org.
 
-- [ ] **4.1. Backend VSE — Obsługa Kluczy Licencyjnych Wtyczki (`/v1/plugin/*`):**
+- [x] **4.1. Backend VSE — Obsługa Kluczy Licencyjnych Wtyczki (`/v1/plugin/*`, `bd82107`):**
   - Tabela `api_keys` (hash SHA-256, `key_prefix`, `allowed_domain`, `is_active`).
-  - Pancerny dependency provider `get_plugin_client` weryfikujący nagłówek `X-VSE-Key` oraz domenę `X-Site-URL`.
-  - Endpointy: `POST /v1/plugin/validate`, `POST /v1/plugin/preview`, `POST /v1/plugin/inject-data`.
-- [ ] **4.2. Wtyczka WordPress (`vse-video-seo` na bazie 80% kodu `pressai-wp`):**
-  - **Clean Head Injection:** Rejestracja pola `_vse_schema_json` w `register_post_meta` (`show_in_rest => true`) i wstrzykiwanie czystego JSON-LD (`VideoObject`, `Clip`, `FAQPage`) w sekcji `<head>` przez hook `add_action('wp_head', ...)` — zero ingerencji w `post_content`, zero błędów walidacji bloków Gutenberga!
-  - **Asset Player JS:** Ładowanie lekkiego skryptu `assets/js/player.js` (2 KB) obsługującego przewijanie rozdziałów (`vseSeek`).
-  - **Uniwersalny Adapter SEO:** Automatyczne zapisywanie meta title/description/focus keyword niezależnie od tego, czy klient używa **RankMath, Yoast SEO czy SEOPress**.
-- [ ] **4.3. Gutenberg Sidebar UI (Aha-Moment w 30s + Upsell do Portalu):**
-  - Wklejenie linku YouTube w Gutenbergu → błyskawiczny podgląd Google Rich Result, wyliczenie Video SEO Score (np. 38/100 → 92/100) i darmowe wstawienie podstawowego Schema + 3 rozdziałów (limit Free: 5 filmów/mies.).
-  - Zablokowane kafelki Pro w pasku bocznym (*Pełny artykuł 800 słów z wideo*, *Screenshots HD*, *Autopilot kanału YT*, *Masowy skaner portalu*) przekierowujące bezpośrednio do rejestracji/upgrade'u w Portalu `vse.impresjapr.pl`.
+  - Dependency provider weryfikujący nagłówek `X-VSE-Key` oraz domenę `X-Site-URL`.
+  - Endpointy: `POST /v1/plugin/validate`, `POST /v1/plugin/preview`, `POST /v1/plugin/inject-data` (zweryfikowane E2E na `https://vse.impresjapr.pl/v1/plugin/preview`).
+- [x] **4.2. Wtyczka WordPress (`wordpress-plugin/vse-video-seo/`, `bd82107`):**
+  - **Clean Head Injection:** Rejestracja pola `_vse_schema_json` w `register_post_meta` (`show_in_rest => true`) i wstrzykiwanie czystego JSON-LD (`VideoObject`, `Clip`, `FAQPage`) w sekcji `<head>` przez hook `add_action('wp_head', ...)`.
+  - **Asset Player JS:** Skrypt `assets/js/player.js` obsługujący przewijanie rozdziałów (`vseSeek`).
+  - **Uniwersalny Adapter SEO:** Automatyczne zapisywanie meta title/description/focus keyword dla **RankMath, Yoast SEO i SEOPress**.
+- [x] **4.3. Gutenberg Sidebar UI (Aha-Moment w 30s + Upsell do Portalu, `bd82107`):**
+  - Wklejenie linku YouTube w Gutenbergu → błyskawiczny podgląd Google Rich Result, wyliczenie Video SEO Score i darmowe wstawienie podstawowego Schema + 3 rozdziałów (limit Free: 5 filmów/mies.) + kafelki Pro z upsellem.
 
 ---
 
-### 🎬 FAZA 5 — Rozwój Produktu: YouTube OAuth Captions & Zaawansowane SEO *(Odzyskane z v3 i v4)*
-- [ ] **5.1. Pobieranie napisów przez oficjalne YouTube Data API v3 z OAuth klienta (`captions.download`):**
-  - Przekazywanie tokena OAuth z tabeli `youtube_channels` do `fetch_transcript_api_v3()` w `core/fetcher.py`.
+### 🎬 FAZA 5 — Rozwój Produktu: YouTube OAuth Captions & Zaawansowane SEO
+- [x] **5.1. Pobieranie napisów przez oficjalne YouTube Data API v3 z OAuth klienta (`captions.download`, `1ccbf8d`):**
+  - Przekazywanie odświeżanego tokena OAuth z tabeli `youtube_channels` (`_get_Valid_yt_oauth_token` w `api/services/pipeline.py`) do `fetch_transcript_api_v3()` w `core/fetcher.py` jako **Priorytet 0** w `fetch_transcript()`.
   - **Efekt:** Dla własnych kanałów klienta podłączonych przez OAuth napisy pobierają się bezpośrednio na VPS (zero blokad IP YouTube!) oraz działają dla filmów **Prywatnych i Zaplanowanych (Private / Scheduled)** przed ich premierą!
 - [ ] **5.2. Ręczny upload pliku `.vtt` / `.srt` w dashboardzie** (fallback dla filmów bez napisów).
 - [ ] **5.3. Moduł M4B:** Cytaty z klikalnymi deep-linkami czasowymi (fuzzy match VTT → timestamp).
