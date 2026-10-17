@@ -170,15 +170,22 @@ def _vtt_runner_to_webvtt(vtt_runner_text: str) -> str:
     return result
 
 
-async def _create_transcript_job(video_url: str) -> str:
+async def _create_transcript_job(video_url: str, user_id: Optional[str] = None) -> str:
     """Tworzy job transkrypcji w DB i zwraca jego ID."""
+    uid = None
+    if user_id:
+        try:
+            uid = uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            pass
+
     async with AsyncSessionLocal() as db:
-        job = TranscriptJob(video_url=video_url, status="pending")
+        job = TranscriptJob(video_url=video_url, status="pending", user_id=uid)
         db.add(job)
         await db.commit()
         await db.refresh(job)
         job_id = str(job.id)
-        logger.info("[pipeline] Created transcript job %s for %s", job_id, video_url)
+        logger.info("[pipeline] Created transcript job %s (user_id=%s) for %s", job_id, uid, video_url)
         return job_id
 
 
@@ -223,12 +230,13 @@ async def _wait_for_transcript(job_id: str) -> str:
     )
 
 
-async def _fetch_transcript_local_runner(video_url: str) -> str:
+async def _fetch_transcript_local_runner(video_url: str, user_id: Optional[str] = None) -> str:
     """Pełny flow pobrania transkryptu przez Local Runner."""
-    job_id = await _create_transcript_job(video_url)
+    job_id = await _create_transcript_job(video_url, user_id=user_id)
     logger.info(
-        "[pipeline] LOCAL_RUNNER_MODE: job %s created, waiting for runner...",
+        "[pipeline] LOCAL_RUNNER_MODE: job %s created (user_id=%s), waiting for runner...",
         job_id,
+        user_id,
     )
     transcript = await _wait_for_transcript(job_id)
     return transcript
@@ -454,8 +462,8 @@ async def fetch_yt_description_from_pressai(
     Zwraca None jeśli PressAI niedostępny (fallback do generatora).
     """
     import httpx
-    saas_url = os.environ.get("SAAS_API_URL", "").strip().rstrip("/")
-    saas_token = os.environ.get("SAAS_API_TOKEN", "").strip()
+    saas_url = (os.environ.get("SAAS_API_URL") or os.environ.get("PRESSAI_API_URL") or "").strip().rstrip("/")
+    saas_token = (os.environ.get("SAAS_API_TOKEN") or os.environ.get("PRESSAI_EXTERNAL_TOKEN") or os.environ.get("EXTERNAL_API_TOKEN") or "").strip()
     if not saas_url or not saas_token:
         logger.warning("[pipeline] SAAS_API_URL/TOKEN not set — skipping PressAI YT generation")
         return None
@@ -488,6 +496,53 @@ async def fetch_yt_description_from_pressai(
         return None
 
 
+async def _get_user_yt_access_token(user_id: Optional[str]) -> Optional[str]:
+    """Pobiera i odświeża token OAuth 2.0 YouTube dla aktywnego kanału użytkownika."""
+    if not user_id:
+        return None
+    try:
+        uid = uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        return None
+
+    try:
+        from google.auth.transport.requests import Request
+        from api.models.youtube_channel import YouTubeChannel
+        from api.core.youtube_publish import _build_credentials, _save_refreshed_token
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(YouTubeChannel)
+                .where(
+                    YouTubeChannel.user_id == uid,
+                    YouTubeChannel.is_active == True,  # noqa: E712
+                )
+                .order_by(YouTubeChannel.is_default.desc(), YouTubeChannel.created_at.desc())
+            )
+            channels = result.scalars().all()
+            for channel in channels:
+                if not channel.refresh_token:
+                    continue
+                try:
+                    creds = _build_credentials(channel)
+                    await asyncio.to_thread(creds.refresh, Request())
+                    await _save_refreshed_token(db, channel, creds)
+                    if creds.token:
+                        logger.info(
+                            "[pipeline] Refreshed YT OAuth access_token for channel %s (user=%s)",
+                            channel.youtube_channel_id, uid,
+                        )
+                        return creds.token
+                except Exception as ch_exc:
+                    logger.warning(
+                        "[pipeline] Could not refresh YT OAuth token for channel %s: %s",
+                        channel.youtube_channel_id, ch_exc,
+                    )
+    except Exception as exc:
+        logger.warning("[pipeline] _get_user_yt_access_token failed for user %s: %s", user_id, exc)
+    return None
+
+
 async def run_generate(
     video_url: str,
     llm_provider: str,
@@ -504,8 +559,12 @@ async def run_generate(
     Returns has_transcript=False and partial_result=True in result dict.
     Supports audio uploads with audio:// scheme.
     """
-    from core.fetcher import process_video as fetch_video
-    from core.fetcher import fetch_video_thumbnails
+    from core.fetcher import (
+        process_video as fetch_video,
+        fetch_metadata_api_v3,
+        fetch_transcript_api_v3,
+        fetch_video_thumbnails,
+    )
     from core.generator import process_video as generate_schema
 
     video_id = _extract_video_id(video_url)
@@ -662,54 +721,97 @@ async def run_generate(
             logger.info("[pipeline] Using fallback: youtube_description_hook from generator (audio)")
 
     else:
-        # Standard YouTube flow
-        access_token = None
-        if user_id:
-            async with AsyncSessionLocal() as db:
-                from sqlalchemy import select
-                from api.models.youtube_channel import YouTubeChannel
-                try:
-                    uid = uuid.UUID(user_id)
-                    result = await db.execute(
-                        select(YouTubeChannel)
-                        .where(YouTubeChannel.user_id == uid)
-                        .where(YouTubeChannel.is_active == True)
-                        .order_by(YouTubeChannel.updated_at.desc())
-                        .limit(1)
-                    )
-                    channel = result.scalar_one_or_none()
-                    if channel:
-                        if hasattr(channel, 'access_token') and getattr(channel, 'access_token'):
-                            access_token = channel.access_token
-                        elif channel.refresh_token:
-                            import requests
-                            client_id = os.environ.get("GOOGLE_CLIENT_ID", "") or os.environ.get("YT_CLIENT_ID", "")
-                            client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "") or os.environ.get("YT_CLIENT_SECRET", "")
-                            if client_id and client_secret:
-                                resp = requests.post(
-                                    "https://oauth2.googleapis.com/token",
-                                    data={
-                                        "client_id": client_id,
-                                        "client_secret": client_secret,
-                                        "refresh_token": channel.refresh_token,
-                                        "grant_type": "refresh_token",
-                                    },
-                                    timeout=15,
-                                )
-                                if resp.status_code == 200:
-                                    access_token = resp.json().get("access_token")
-                                    logger.info("[generate] Got access_token from refresh_token")
-                                else:
-                                    logger.warning("[generate] Failed to get access_token: %s", resp.text)
-                            else:
-                                logger.warning("[generate] Missing OAuth client credentials")
-                except Exception as exc:
-                    logger.warning("[generate] Error getting channel access_token: %s", exc)
+        # Standard YouTube flow (with Phase 5.1 OAuth Captions Priority 0)
+        yt_access_token = await _get_user_yt_access_token(user_id)
+        yt_api_key = os.environ.get("YOUTUBE_API_KEY", "")
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang, access_token)
-            if not meta or meta.get("error"):
-                raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
+            vtt_path = None
+            has_transcript = True
+
+            if local_runner_mode:
+                meta = await asyncio.to_thread(
+                    fetch_metadata_api_v3, video_id, yt_api_key, yt_access_token
+                )
+                if not meta or meta.get("error"):
+                    raise RuntimeError(f"Fetch metadata failed for {video_id}: {meta.get('error', 'unknown')}")
+
+                import pathlib
+                oauth_vtt = None
+                oauth_lang = None
+                if yt_access_token:
+                    logger.info(
+                        "[generate] LOCAL_RUNNER_MODE: trying Priority 0 YT OAuth Captions on VPS for %s...",
+                        video_id,
+                    )
+                    oauth_vtt, oauth_lang = await asyncio.to_thread(
+                        fetch_transcript_api_v3, video_id, lang, yt_api_key, yt_access_token
+                    )
+
+                if oauth_vtt:
+                    vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.{oauth_lang or lang}.vtt")
+                    pathlib.Path(vtt_path).write_text(oauth_vtt, encoding="utf-8")
+                    meta["vtt_path"] = vtt_path
+                    meta["vtt_language"] = oauth_lang or lang
+                    logger.info(
+                        "[generate] Priority 0 YT OAuth Captions succeeded on VPS (%d chars) — bypassing Local Runner!",
+                        len(oauth_vtt),
+                    )
+                else:
+                    logger.info(
+                        "[generate] LOCAL_RUNNER_MODE=true — delegating transcript to Local Runner"
+                    )
+                    try:
+                        transcript_text = await _fetch_transcript_local_runner(
+                            f"https://www.youtube.com/watch?v={video_id}",
+                            user_id=user_id,
+                        )
+
+                        vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")
+
+                        if transcript_text.startswith("__VTT__"):
+                            logger.info(
+                                "[generate] __VTT__ format detected — converting to WebVTT for generator"
+                            )
+                            webvtt_content = _vtt_runner_to_webvtt(transcript_text)
+                            pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
+                        else:
+                            logger.warning(
+                                "[generate] Plain text transcript (no timestamps) — "
+                                "chapters will have approximate times. Upgrade runner to v2.0."
+                            )
+                            pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
+
+                        meta["vtt_path"] = vtt_path
+
+                    except RuntimeError as e:
+                        exc_str = str(e)
+                        # FIX A: Graceful degradation — no transcript → continue without
+                        if "No transcript available" in exc_str:
+                            logger.warning(
+                                "[generate] FIX A: No transcript available for %s — "
+                                "continuing without (partial_result=True)", video_id
+                            )
+                            vtt_path = None
+                            has_transcript = False
+                        else:
+                            # Other errors (timeout, DB failure) — re-raise
+                            raise RuntimeError(f"Local Runner transcript failed: {e}") from e
+            else:
+                meta = await asyncio.to_thread(
+                    fetch_video, video_url, tmp_dir, lang, yt_api_key, yt_access_token
+                )
+                if not meta or meta.get("error"):
+                    raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
+
+                # FIX A: No hard RuntimeError when vtt_path missing — graceful degradation
+                vtt_path = meta.get("vtt_path")
+                if not vtt_path:
+                    logger.warning(
+                        "[generate] FIX A: No transcript (vtt_path) for %s — "
+                        "continuing without (partial_result=True)", video_id
+                    )
+                    has_transcript = False
 
             num_screenshots = 2 if publication_type in ("full_analysis", "discover") else 1
             thumbnails = await asyncio.to_thread(
@@ -720,7 +822,7 @@ async def run_generate(
                 len(thumbnails), video_id, num_screenshots,
             )
 
-            image_data: list[dict] = []
+            image_data = []
             post_title_for_desc = post_title_override or meta.get("title", video_id)
             keyphrases_for_desc = priority_keywords[:3] if priority_keywords else []
 
@@ -761,60 +863,6 @@ async def run_generate(
                     logger.info(
                         "[generate] D11 image[%d]: SAAS Vision unavailable — LLM fallback pending", idx,
                     )
-
-            # FIX A: Transcript branch with graceful degradation
-            vtt_path: Optional[str] = None
-            has_transcript = True
-
-            if local_runner_mode:
-                logger.info(
-                    "[generate] LOCAL_RUNNER_MODE=true — delegating transcript to Local Runner"
-                )
-                try:
-                    transcript_text = await _fetch_transcript_local_runner(
-                        f"https://www.youtube.com/watch?v={video_id}"
-                    )
-
-                    import pathlib
-                    vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")
-
-                    if transcript_text.startswith("__VTT__"):
-                        logger.info(
-                            "[generate] __VTT__ format detected — converting to WebVTT for generator"
-                        )
-                        webvtt_content = _vtt_runner_to_webvtt(transcript_text)
-                        pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
-                    else:
-                        logger.warning(
-                            "[generate] Plain text transcript (no timestamps) — "
-                            "chapters will have approximate times. Upgrade runner to v2.0."
-                        )
-                        pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
-
-                    meta["vtt_path"] = vtt_path
-
-                except RuntimeError as e:
-                    exc_str = str(e)
-                    # FIX A: Graceful degradation — no transcript → continue without
-                    if "No transcript available" in exc_str:
-                        logger.warning(
-                            "[generate] FIX A: No transcript available for %s — "
-                            "continuing without (partial_result=True)", video_id
-                        )
-                        vtt_path = None
-                        has_transcript = False
-                    else:
-                        # Other errors (timeout, DB failure) — re-raise
-                        raise RuntimeError(f"Local Runner transcript failed: {e}") from e
-            else:
-                # FIX A: No hard RuntimeError when vtt_path missing — graceful degradation
-                vtt_path = meta.get("vtt_path")
-                if not vtt_path:
-                    logger.warning(
-                        "[generate] FIX A: No transcript (vtt_path) for %s — "
-                        "continuing without (partial_result=True)", video_id
-                    )
-                    has_transcript = False
 
             post_title = post_title_override or meta.get("title", video_id)
             yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
@@ -914,11 +962,16 @@ async def run_generate(
         "saas_data": saas_data,
         "has_transcript": has_transcript,    # FIX A
         "partial_result": partial_result,    # FIX A
+        "input_tokens": seo.get("input_tokens", 0),
+        "output_tokens": seo.get("output_tokens", 0),
+        "estimated_cost_usd": seo.get("estimated_cost_usd", 0.0),
+        "llm_provider": seo.get("llm_provider", llm_provider),
     }
 
 
 async def run_process(video_url: str, site_config: dict, options: dict,
-                      wp_post_id: Optional[int] = None) -> dict:
+                      wp_post_id: Optional[int] = None,
+                      user_id: Optional[str] = None) -> dict:
     """Full pipeline: fetch → generate → inject."""
     from core.injector import inject_video
 
@@ -930,6 +983,7 @@ async def run_process(video_url: str, site_config: dict, options: dict,
     gen_result = await run_generate(
         video_url, llm_provider, lang,
         publication_type=publication_type,
+        user_id=user_id,
     )
     video_id = gen_result["video_id"]
     seo = gen_result["seo"]
@@ -987,6 +1041,10 @@ async def run_process(video_url: str, site_config: dict, options: dict,
         "processing_time_s": round(time.time() - start, 2),
         "focus_keyphrase": seo.get("focus_keyphrase"),
         "post_title": seo.get("post_title"),
+        "input_tokens": gen_result.get("input_tokens", 0),
+        "output_tokens": gen_result.get("output_tokens", 0),
+        "estimated_cost_usd": gen_result.get("estimated_cost_usd", 0.0),
+        "llm_provider": gen_result.get("llm_provider", llm_provider),
         "error": None,
     }
 

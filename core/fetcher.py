@@ -377,33 +377,92 @@ def fetch_transcript_ytdlp(
     return None, None
 
 
-def fetch_transcript_api_v3(video_id: str, lang: str, api_key: str) -> Tuple[Optional[str], Optional[str]]:
+def fetch_transcript_api_v3(
+    video_id: str,
+    lang: str,
+    api_key: str = "",
+    access_token: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str]]:
     """Fetch transcript via YouTube Data API v3 (Captions endpoint).
-    Usually fails without OAuth, but we attempt it as a last resort.
+
+    When access_token (OAuth 2.0 Bearer token with youtube.force-ssl scope) is provided:
+      1. Lists caption tracks via GET /youtube/v3/captions?part=snippet&videoId={video_id}
+      2. Selects best track: manual in lang -> ASR in lang -> manual any -> first available
+      3. Downloads VTT via GET /youtube/v3/captions/{caption_id}?tfmt=vtt
+      4. Works on VPS without Local Runner, including Private & Scheduled videos!
     """
     try:
-        url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}&key={api_key}"
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        headers: dict[str, str] = {"Accept": "application/json"}
+        if access_token:
+            url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}"
+            headers["Authorization"] = f"Bearer {access_token}"
+        elif api_key:
+            url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}&key={api_key}"
+        else:
+            return None, None
+
+        req = urllib.request.Request(url, headers=headers)  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
             data = json.loads(resp.read())
-        
-        caption_id = None
-        for item in data.get("items", []):
-            if item["snippet"]["language"] == lang:
-                caption_id = item["id"]
-                break
-        if not caption_id and data.get("items"):
-            caption_id = data["items"][0]["id"]
-            lang = data["items"][0]["snippet"]["language"]
-            
-        if caption_id:
-            dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?key={api_key}"
-            dl_req = urllib.request.Request(dl_url, headers={"Accept": "application/json"})
-            with urllib.request.urlopen(dl_req, timeout=15) as resp:
-                vtt_text = resp.read().decode('utf-8')
-            return vtt_text, lang
+
+        items = data.get("items", [])
+        if not items:
+            logger.info("[fetcher] API v3 captions: 0 tracks for %s", video_id)
+            return None, None
+
+        def _lang_matches(item_lang: str, target: str) -> bool:
+            item_l = (item_lang or "").lower()
+            tgt_l = (target or "").lower()
+            return item_l == tgt_l or item_l.startswith(f"{tgt_l}-") or item_l.startswith(tgt_l)
+
+        manual_lang = None
+        asr_lang = None
+        manual_any = None
+
+        for item in items:
+            snip = item.get("snippet", {})
+            item_lang = snip.get("language", "")
+            track_kind = snip.get("trackKind", "")
+            is_asr = track_kind.upper() == "ASR"
+            if _lang_matches(item_lang, lang):
+                if not is_asr and manual_lang is None:
+                    manual_lang = item
+                elif is_asr and asr_lang is None:
+                    asr_lang = item
+            elif not is_asr and manual_any is None:
+                manual_any = item
+
+        chosen = manual_lang or asr_lang or manual_any or items[0]
+        caption_id = chosen["id"]
+        chosen_snip = chosen.get("snippet", {})
+        chosen_lang = chosen_snip.get("language", lang) or lang
+
+        dl_headers: dict[str, str] = {}
+        if access_token:
+            dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt"
+            dl_headers["Authorization"] = f"Bearer {access_token}"
+        else:
+            dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt&key={api_key}"
+
+        dl_req = urllib.request.Request(dl_url, headers=dl_headers)  # noqa: S310
+        with urllib.request.urlopen(dl_req, timeout=20) as resp:  # noqa: S310
+            raw_bytes = resp.read()
+            vtt_text = raw_bytes.decode("utf-8", errors="replace").strip()
+
+        if not vtt_text:
+            logger.warning("[fetcher] API v3 captions returned empty body for %s (caption_id=%s)", video_id, caption_id)
+            return None, None
+
+        if not vtt_text.startswith("WEBVTT"):
+            vtt_text = f"WEBVTT\n\n{vtt_text}\n"
+
+        logger.info(
+            "[fetcher] API v3 captions OK: %s caption_id=%s lang=%s oauth=%s (%d chars)",
+            video_id, caption_id, chosen_lang, bool(access_token), len(vtt_text),
+        )
+        return vtt_text, chosen_lang
     except Exception as e:
-        logger.warning("[fetcher] API v3 captions error for %s: %s", video_id, e)
+        logger.warning("[fetcher] API v3 captions error for %s (oauth=%s): %s", video_id, bool(access_token), e)
     return None, None
 
 
@@ -415,66 +474,84 @@ def fetch_metadata_api_v3(video_id: str, api_key: str, access_token: str | None 
     """Fetch video metadata via YouTube Data API v3.
 
     Uses googleapis.com — NOT blocked on Oracle Cloud VPS.
-    GCP project: glass-turbine-388620 (Simple API Key, public data only).
+    When access_token is provided, requests part=snippet,contentDetails,statistics,status
+    so Private and Scheduled videos owned by the user's channel are accessible.
 
     Returns metadata dict or {} on failure.
     """
-    url = f"https://www.googleapis.com/youtube/v3/videos"
     import urllib.parse
-    params = {"id": video_id, "part": "snippet,contentDetails,statistics"}
-    headers = {}
-    
-    if access_token:
-        headers["Authorization"] = f"Bearer {access_token}"
-    else:
-        params["key"] = api_key
-        
-    query_string = urllib.parse.urlencode(params)
-    url = f"{url}?{query_string}"
-    
-    try:
-        req = urllib.request.Request(url, headers=headers)  # noqa: S310
-        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-            data = json.loads(resp.read())
 
-        if not data.get("items"):
-            logger.warning("[fetcher] API v3: no items for video_id=%s", video_id)
+    base_url = "https://www.googleapis.com/youtube/v3/videos"
+
+    def _do_request(use_oauth: bool) -> dict:
+        if use_oauth and access_token:
+            params = {"id": video_id, "part": "snippet,contentDetails,statistics,status"}
+            headers = {"Authorization": f"Bearer {access_token}"}
+        else:
+            params = {"id": video_id, "part": "snippet,contentDetails,statistics"}
+            headers = {}
+            if api_key:
+                params["key"] = api_key
+        query_string = urllib.parse.urlencode(params)
+        req_url = f"{base_url}?{query_string}"
+        req = urllib.request.Request(req_url, headers=headers)  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            return json.loads(resp.read())
+
+    data: dict = {}
+    if access_token:
+        try:
+            data = _do_request(use_oauth=True)
+        except Exception as e:
+            logger.warning("[fetcher] API v3 OAuth metadata error for %s: %s — falling back to api_key", video_id, e)
+            data = {}
+
+    if not data.get("items") and api_key:
+        try:
+            data = _do_request(use_oauth=False)
+        except Exception as e:
+            logger.error("[fetcher] API v3 error for %s: %s", video_id, e)
             return {}
 
-        item = data["items"][0]
-        snippet = item["snippet"]
-        duration_iso_str = item["contentDetails"]["duration"]
-        thumbnails = snippet.get("thumbnails", {})
-        thumb = (
-            thumbnails.get("maxres")
-            or thumbnails.get("standard")
-            or thumbnails.get("high", {})
-        ).get("url", "")
-
-        meta = {
-            "video_id": video_id,
-            "title": snippet.get("title", ""),
-            "description": snippet.get("description", ""),
-            "published_at": snippet.get("publishedAt", ""),
-            "duration_seconds": parse_iso8601_duration(duration_iso_str),
-            "duration_iso": duration_iso_str,
-            "view_count": int(item["statistics"].get("viewCount", 0)),
-            "like_count": int(item["statistics"].get("likeCount", 0)),
-            "comment_count": int(item["statistics"].get("commentCount", 0)),
-            "thumbnail_url": thumb,
-            "channel_id": snippet.get("channelId", ""),
-            "channel_title": snippet.get("channelTitle", ""),
-            "tags": snippet.get("tags", []),
-            "webpage_url": f"https://www.youtube.com/watch?v={video_id}",
-        }
-        logger.info(
-            "[fetcher] API v3 OK: %s title=%r duration=%s views=%s",
-            video_id, meta["title"][:50], duration_iso_str, meta["view_count"],
-        )
-        return meta
-    except Exception as e:
-        logger.error("[fetcher] API v3 error for %s: %s", video_id, e)
+    if not data.get("items"):
+        logger.warning("[fetcher] API v3: no items for video_id=%s", video_id)
         return {}
+
+    item = data["items"][0]
+    snippet = item.get("snippet", {})
+    duration_iso_str = item.get("contentDetails", {}).get("duration", "")
+    thumbnails = snippet.get("thumbnails", {})
+    thumb = (
+        thumbnails.get("maxres")
+        or thumbnails.get("standard")
+        or thumbnails.get("high", {})
+    ).get("url", "")
+    stats = item.get("statistics", {})
+    status_obj = item.get("status", {})
+
+    meta = {
+        "video_id": video_id,
+        "title": snippet.get("title", ""),
+        "description": snippet.get("description", ""),
+        "published_at": snippet.get("publishedAt", ""),
+        "duration_seconds": parse_iso8601_duration(duration_iso_str),
+        "duration_iso": duration_iso_str,
+        "view_count": int(stats.get("viewCount", 0)),
+        "like_count": int(stats.get("likeCount", 0)),
+        "comment_count": int(stats.get("commentCount", 0)),
+        "thumbnail_url": thumb,
+        "channel_id": snippet.get("channelId", ""),
+        "channel_title": snippet.get("channelTitle", ""),
+        "tags": snippet.get("tags", []),
+        "privacy_status": status_obj.get("privacyStatus", "public"),
+        "publish_at": status_obj.get("publishAt"),
+        "webpage_url": f"https://www.youtube.com/watch?v={video_id}",
+    }
+    logger.info(
+        "[fetcher] API v3 OK: %s title=%r duration=%s views=%s privacy=%s",
+        video_id, meta["title"][:50], duration_iso_str, meta["view_count"], meta["privacy_status"],
+    )
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -531,31 +608,32 @@ def fetch_metadata_ytdlp(video_id: str) -> dict:
 # Main entry point — called by pipeline.py
 # ---------------------------------------------------------------------------
 
-def process_video(video_id: str, output_dir: str, lang: str = "pl", access_token: str | None = None) -> dict:
+def process_video(
+    video_url: str,
+    output_dir: str = "data/vtt",
+    lang: str = "pl",
+    api_key: Optional[str] = None,
+    access_token: Optional[str] = None,
+) -> dict:
     """Fetch metadata + transcript for one video. Returns metadata dict.
 
-    Called by api/services/pipeline.py as:
-        from core.fetcher import process_video as fetch_video
-        meta = await asyncio.to_thread(fetch_video, video_id, tmp_dir, lang)
-
     Strategy:
-      1. Metadata: YOUTUBE_API_KEY → API v3 (VPS-safe). Fallback: yt-dlp (local only).
-      2. Transcript: youtube-transcript-api → yt-dlp VTT.
-      3. Save VTT to output_dir/<video_id>.<lang>.vtt.
-
-    Returns:
-        dict with keys: video_id, title, description, published_at,
-        duration_seconds, duration_iso, view_count, thumbnail_url,
-        vtt_path, vtt_language, fetched_at.
-        On failure: {"video_id": video_id, "error": "..."}.
+      1. Metadata: YOUTUBE_API_KEY / OAuth access_token → API v3 (VPS-safe, supports Private/Scheduled).
+         Fallback: yt-dlp (local only).
+      2. Priority 0 Transcript (when access_token is provided):
+         YouTube Data API v3 Captions endpoint via OAuth Bearer token.
+         If captions are returned, skips blocked youtube-transcript-api / yt-dlp on VPS.
+      3. Fallback Transcript: youtube-transcript-api → yt-dlp VTT → API v3 key.
+      4. Save VTT to output_dir/<video_id>.<lang>.vtt.
     """
-    logger.info("[fetcher] Processing %s (lang=%s)", video_id, lang)
+    video_id = extract_video_id(video_url)
+    logger.info("[fetcher] Processing %s (lang=%s, oauth=%s)", video_id, lang, bool(access_token))
     os.makedirs(output_dir, exist_ok=True)
 
     # 1. Metadata: API v3 first (VPS-safe), yt-dlp as local fallback
-    api_key = os.environ.get("YOUTUBE_API_KEY", "")
-    if api_key:
-        meta = fetch_metadata_api_v3(video_id, api_key, access_token)
+    yt_api_key = os.environ.get("YOUTUBE_API_KEY", "") or (api_key or "")
+    if yt_api_key or access_token:
+        meta = fetch_metadata_api_v3(video_id, yt_api_key, access_token=access_token)
     else:
         logger.warning(
             "[fetcher] YOUTUBE_API_KEY not set — falling back to yt-dlp "
@@ -572,8 +650,30 @@ def process_video(video_id: str, output_dir: str, lang: str = "pl", access_token
     best_lang = None
     best_coverage = 0.0
 
+    # Priority 0: OAuth 2.0 YouTube Data API v3 Captions (works on VPS + Private/Scheduled videos)
+    if access_token:
+        logger.info("[fetcher] Priority 0: trying YouTube Data API v3 OAuth captions for %s...", video_id)
+        oauth_vtt, oauth_lang = fetch_transcript_api_v3(
+            video_id, lang, yt_api_key, access_token=access_token
+        )
+        if oauth_vtt:
+            oauth_cov = check_vtt_coverage(oauth_vtt, duration_seconds)
+            if (
+                oauth_cov >= 0.8
+                or meta.get("privacy_status") in ("private", "unlisted")
+                or (duration_seconds <= 0 and len(oauth_vtt.strip()) > 20)
+            ):
+                best_vtt, best_lang, best_coverage = oauth_vtt, oauth_lang, max(oauth_cov, 0.8)
+                logger.info(
+                    "[fetcher] Priority 0 OAuth captions OK (coverage=%.2f, privacy=%s) — skipping yt-dlp/transcript-api",
+                    oauth_cov, meta.get("privacy_status"),
+                )
+            else:
+                best_vtt, best_lang, best_coverage = oauth_vtt, oauth_lang, oauth_cov
+                logger.info("[fetcher] Priority 0 OAuth captions coverage %.2f < 0.8.", oauth_cov)
+
     # 2. Transcript: transcript-api (<= 35 min)
-    if duration_seconds <= 35 * 60:
+    if best_coverage < 0.8 and duration_seconds <= 35 * 60:
         logger.info("[fetcher] Duration <= 35 min (%.0f s), trying transcript-api...", duration_seconds)
         vtt_text, lang_used = fetch_transcript_api(video_id, lang)
         if vtt_text:
@@ -583,7 +683,8 @@ def process_video(video_id: str, output_dir: str, lang: str = "pl", access_token
                 logger.info("[fetcher] transcript-api coverage %.2f >= 0.8. OK.", cov)
             else:
                 logger.info("[fetcher] transcript-api coverage %.2f < 0.8.", cov)
-                best_vtt, best_lang, best_coverage = vtt_text, lang_used, cov
+                if cov > best_coverage:
+                    best_vtt, best_lang, best_coverage = vtt_text, lang_used, cov
 
     # 3. yt-dlp if > 35 min OR step 2 failed / coverage < 80%
     if best_coverage < 0.8:
@@ -600,11 +701,11 @@ def process_video(video_id: str, output_dir: str, lang: str = "pl", access_token
                 if yt_cov > best_coverage:
                     best_vtt, best_lang, best_coverage = yt_vtt, yt_lang, yt_cov
 
-    # 4. API v3 if yt-dlp also fails / coverage < 80%
+    # 4. API v3 key fallback if yt-dlp also fails / coverage < 80% and OAuth was not used
     if best_coverage < 0.8:
-        if api_key:
-            logger.info("[fetcher] trying YouTube Data API v3 captions as last resort...")
-            api3_vtt, api3_lang = fetch_transcript_api_v3(video_id, lang, api_key)
+        if yt_api_key and not access_token:
+            logger.info("[fetcher] trying YouTube Data API v3 captions (api_key) as last resort...")
+            api3_vtt, api3_lang = fetch_transcript_api_v3(video_id, lang, yt_api_key)
             if api3_vtt:
                 api3_cov = check_vtt_coverage(api3_vtt, duration_seconds)
                 if api3_cov >= 0.8:
@@ -612,17 +713,19 @@ def process_video(video_id: str, output_dir: str, lang: str = "pl", access_token
                     logger.info("[fetcher] API v3 coverage %.2f >= 0.8. OK.", api3_cov)
                 elif api3_cov > best_coverage:
                     best_vtt, best_lang, best_coverage = api3_vtt, api3_lang, api3_cov
-        
-        # Zapisz co masz, zaloguj ostrzeżenie
+
         if best_vtt:
-            logger.warning("[fetcher] Warning: All methods failed to reach 80%% coverage. Best coverage: %.2f%%. Saving what we have.", best_coverage * 100)
+            logger.warning(
+                "[fetcher] Warning: All methods failed to reach 80%% coverage. Best coverage: %.2f%%. Saving what we have.",
+                best_coverage * 100,
+            )
         else:
             logger.warning("[fetcher] Warning: All methods failed to fetch transcript.")
 
     # 5. Save VTT
     if best_vtt:
         vtt_path = os.path.join(output_dir, f"{video_id}.{best_lang}.vtt")
-        with open(vtt_path, 'w', encoding='utf-8') as f:
+        with open(vtt_path, "w", encoding="utf-8") as f:
             f.write(best_vtt)
         logger.info("[fetcher] VTT saved: %s (%d chars)", vtt_path, len(best_vtt))
         meta["vtt_path"] = vtt_path
@@ -634,10 +737,10 @@ def process_video(video_id: str, output_dir: str, lang: str = "pl", access_token
 
     meta["fetched_at"] = datetime.utcnow().isoformat() + "Z"
 
-    # 4. Save JSON metadata (legacy compat with CLI callers)
+    # 6. Save JSON metadata (legacy compat with CLI callers)
     json_path = os.path.join(output_dir, f"{video_id}.json")
     try:
-        with open(json_path, 'w', encoding='utf-8') as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
         logger.info("[fetcher] JSON saved: %s.json", video_id)
     except Exception as e:
