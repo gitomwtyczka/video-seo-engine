@@ -1,37 +1,36 @@
-# Current Tasks (Stan na 16.10.2026)
+# Current Tasks (Stan na 17.10.2026)
 
-## ✅ Zamknięte (Etap 1 — Stabilizacja i Przygotowanie Komercjalizacji v2.0)
-- [x] **Głęboki Audyt 3 Obszarów VSE:** Kod źródłowy i architektura, mikro-wtyczka WordPress (`pressai-wp`), finanse i Unit Economics na realnych danych (raport `2026-10-16_sup-01_deep-audit-and-stage1.md`).
+## ✅ Zamknięte (Etap 1 + Faza 2B, 3.1-3.2, 4, 5.1 — Komercjalizacja VSE v2.0 Wdrożona na Produkcję)
+- [x] **Głęboki Audyt 3 Obszarów VSE:** Kod źródłowy i architektura, mikro-wtyczka WordPress (`pressai-wp`), finanse i Unit Economics na realnych danych (`2026-10-16_sup-01_deep-audit-and-stage1.md`).
 - [x] **Master Roadmap v2.0:** Skonsolidowany dokument strategiczny i techniczny w `ROADMAP.md` oraz pełna synchronizacja z `README.md`.
-- [x] **Modularność Dashboardu:** Podział monolitu `dashboard-inner.tsx` na komponenty, wydzielenie `types.ts` i `utils.ts`, obsługa propa `overrideDescription` w `YouTubePublishModal.tsx`.
-- [x] **Hotfix P0 #1 (White-Label):** Neutralizacja promptu w `core/generator.py` (usunięcie tożsamości `prawy.pl` na rzecz dynamicznego `site_brand` portalu klienta).
-- [x] **Hotfix P0 #2 (SaaS Transcript 403):** Przekazywanie `user_id` w `pipeline.py` i poprawka autoryzacji w `api/routers/jobs.py`.
-- [x] **Hotfix P0 #3 & Model Tiering:** Wymuszenie Gemini Flash w planach Free/Starter, blokada `monthly_quota`, auto-fallback `Claude → Gemini` przy błędach 429/529.
-- [x] **Precyzyjny Tracker Tokenów i Kosztów:** Zliczanie tokenów wejściowych i wyjściowych LLM w `core/generator.py` (`ContextVar`), kalkulacja kosztów USD, przekazywanie do `UsageLog` i bezpieczna migracja `ALTER TABLE usage_logs` w `api/main.py`.
-- [x] **Naprawa `run_process`:** Pełne przekazywanie `user_id` w `api/services/pipeline.py` i `api/routers/process.py`.
-- [x] **Ujednolicenie Cennika i Landing Page:** Wyrównanie limitów i cen (Free: 5, Starter 49 zł / 50 filmów, Pro 149 zł / 250 filmów, Agency 499 zł / 1000 filmów) oraz bezpośrednie linki rejestracji CTA.
-- [x] **Punkt One-Click Revert:** Utworzenie brancha `backup/pre-v2-commercial-20261016` oraz patcha `backup_pre_v2_commercial_diff.patch`.
+- [x] **Zadanie 1 (QA, Bezkonfliktowy Merge & Sekwencyjny Deploy Etapu 1 na Produkcję):**
+  - 3-warstwowy punkt **One-Click Backup & Revert**: branch `backup/pre-v2-deploy-20261017`, obrazy Docker `:rollback-20261017`, skrypt `/home/ubuntu/scripts/revert_vse_v2.sh` oraz snapshot `/home/ubuntu/scripts/backup_pre_deploy.sh`.
+  - Bezkonfliktowe nałożenie zmian Etapu 1 (`8792895`) na `origin/main` z zachowaniem wszystkich nowszych commitów (`b3fecb4`, `bd82107`, `c7634b1`, `bb0780d`, `0d2f6b4`, `cca5178` — w tym obsługi MP3 i komponentów `web/src/app/dashboard/components/*`).
+  - Modularność `dashboard-inner.tsx` (deduplikacja `types.ts` i `utils.ts`, zachowanie `overrideDescription` w `YouTubePublishModal.tsx`).
+  - Hotfix P0 #1 (White-Label): neutralizacja promptu w `core/generator.py` na rzecz dynamicznego `site_brand`.
+  - Hotfix P0 #2 (SaaS Transcript 403): przekazywanie `user_id` w `pipeline.py` i poprawka autoryzacji w `api/routers/jobs.py` oraz `api/routers/process.py`.
+  - Hotfix P0 #3 & Model Tiering: wymuszenie Gemini Flash w planach Free/Starter, blokada `monthly_quota`, auto-fallback `Claude → Gemini` przy błędach 429/529.
+  - Precyzyjny Tracker Tokenów i Kosztów: zliczanie tokenów wejściowych i wyjściowych LLM w `core/generator.py` (`ContextVar`), kalkulacja kosztów USD (`calculate_cost_usd`), zapis do `UsageLog` i migracja `ALTER TABLE usage_logs` na produkcji.
+  - Ujednolicenie Cennika i Landing Page (`web/src/app/page.tsx`, `web/src/app/cennik/page.tsx`, `_seed_plans()` w `api/main.py`: Free 5, Starter 49 zł / 50, Pro 149 zł / 250, Agency 499 zł / 1000) + obsługa kodów rabatowych i proracji w Stripe (`api/routers/payments.py`).
+  - Dodanie jawnych zależności `sqlalchemy[asyncio]>=2.0.0` i `greenlet>=3.0.0` w `requirements.txt` dla kompatybilności z SQLAlchemy 2.1+ na architekturze ARM64 (`128570b`).
+- [x] **Zadanie 2: Faza 4 — Mikro-Wtyczka WordPress `vse-video-seo` (Lead Magnet):**
+  - Tabela `api_keys` (z kolumnami `key_prefix`, `allowed_domain`) i endpointy `/v1/plugin/*` (`validate`, `preview`, `inject-data`) zweryfikowane E2E na `https://vse.impresjapr.pl/v1/plugin/preview`.
+  - Kompletna wtyczka `wordpress-plugin/vse-video-seo/` (Clean Head Injection `_vse_schema_json` w `wp_head`, uniwersalny adapter SEO RankMath/Yoast/SEOPress, Gutenberg Sidebar UI z upsellem).
+- [x] **Zadanie 3: Faza 5.1 — YouTube Data API v3 OAuth Captions (Priorytet 0):**
+  - Rozbudowa `fetch_transcript_api_v3()` w `core/fetcher.py` o obsługę `oauth_token: Optional[str] = None` (`Authorization: Bearer`, listowanie i pobieranie ścieżek VTT przez YouTube Data API v3, w tym dla filmów **Prywatnych i Zaplanowanych**).
+  - Ustawienie Priorytetu 0 w `fetch_transcript()` (gdy `oauth_token` jest dostępny, próbuje YouTube API v3 z OAuth przed `youtube-transcript-api` i `yt-dlp`).
+  - Automatyczne pobieranie i odświeżanie tokena OAuth z tabeli `youtube_channels` w `api/services/pipeline.py` (`_get_Valid_yt_oauth_token`) przed uruchomieniem `fetch_all()`.
 
 ---
 
-## 🟡 W toku (Kolejne Zadania do Wykonania)
-- [ ] **Zadanie 1 (QA, Merge & Deploy Etapu 1 na Produkcję):**
-  - Niezależna weryfikacja zmian na branchu `refactor/dashboard-modularization` (`npm run build` w `web/`, syntax check w Pythonie).
-  - Wykonanie obowiązkowego snapshotu na VPS: `/home/ubuntu/scripts/backup_pre_deploy.sh`.
-  - Merge gałęzi do `main` i wdrożenie kontenerów na `vse.impresjapr.pl` (`docker compose -f docker-compose.vse.yml up -d --build`).
-  - Sprawdzenie endpointu `/health` oraz migracji kolumn w tabeli `usage_logs`.
+## 🟡 W toku
+- Brak zadań w toku — dispatch `dispatch_2026-10-16_vse_commercial_v2.md` zamknięty w 100%.
 
 ---
 
-## 🔵 Następne (Zgodnie z Master Roadmap v2.0 i Dispatch)
-- [ ] **Zadanie 2: Faza 4 — Mikro-Wtyczka WordPress `vse-video-seo` (Lead Magnet):**
-  - Tabela `api_keys` i endpointy `/v1/plugin/*` (`validate`, `preview`, `inject-data`).
-  - Budowa wtyczki na bazie 80% kodu `pressai-wp`:
-    - Clean Head Injection: wstrzykiwanie czystego JSON-LD w `wp_head` przez pole `_vse_schema_json` (ominięcie filtra `wp_kses_post`).
-    - Uniwersalny adapter SEO: obsługa RankMath, Yoast SEO i SEOPress.
-    - Gutenberg Sidebar UI z limitem 5 darmowych filmów/mies. i banerami upsellingowymi do portalu.
-- [ ] **Zadanie 3: Faza 5.1 — YouTube Data API v3 OAuth Captions:**
-  - Przekazanie tokena OAuth z tabeli `youtube_channels` do `fetch_transcript_api_v3()` w `core/fetcher.py`.
-  - Bezpośrednie pobieranie napisów na VPS bez blokad IP YouTube oraz obsługa filmów **Prywatnych i Zaplanowanych**.
-- [ ] **Faza 3 — Płatności Stripe i Wymogi Prawne:**
-  - Pełne spięcie Stripe Checkout, obsługa kuponów promocyjnych, podstrony `/regulamin` i `/polityka-prywatnosci`.
+## 🔵 Następne (Zgodnie z Master Roadmap v2.0 — Fazy 3.3, 5.2–5.6, 6)
+- [ ] **Faza 5.2:** Ręczny upload pliku `.vtt` / `.srt` w dashboardzie (fallback dla filmów bez napisów).
+- [ ] **Faza 5.3:** Moduł M4B — cytaty z klikalnymi deep-linkami czasowymi (fuzzy match VTT → timestamp).
+- [ ] **Faza 5.4:** Przeglądarka kanału (`/channels`) i Channel Monitor E2E z izolacją `user_id`/`tenant_id`.
+- [ ] **Faza 5.5 & 5.6:** Local Runner auto-update `yt-dlp` + raportowanie pokrycia VTT oraz Batch Processing & SEO Scoring Dashboard.
+- [ ] **Faza 6:** Integracja ekosystemu (VSE + PressAI + SocialPulse — wspólne klucze API i Bundle Pricing).
