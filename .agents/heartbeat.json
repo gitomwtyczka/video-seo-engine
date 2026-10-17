@@ -1,15 +1,19 @@
 {
   "callsign": "vse-dev-01",
   "status": "working",
-  "current_task": "Dispatch VSE Commercial v2.0: Stage 1 QA/Merge/Deploy + Faza 5.1 YouTube OAuth Captions + Faza 4 WP Plugin",
-  "timestamp": "2026-10-16T18:43:50+02:00",
+  "current_task": "VSE Commercial v2.0: One-Click Backup, Stage 1 + Phase 5.1 YT OAuth Captions + Sequential VPS Deploy",
+  "timestamp": "2026-10-17T13:59:00+02:00",
   "last_completed": [
-    "c7e5fd384c7a073c01243a84c33a5d421a57d05b: add DescribeResponse model with related_video_id (2026-08-31)",
-    "4659a18ad15f3bb939976c9a6f34f511545cb3fc: update SHORTS_SELECTION_PROMPT and ShortCandidate with 2025/2026 rules (2026-08-31)",
-    "1af70b476576bccc7165564a5da24f24f9eaf888: add /v1/shorts/describe endpoint and update title prompt / router models (2026-08-31)"
+    "b3fecb49f86d7ba21be95f869affc7fe006bf228: fix(core): strip leading h2 from article_body before splitting [sup-worker-01]",
+    "bd8210755a87a8c6665559755a89c50648939f41: feat(plugin): add vse-video-seo WordPress plugin and /v1/plugin API endpoints [vse-dev-02]",
+    "c7634b1202045e7dcd824dff3535eb403a951c7d: fix(pipeline): default categories for prawy.pl and remove duplicate excerpt [sup-worker-01]"
   ],
   "pending": [
-    "Stage 1 QA/Merge/Pre-Deploy Backup",
-    "Phase 5.1 YouTube Data API v3 OAuth Captions"
+    "KROK 0: One-Click Backup & Revert",
+    "KROK 1: Stage 1 clean application on origin/main",
+    "KROK 2: Phase 5.1 YouTube Data API v3 OAuth Captions",
+    "KROK 3: QA & GitHub Push",
+    "KROK 4: Sequential VPS Deploy & E2E",
+    "KROK 5: DoD"
   ]
 }
