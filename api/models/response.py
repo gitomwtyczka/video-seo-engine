@@ -26,6 +26,8 @@ class ProcessResponse(BaseModel):
     processing_time_s: float = 0.0
     focus_keyphrase: Optional[str] = None
     post_title: Optional[str] = None
+    source_lang: Optional[str] = None
+    target_lang: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -49,6 +51,9 @@ class GenerateResponse(BaseModel):
     error_code: Optional[str] = None  # FIX D: 'NO_TRANSCRIPT' | 'VIDEO_UNAVAILABLE' | 'UNKNOWN_ERROR' | None
     transcript_available: Optional[bool] = None  # FIX A: True = with transcript, False = partial
     partial_result: Optional[bool] = None  # FIX A: True = generated without transcript
+    source_lang: Optional[str] = None
+    target_lang: Optional[str] = None
+
 
 
 class InjectResponse(BaseModel):

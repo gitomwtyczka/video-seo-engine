@@ -1,6 +1,6 @@
-# 🗺️ Video SEO Engine (VSE) — Master Roadmap v2.0 & Plan Komercjalizacji
+# 🗺️ Video SEO Engine (VSE) — Master Roadmap v2.1 & Plan Komercjalizacji
 
-> **Data konsolidacji:** 16.10.2026 | **Ostatnia aktualizacja:** 17.10.2026 (`vse-dev-01`)  
+> **Data konsolidacji:** 16.10.2026 | **Ostatnia aktualizacja:** 17.10.2026 (`vse-dev-01` — v2.1 Multi-Language Engine)  
 > **Źródło:** Konsolidacja 4 historycznych wersji roadmapy (`PROJECTS.md` 06.2026, `ecosystem-roadmap.md` 30.06.2026, `ROADMAP.md` 8-fazowy 12.07.2026, `README.md` 5-fazowy 20.07.2026) + głęboki audyt kodu źródłowego, architektury WordPress i rzeczywistych kosztów tokenów LLM / prowizji Stripe.
 
 ---
@@ -21,12 +21,12 @@ Przetworzenie jednego filmu w VSE wykonuje **2 główne przebiegi LLM**:
 
 ### 1.2. Zatwierdzona Tabela Pakietów i Limitów (Eliminacja „Nieograniczonych” strat)
 
-| Plan | Cena Brutto / mies. | Prowizja Stripe (1,5% + 1 zł) | Przychód Netto (po VAT 23% i Stripe) | Limit filmów / mies. (`monthly_quota`) | Limit Premium (Claude Sonnet) | Portale WP | Koszt AI przy 100% zużycia limitu | Gwarantowana Marża Netto |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **FREE** *(Wtyczka WP + Trial)* | **0 zł** | 0,00 zł | 0,00 zł | **5 filmów** | 0 (tylko Gemini Flash) | 1 portal | **max 0,08 zł** (8 groszy!) | Lead Magnet (CAC = 0,08 zł) |
-| **STARTER** | **49 zł** | 1,74 zł | **38,10 zł** | **50 filmów** | 0 (tylko Gemini Flash) | 3 portale | **0,80 zł** | **+37,30 zł (97,9% 🟢)** |
-| **PRO** | **149 zł** | 3,24 zł | **117,90 zł** | **250 filmów** | **do 30 filmów** (reszta Gemini Flash) | 10 portali | **26,02 zł** *(30×0,75 zł + 220×0,016 zł)* | **+91,88 zł (77,9% – 96,6% 🟢)** |
-| **AGENCY** | **499 zł** | 8,49 zł | **397,20 zł** | **1 000 filmów** | **do 150 filmów** (reszta Gemini Flash) | 50 portali | **126,10 zł** *(150×0,75 zł + 850×0,016 zł)* | **+271,10 zł (68,3% – 96,0% 🟢)** |
+| Plan | Cena Brutto / mies. | Prowizja Stripe (1,5% + 1 zł) | Przychód Netto (po VAT 23% i Stripe) | Limit filmów / mies. (`monthly_quota`) | Limit Premium (Claude Sonnet) | Wielojęzyczność (8 języków) | Portale WP | Koszt AI przy 100% zużycia limitu | Gwarantowana Marża Netto |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **FREE** *(Wtyczka WP + Trial)* | **0 zł** | 0,00 zł | 0,00 zł | **5 filmów** | 0 (tylko Gemini Flash) | Cross-Language → język panelu (`ui_lang`) | 1 portal | **max 0,08 zł** (8 groszy!) | Lead Magnet (CAC = 0,08 zł) |
+| **STARTER** | **49 zł** | 1,74 zł | **38,10 zł** | **50 filmów** | 0 (tylko Gemini Flash) | Cross-Language → `ui_lang` + **Opcja Add-on (+29 zł/mies.)** | 3 portale | **0,80 zł** | **+37,30 zł (97,9% 🟢)** |
+| **PRO** | **149 zł** | 3,24 zł | **117,90 zł** | **250 filmów** | **do 30 filmów** (reszta Gemini Flash) | **🌐 W CENIE (8 języków + adaptacja 1 kliknięciem)** | 10 portali | **26,02 zł** *(30×0,75 zł + 220×0,016 zł)* | **+91,88 zł (77,9% – 96,6% 🟢)** |
+| **AGENCY** | **499 zł** | 8,49 zł | **397,20 zł** | **1 000 filmów** | **do 150 filmów** (reszta Gemini Flash) | **🌐 W CENIE (pełny Multi-Language bez limitu)** | 50 portali | **126,10 zł** *(150×0,75 zł + 850×0,016 zł)* | **+271,10 zł (68,3% – 96,0% 🟢)** |
 
 ---
 
@@ -49,6 +49,8 @@ Każde wdrożenie na VPS Oracle (`147.224.162.100`) podlega żelaznej procedurze
 3. **One-Click Revert Kodu i Kontenerów (w razie regresji po deployu):**
    ```bash
    ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key ubuntu@147.224.162.100 "/home/ubuntu/scripts/revert_vse_v2.sh"
+   # Oraz dedykowany rollback przed wdrożeniem Multi-Language (gałąź backup/pre-multilang-20261017):
+   ssh -i C:\Users\tomas2\.ssh\oracle-crimson.key ubuntu@147.224.162.100 "/home/ubuntu/scripts/revert_vse_multilang.sh"
    ```
 
 ---
@@ -116,15 +118,35 @@ Każde wdrożenie na VPS Oracle (`147.224.162.100`) podlega żelaznej procedurze
 
 ---
 
+### ✅ FAZA 4.5 / 5.2 — Wielojęzyczność: Cross-Language & Per-Material Translation Engine („Złoty Środek”) (✅ WDROŻONE v2.1 — 17.10.2026)
+> [!IMPORTANT]
+> Pełne wsparcie dla **8 języków** (`pl`, `en`, `de`, `es`, `fr`, `it`, `uk`, `pt`) w całym pipeline VSE z zachowaniem precyzyjnych timestampów rozdziałów (`Clip`) i cytatów.
+
+- [x] **4.5.1. Uniwersalne wykrywanie i pobieranie transkryptów (`source_lang`):**
+  - W `core/fetcher.py` oraz `local-runner/runner.py` usunięto sztywne ograniczenie do `['pl', 'en']`. System automatycznie wykrywa oryginalny język audio (`defaultAudioLanguage` / `defaultLanguage` z YouTube Data API v3 oraz `yt-dlp`) i pobiera najlepszy dostępny transkrypt (ręczny → auto-generated → dowolny dostępny język), zwracając znormalizowany kod ISO (`source_lang`).
+- [x] **4.5.2. Architektura „Dual-Language Anchor” w `core/generator.py` i `core/injector.py`:**
+  - Podczas generowania cross-language (`source_lang != target_lang`), pola `chapters[].anchor_text` oraz `quotes[].anchor_text` pozostają **dosłownie w oryginalnym języku transkryptu (`source_lang`)**, co gwarantuje 100% skuteczności dopasowania znaczników czasu przez `find_anchor_in_vtt()`, podczas gdy wszystkie pola widoczne dla czytelnika (`title`, `article_html`, `faq`, `summary`, `social`, `yt_description`) są generowane natywnie w `target_lang`.
+  - Pełna lokalizacja JSON-LD (`"inLanguage": target_lang` w `VideoObject` i `FAQPage`, zlokalizowane `"WatchAction"` oraz autorytatywne źródła E-E-A-T dopasowane do kraju docelowego).
+- [x] **4.5.3. Endpoint `POST /v1/adapt-material` (Tłumaczenie poszczególnych zakładek 1 kliknięciem):**
+  - Błyskawiczna adaptacja językowa pojedynczej zakładki (`article`, `summary`, `faq`, `social`, `yt_description`, `schema`) bez ponownego pobierania filmu i bez przesyłania całego transkryptu VTT (~1 500 tokenów, koszt ~0,0015 zł na Gemini 2.5 Flash).
+  - Wywołania `/v1/adapt-material` są logowane w `UsageLog`, ale **nie pomniejszają miesięcznego limitu filmów (`monthly_quota`)** klienta.
+- [x] **4.5.4. Model Komercjalizacji Wielojęzyczności („Złoty Środek”) i Stripe Add-on:**
+  - **Free & Starter:** Domyślny Cross-Language do języka interfejsu (`ui_lang`) — np. angielski film → polski artykuł i Schema (lub odwrotnie).
+  - **Add-on „Pakiet Wielojęzyczny” (+29 zł/mies. dla planu Starter):** Kolumna `has_multilang_addon` w tabelach `subscriptions` i `users` oraz endpoint `POST /v1/payments/checkout-addon` (Stripe Checkout 29 PLN/mies.).
+  - **Pro (149 zł) & Agency (499 zł):** Pełny Pakiet Wielojęzyczny (8 języków + pasek błyskawicznego tłumaczenia zakładek z pamięcią podręczną `materialTranslations[activeTab][lang]`) **w cenie planu**.
+
+---
+
 ### 🎬 FAZA 5 — Rozwój Produktu: YouTube OAuth Captions & Zaawansowane SEO
 - [x] **5.1. Pobieranie napisów przez oficjalne YouTube Data API v3 z OAuth klienta (`captions.download`, `1ccbf8d`):**
   - Przekazywanie odświeżanego tokena OAuth z tabeli `youtube_channels` (`_get_Valid_yt_oauth_token` w `api/services/pipeline.py`) do `fetch_transcript_api_v3()` w `core/fetcher.py` jako **Priorytet 0** w `fetch_transcript()`.
   - **Efekt:** Dla własnych kanałów klienta podłączonych przez OAuth napisy pobierają się bezpośrednio na VPS (zero blokad IP YouTube!) oraz działają dla filmów **Prywatnych i Zaplanowanych (Private / Scheduled)** przed ich premierą!
-- [ ] **5.2. Ręczny upload pliku `.vtt` / `.srt` w dashboardzie** (fallback dla filmów bez napisów).
-- [ ] **5.3. Moduł M4B:** Cytaty z klikalnymi deep-linkami czasowymi (fuzzy match VTT → timestamp).
-- [ ] **5.4. Przeglądarka kanału (`/channels`) i Channel Monitor E2E** (automatyczny nasłuch nowych filmów na kanale YT klienta).
-- [ ] **5.5. Local Runner ulepszenia:** Automatyczna aktualizacja `yt-dlp` raz dziennie + raportowanie pokrycia VTT (`last segment at Xs`).
-- [ ] **5.6. Batch Processing & SEO Scoring Dashboard** + tryb White-label dla planu Agency.
+- [x] **5.2. Wielojęzyczność — Cross-Language & Per-Material Translation Engine (8 języków)** *(zrealizowane w Fazie 4.5 / v2.1 powyżej)*.
+- [ ] **5.3. Ręczny upload pliku `.vtt` / `.srt` w dashboardzie** (fallback dla filmów bez napisów).
+- [ ] **5.4. Moduł M4B:** Cytaty z klikalnymi deep-linkami czasowymi (fuzzy match VTT → timestamp).
+- [ ] **5.5. Przeglądarka kanału (`/channels`) i Channel Monitor E2E** (automatyczny nasłuch nowych filmów na kanale YT klienta).
+- [ ] **5.6. Local Runner ulepszenia:** Automatyczna aktualizacja `yt-dlp` raz dziennie + raportowanie pokrycia VTT (`last segment at Xs`).
+- [ ] **5.7. Batch Processing & SEO Scoring Dashboard** + tryb White-label dla planu Agency.
 
 ---
 
@@ -132,3 +154,4 @@ Każde wdrożenie na VPS Oracle (`147.224.162.100`) podlega żelaznej procedurze
 - [ ] Wspólny standard kluczy API (`X-VSE-Key` / `X-PressAI-Key`) i zunifikowana tabela `api_keys`.
 - [ ] Pakiet łączony (Bundle Pricing: VSE + PressAI + SocialPulse).
 - [ ] Izolacja S2S dla konkurujących agencji SEO (`org_id` / competing tenants).
+

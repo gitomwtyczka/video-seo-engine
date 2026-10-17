@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import get_db
 from api.models.user import User
-from api.quota import check_quota, log_usage
+from api.quota import check_quota, log_usage, check_multilang_access
 from api.models.request import ProcessRequest
 from api.models.response import ProcessResponse
 from api.services.pipeline import run_process
@@ -22,13 +22,7 @@ async def process_endpoint(
     current_user: User = Depends(check_quota),
     db: AsyncSession = Depends(get_db),
 ) -> ProcessResponse:
-    """Run full VSE pipeline: fetch transcript, generate schema, inject to WordPress.
-
-    - Accepts per-request WordPress credentials (multi-tenant, stateless).
-    - Requires ANTHROPIC_API_KEY or GEMINI_API_KEY env var based on llm_provider.
-    - If wp_post_id is omitted, schema is generated but injection is skipped.
-    - Protected by check_quota & model tiering (Free/Starter = gemini).
-    """
+    """Run full VSE pipeline: fetch transcript, generate schema, inject to WordPress."""
     plan_id = getattr(current_user, "plan_id", "free") or "free"
     effective_provider = req.options.llm_provider
     if plan_id in ("free", "starter"):
@@ -38,9 +32,21 @@ async def process_endpoint(
         effective_provider = "gemini"
         req.options.llm_provider = "gemini"
 
+    ui_lang = (req.ui_lang or req.options.ui_lang or "pl").lower()[:2]
+    target_lang = (req.target_lang or req.options.target_lang or req.options.lang or ui_lang or "pl").lower()[:2]
+    req.options.target_lang = target_lang
+    req.options.lang = target_lang
+
+    entitlements = await check_multilang_access(current_user.id, db, user=current_user)
+    if target_lang != ui_lang and not entitlements.get("allow_target_override", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Wybór innego języka docelowego niż język panelu wymaga Pakietu Wielojęzycznego (+29 zł/mies.) lub planu Pro / Agency.",
+        )
+
     logger.info(
-        "[/v1/process] video_url=%s provider=%s effective_provider=%s plan=%s auto_inject=%s",
-        req.video_url, req.options.llm_provider, effective_provider, plan_id, req.options.auto_inject,
+        "[/v1/process] video_url=%s provider=%s effective_provider=%s plan=%s auto_inject=%s target_lang=%s",
+        req.video_url, req.options.llm_provider, effective_provider, plan_id, req.options.auto_inject, target_lang,
     )
     try:
         result = await run_process(

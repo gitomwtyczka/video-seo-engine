@@ -36,6 +36,8 @@ class ProcessOptions(BaseModel):
     update_youtube: bool = False
     llm_provider: str = "claude"  # "claude" | "gemini"
     lang: str = "pl"
+    target_lang: str = "pl"
+    ui_lang: str = "pl"
     publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
 
     @validator("publication_type")
@@ -52,6 +54,8 @@ class ProcessRequest(BaseModel):
     site_config: SiteConfig
     options: ProcessOptions = ProcessOptions()
     wp_post_id: Optional[int] = None  # if known; matcher used when None
+    target_lang: str = "pl"
+    ui_lang: str = "pl"
 
 
 class GenerateRequest(BaseModel):
@@ -69,6 +73,8 @@ class GenerateRequest(BaseModel):
     video_url: str
     llm_provider: str = "claude"
     lang: str = "pl"
+    target_lang: str = "pl"
+    ui_lang: str = "pl"
     post_title: Optional[str] = None  # override title from metadata
     publication_type: str = "full_analysis"  # D6b: "full_analysis" | "watching_page" | "discover"
     portal_id: Optional[str] = None  # replaced profile_id with portal_id (UUID as string)
@@ -78,6 +84,16 @@ class GenerateRequest(BaseModel):
         if v not in VALID_PUBLICATION_TYPES:
             raise ValueError(f"Invalid publication_type: {v}")
         return v
+
+
+class AdaptMaterialRequest(BaseModel):
+    """On-demand per-material language adaptation request (POST /v1/adapt-material)."""
+
+    material_type: str  # "article" | "youtube" | "meta" | "quotes" | "schema"
+    target_lang: str  # "pl" | "en" | "de" | "es" | "fr" | "it" | "uk" | "pt"
+    source_data: dict
+    youtube_id: Optional[str] = None
+    llm_provider: Optional[str] = None
 
 
 class InjectRequest(BaseModel):
@@ -133,3 +149,4 @@ class YouTubePublishRequest(BaseModel):
 
 class YouTubeChannelUpdate(BaseModel):
     footer_text: str
+

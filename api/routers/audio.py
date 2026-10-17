@@ -30,6 +30,7 @@ from api.db import get_db, AsyncSessionLocal
 from api.models.job import TranscriptJob
 from api.models.response import GenerateResponse
 from api.models.user import User
+from api.quota import check_multilang_access
 from api.services.pipeline import run_generate
 from api.services.whisper_service import transcribe_audio
 
@@ -60,14 +61,13 @@ async def generate_audio_endpoint(
     portal_id: Optional[str] = Form(None),
     post_title: Optional[str] = Form(None),
     lang: str = Form("pl"),
+    target_lang: Optional[str] = Form(None),
+    ui_lang: Optional[str] = Form(None),
     llm_provider: str = Form("claude"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GenerateResponse:
-    """Odbiera plik audio, transkrybuje za pomocą faster-whisper i generuje pakiet SEO.
-
-    Zwraca GenerateResponse identyczny jak /v1/generate.
-    """
+    """Odbiera plik audio, transkrybuje za pomocą faster-whisper i generuje pakiet SEO."""
     start_time = time.time()
     original_filename = file.filename or "audio.mp3"
     ext = os.path.splitext(original_filename)[1].lower()
@@ -78,6 +78,18 @@ async def generate_audio_endpoint(
             detail=f"Niedozwolony format pliku audio: {ext}. Dozwolone formaty: {', '.join(ALLOWED_AUDIO_EXTENSIONS)}",
         )
 
+    resolved_ui_lang = (ui_lang or "pl").lower()[:2]
+    resolved_target_lang = (target_lang or lang or resolved_ui_lang or "pl").lower()[:2]
+    entitlements = await check_multilang_access(current_user.id, db, user=current_user)
+    if resolved_target_lang != resolved_ui_lang and not entitlements.get("allow_target_override", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Wybór innego języka docelowego niż język panelu wymaga Pakietu Wielojęzycznego (+29 zł/mies.) lub planu Pro / Agency.",
+        )
+
+    plan_id = getattr(current_user, "plan_id", "free") or "free"
+    effective_provider = "gemini" if plan_id in ("free", "starter") else (llm_provider or "gemini")
+
     # 1. Synthetic media ID
     media_id = f"audio_{uuid.uuid4().hex[:8]}"
     safe_filename = re.sub(r"[^a-zA-Z0-9_.-]", "_", original_filename)
@@ -86,12 +98,13 @@ async def generate_audio_endpoint(
     tmp_srt_path = f"/tmp/{media_id}.srt"
 
     logger.info(
-        "[/v1/audio/generate] start: media_id=%s, file=%s, type=%s, portal_id=%s, user_id=%s",
+        "[/v1/audio/generate] start: media_id=%s, file=%s, type=%s, portal_id=%s, user_id=%s, target_lang=%s",
         media_id,
         original_filename,
         publication_type,
         portal_id,
         current_user.id,
+        resolved_target_lang,
     )
 
     try:
@@ -110,7 +123,7 @@ async def generate_audio_endpoint(
             transcribe_audio,
             audio_path=tmp_audio_path,
             quality="default",
-            lang=lang if lang else "pl",
+            lang=None,  # auto-detect spoken language in Whisper
         )
 
         logger.info(
@@ -156,12 +169,13 @@ async def generate_audio_endpoint(
         )
         result = await run_generate(
             video_url=audio_url,
-            llm_provider=llm_provider,
-            lang=lang,
+            llm_provider=effective_provider,
+            lang=resolved_target_lang,
             post_title_override=title_to_use,
             publication_type=publication_type,
             portal_id=portal_id_clean,
             user_id=str(current_user.id),
+            target_lang=resolved_target_lang,
         )
 
         schema_data = result["seo"]
@@ -189,6 +203,8 @@ async def generate_audio_endpoint(
             schema_data=schema_data,
             transcript_available=True,
             partial_result=False,
+            source_lang=result.get("source_lang", schema_data.get("source_lang", "pl")),
+            target_lang=result.get("target_lang", schema_data.get("target_lang", resolved_target_lang)),
         )
 
     except ValueError as exc:

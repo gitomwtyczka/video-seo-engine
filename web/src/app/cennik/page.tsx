@@ -16,6 +16,8 @@ const plans = [
       "3 portale WordPress",
       "VideoObject Schema",
       "Chapters + FAQ AI",
+      "Cross-Language: wideo z dowolnego języka → SEO w języku panelu",
+      "Opcjonalny Add-on: Pakiet Wielojęzyczny (+29 zł/mies.)",
       "Dostęp do API",
       "Email support",
     ],
@@ -29,6 +31,8 @@ const plans = [
     features: [
       "250 filmów / miesiąc",
       "10 portali WordPress",
+      "🌐 Pakiet Wielojęzyczny (8 języków) W CENIE",
+      "Tłumaczenie poszczególnych zakładek 1 kliknięciem",
       "Pakiet analiz Premium AI",
       "VideoObject Schema",
       "Chapters + FAQ AI",
@@ -46,6 +50,7 @@ const plans = [
     features: [
       "1 000 filmów / miesiąc",
       "50 portali WordPress",
+      "🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji",
       "Priorytetowe AI & wsparcie",
       "VideoObject Schema",
       "Chapters + FAQ AI",
@@ -179,6 +184,39 @@ export default function CennikPage() {
               </button>
             </div>
           ))}
+        </div>
+
+        {/* Dedicated Add-on: Pakiet Wielojęzyczny */}
+        <div className="mt-12 rounded-2xl border border-indigo-500/40 bg-gradient-to-r from-indigo-950/60 via-violet-950/50 to-gray-900/70 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-[0_0_30px_rgba(99,102,241,0.12)]">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 uppercase tracking-wider">
+                Opcjonalny Add-on do planu Starter
+              </span>
+              <span className="text-xs text-emerald-400 font-semibold">
+                ✨ W planach Pro i Agency w cenie!
+              </span>
+            </div>
+            <h3 className="text-xl md:text-2xl font-bold text-white">
+              🌐 Add-on: Pakiet Wielojęzyczny — +29 zł / mies.
+            </h3>
+            <p className="text-sm text-gray-300 leading-relaxed">
+              Generuj artykuły, streszczenia, posty Social Media i pełne Schema.org w <strong className="text-white">8 językach</strong> (🇵🇱 PL, 🇬🇧 EN, 🇩🇪 DE, 🇪🇸 ES, 🇫🇷 FR, 🇮🇹 IT, 🇺🇦 UK, 🇵🇹 PT) z dowolnego wideo. Tłumacz wybrane zakładki 1 kliknięciem bez ponownego pobierania filmu i bez zużywania limitu wideo.
+            </p>
+          </div>
+          <div className="flex flex-col items-stretch sm:items-end gap-2 w-full md:w-auto flex-shrink-0">
+            <button
+              id="btn-subscribe-multilang-addon"
+              onClick={() => handleSubscribe("multilang_addon")}
+              disabled={loading !== null}
+              className="px-6 py-3 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {loading === "multilang_addon" ? "Przekierowanie..." : "Dokup Add-on (+29 zł/mies.)"}
+            </button>
+            <span className="text-xs text-gray-400 text-center sm:text-right">
+              Aktywacja natychmiast po płatności Stripe
+            </span>
+          </div>
         </div>
 
         {/* Free tier note */}

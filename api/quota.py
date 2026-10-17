@@ -3,13 +3,89 @@ Quota middleware: checks user's monthly usage before allowing pipeline execution
 """
 from datetime import datetime, timezone
 from typing import Any, Optional
+import uuid
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from api.db import get_db
 from api.auth import get_current_user
-from api.models.user import User, UsageLog
+from api.models.user import User, UsageLog, Subscription
+
+ALLOWED_LANGUAGES = ["pl", "en", "de", "es", "fr", "it", "uk", "pt"]
+
+
+def get_multilang_entitlements(plan_name: str, has_addon: bool = False) -> dict:
+    """Return Multi-Language & Cross-Language ('Złoty Środek') entitlements for a plan + add-on."""
+    plan_key = (plan_name or "free").lower().strip()
+
+    if plan_key == "agency":
+        return {
+            "allow_cross_lang_input": True,
+            "allow_target_override": True,
+            "allow_per_material_adapt": True,
+            "max_adaptations_per_video": 999,
+            "allowed_languages": ALLOWED_LANGUAGES,
+            "has_multilang_addon": True,
+        }
+    if plan_key == "pro":
+        return {
+            "allow_cross_lang_input": True,
+            "allow_target_override": True,
+            "allow_per_material_adapt": True,
+            "max_adaptations_per_video": 20,
+            "allowed_languages": ALLOWED_LANGUAGES,
+            "has_multilang_addon": True,
+        }
+    if has_addon:
+        return {
+            "allow_cross_lang_input": True,
+            "allow_target_override": True,
+            "allow_per_material_adapt": True,
+            "max_adaptations_per_video": 5,
+            "allowed_languages": ALLOWED_LANGUAGES,
+            "has_multilang_addon": True,
+        }
+    # free or starter without add-on
+    return {
+        "allow_cross_lang_input": True,
+        "allow_target_override": False,
+        "allow_per_material_adapt": False,
+        "max_adaptations_per_video": 0,
+        "allowed_languages": ALLOWED_LANGUAGES,
+        "has_multilang_addon": False,
+    }
+
+
+async def check_multilang_access(user_id: Any, db: AsyncSession, user: Optional[User] = None) -> dict:
+    """Resolve user's plan + has_multilang_addon from User & Subscription tables and return entitlements."""
+    uid = user_id
+    if isinstance(uid, str):
+        try:
+            uid = uuid.UUID(uid)
+        except Exception:
+            pass
+
+    if user is None and uid is not None:
+        res_u = await db.execute(select(User).where(User.id == uid))
+        user = res_u.scalar_one_or_none()
+
+    plan_name = (user.plan_id if user and user.plan_id else "free").lower()
+    has_addon = bool(getattr(user, "has_multilang_addon", False)) if user else False
+
+    if uid is not None:
+        try:
+            res_sub = await db.execute(select(Subscription).where(Subscription.user_id == uid))
+            sub = res_sub.scalar_one_or_none()
+            if sub and sub.has_multilang_addon:
+                has_addon = True
+        except Exception:
+            pass
+
+    if user and getattr(user, "is_admin", False):
+        return get_multilang_entitlements("agency", has_addon=True)
+
+    return get_multilang_entitlements(plan_name, has_addon=has_addon)
 
 
 async def check_quota(
@@ -31,7 +107,7 @@ async def check_quota(
     if plan.monthly_quota == -1:
         return current_user
 
-    # Count this month's successful executions
+    # Count this month's successful video executions (exclude per-material adaptations)
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -39,6 +115,7 @@ async def check_quota(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == current_user.id)
         .where(UsageLog.success == True)  # noqa: E712
+        .where(UsageLog.endpoint != "adapt_material")
         .where(UsageLog.created_at >= month_start)
     )
     used = result.scalar_one()
@@ -65,7 +142,6 @@ async def log_usage(
     estimated_cost_usd: float = None,
 ) -> None:
     """Record a pipeline execution in usage_logs."""
-    import uuid
     uid = user_id
     if isinstance(uid, str):
         try:
@@ -86,3 +162,4 @@ async def log_usage(
     )
     db.add(log)
     await db.commit()
+

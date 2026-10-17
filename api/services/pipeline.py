@@ -551,6 +551,7 @@ async def run_generate(
     publication_type: str = "full_analysis",
     portal_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    target_lang: Optional[str] = None,
 ) -> dict:
     """Fetch transcript + generate SEO schema. No WP write.
 
@@ -564,13 +565,15 @@ async def run_generate(
         fetch_metadata_api_v3,
         fetch_transcript_api_v3,
         fetch_video_thumbnails,
+        detect_transcript_language,
     )
     from core.generator import process_video as generate_schema
 
+    resolved_target_lang = (target_lang or lang or "pl").lower()[:2]
     video_id = _extract_video_id(video_url)
     is_audio = video_url.startswith("audio://") or video_url.startswith("audio_")
-    logger.info("[generate] video_id=%s is_audio=%s provider=%s type=%s portal_id=%s",
-                video_id, is_audio, llm_provider, publication_type, portal_id)
+    logger.info("[generate] video_id=%s is_audio=%s provider=%s type=%s portal_id=%s target_lang=%s",
+                video_id, is_audio, llm_provider, publication_type, portal_id, resolved_target_lang)
 
     profile_config = None
     site_brand = None
@@ -666,6 +669,15 @@ async def run_generate(
         if not has_transcript:
             vtt_path = None
 
+        source_lang = "pl"
+        if vtt_path and os.path.exists(vtt_path):
+            try:
+                with open(vtt_path, "r", encoding="utf-8", errors="replace") as vf:
+                    source_lang = detect_transcript_language(vf.read(16000))
+            except Exception:
+                source_lang = "pl"
+        meta["source_lang"] = source_lang
+
         post_title = post_title_override or meta.get("title", video_id)
         yt_url = video_url
         wp_id_placeholder = 0
@@ -686,6 +698,8 @@ async def run_generate(
             site_brand,
             publication_type,
             meta,
+            resolved_target_lang,
+            source_lang,
         )
 
         seo["source"] = "audio"
@@ -745,17 +759,22 @@ async def run_generate(
                         video_id,
                     )
                     oauth_vtt, oauth_lang = await asyncio.to_thread(
-                        fetch_transcript_api_v3, video_id, lang, yt_api_key, yt_access_token
+                        fetch_transcript_api_v3, video_id, resolved_target_lang, yt_api_key, yt_access_token
                     )
 
                 if oauth_vtt:
-                    vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.{oauth_lang or lang}.vtt")
+                    vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.{oauth_lang or resolved_target_lang}.vtt")
                     pathlib.Path(vtt_path).write_text(oauth_vtt, encoding="utf-8")
                     meta["vtt_path"] = vtt_path
-                    meta["vtt_language"] = oauth_lang or lang
+                    meta["vtt_language"] = oauth_lang or resolved_target_lang
+                    meta["source_lang"] = detect_transcript_language(
+                        oauth_vtt,
+                        metadata_lang=meta.get("default_audio_language"),
+                        track_lang=oauth_lang,
+                    )
                     logger.info(
-                        "[generate] Priority 0 YT OAuth Captions succeeded on VPS (%d chars) — bypassing Local Runner!",
-                        len(oauth_vtt),
+                        "[generate] Priority 0 YT OAuth Captions succeeded on VPS (%d chars, source_lang=%s) — bypassing Local Runner!",
+                        len(oauth_vtt), meta["source_lang"],
                     )
                 else:
                     logger.info(
@@ -775,12 +794,20 @@ async def run_generate(
                             )
                             webvtt_content = _vtt_runner_to_webvtt(transcript_text)
                             pathlib.Path(vtt_path).write_text(webvtt_content, encoding="utf-8")
+                            meta["source_lang"] = detect_transcript_language(
+                                webvtt_content,
+                                metadata_lang=meta.get("default_audio_language"),
+                            )
                         else:
                             logger.warning(
                                 "[generate] Plain text transcript (no timestamps) — "
                                 "chapters will have approximate times. Upgrade runner to v2.0."
                             )
                             pathlib.Path(vtt_path).write_text(transcript_text, encoding="utf-8")
+                            meta["source_lang"] = detect_transcript_language(
+                                transcript_text,
+                                metadata_lang=meta.get("default_audio_language"),
+                            )
 
                         meta["vtt_path"] = vtt_path
 
@@ -794,12 +821,16 @@ async def run_generate(
                             )
                             vtt_path = None
                             has_transcript = False
+                            meta["source_lang"] = detect_transcript_language(
+                                meta.get("description") or meta.get("title") or "",
+                                metadata_lang=meta.get("default_audio_language"),
+                            )
                         else:
                             # Other errors (timeout, DB failure) — re-raise
                             raise RuntimeError(f"Local Runner transcript failed: {e}") from e
             else:
                 meta = await asyncio.to_thread(
-                    fetch_video, video_url, tmp_dir, lang, yt_api_key, yt_access_token
+                    fetch_video, video_url, tmp_dir, resolved_target_lang, yt_api_key, yt_access_token
                 )
                 if not meta or meta.get("error"):
                     raise RuntimeError(f"Fetch failed for {video_id}: {meta.get('error', 'unknown')}")
@@ -812,6 +843,13 @@ async def run_generate(
                         "continuing without (partial_result=True)", video_id
                     )
                     has_transcript = False
+
+            source_lang = meta.get("source_lang") or detect_transcript_language(
+                meta.get("description") or meta.get("title") or "",
+                metadata_lang=meta.get("default_audio_language"),
+                track_lang=meta.get("vtt_language"),
+            )
+            meta["source_lang"] = source_lang
 
             num_screenshots = 2 if publication_type in ("full_analysis", "discover") else 1
             thumbnails = await asyncio.to_thread(
@@ -884,6 +922,8 @@ async def run_generate(
                 site_brand,
                 publication_type,
                 meta,  # FIX A: pass meta for partial schema (description, duration)
+                resolved_target_lang,
+                source_lang,
             )
 
             llm_img_descs = seo.get("image_descriptions", [])
@@ -948,11 +988,11 @@ async def run_generate(
     partial_result = not has_transcript
     logger.info(
         "[generate] done: video_id=%s keyphrases=%r saas=%s gsc_status=%s type=%s "
-        "portal_id=%s images=%d has_transcript=%s partial=%s",
+        "portal_id=%s images=%d has_transcript=%s partial=%s lang=%s->%s",
         video_id, seo.get("focus_keyphrases", seo.get("focus_keyphrase", "?")),
         "enriched" if seo.get("saas_enriched") else "standalone",
         gsc_meta["status"], publication_type, portal_id, len(image_data),
-        has_transcript, partial_result,
+        has_transcript, partial_result, seo.get("source_lang"), seo.get("target_lang"),
     )
     return {
         "video_id": video_id,
@@ -962,6 +1002,8 @@ async def run_generate(
         "saas_data": saas_data,
         "has_transcript": has_transcript,    # FIX A
         "partial_result": partial_result,    # FIX A
+        "source_lang": seo.get("source_lang") or meta.get("source_lang", "pl"),
+        "target_lang": seo.get("target_lang", resolved_target_lang),
         "input_tokens": seo.get("input_tokens", 0),
         "output_tokens": seo.get("output_tokens", 0),
         "estimated_cost_usd": seo.get("estimated_cost_usd", 0.0),
@@ -978,12 +1020,14 @@ async def run_process(video_url: str, site_config: dict, options: dict,
     start = time.time()
     llm_provider = options.get("llm_provider", "claude")
     lang = options.get("lang", "pl")
+    target_lang = options.get("target_lang") or lang or "pl"
     publication_type = options.get("publication_type", "full_analysis")
 
     gen_result = await run_generate(
         video_url, llm_provider, lang,
         publication_type=publication_type,
         user_id=user_id,
+        target_lang=target_lang,
     )
     video_id = gen_result["video_id"]
     seo = gen_result["seo"]
@@ -1041,6 +1085,8 @@ async def run_process(video_url: str, site_config: dict, options: dict,
         "processing_time_s": round(time.time() - start, 2),
         "focus_keyphrase": seo.get("focus_keyphrase"),
         "post_title": seo.get("post_title"),
+        "source_lang": gen_result.get("source_lang", "pl"),
+        "target_lang": gen_result.get("target_lang", target_lang),
         "input_tokens": gen_result.get("input_tokens", 0),
         "output_tokens": gen_result.get("output_tokens", 0),
         "estimated_cost_usd": gen_result.get("estimated_cost_usd", 0.0),

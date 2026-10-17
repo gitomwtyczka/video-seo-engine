@@ -10,6 +10,7 @@ from sqlalchemy import select, func
 from api.db import get_db
 from api.auth import get_current_user
 from api.models.user import User, UsageLog
+from api.quota import check_multilang_access
 
 router = APIRouter(prefix="/v1/users", tags=["users"])
 
@@ -34,6 +35,8 @@ class UserProfile(BaseModel):
     full_name: str | None
     is_verified: bool
     is_admin: bool
+    has_multilang_addon: bool = False
+    multilang: dict = {}
     plan: PlanInfo
     usage: UsageInfo
     created_at: str
@@ -44,7 +47,7 @@ async def get_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Return current user profile with plan and monthly usage."""
+    """Return current user profile with plan, multilang entitlements, and monthly usage."""
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -52,11 +55,15 @@ async def get_me(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == current_user.id)
         .where(UsageLog.success == True)  # noqa: E712
+        .where(UsageLog.endpoint != "adapt_material")
         .where(UsageLog.created_at >= month_start)
     )
     used = result.scalar_one()
     quota = current_user.plan.monthly_quota if current_user.plan else 5
     percent = 0.0 if quota == -1 else round(used / quota * 100, 1) if quota > 0 else 0.0
+
+    multilang = await check_multilang_access(current_user.id, db, user=current_user)
+    has_addon = bool(multilang.get("has_multilang_addon", False))
 
     plan = current_user.plan
     return UserProfile(
@@ -65,6 +72,8 @@ async def get_me(
         full_name=current_user.full_name,
         is_verified=current_user.is_verified,
         is_admin=current_user.is_admin,
+        has_multilang_addon=has_addon,
+        multilang=multilang,
         plan=PlanInfo(
             id=plan.id,
             display_name=plan.display_name,
@@ -79,3 +88,4 @@ async def get_me(
         ),
         created_at=current_user.created_at.isoformat() if current_user.created_at else ""
     )
+

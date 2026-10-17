@@ -10,7 +10,7 @@ JAK: Trzy endpointy:
 """
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -21,7 +21,8 @@ from sqlalchemy.orm import selectinload
 
 from api.auth import get_current_user
 from api.db import get_db
-from api.models.user import Plan, User
+from api.models.user import Plan, User, Subscription
+from api.quota import check_multilang_access
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,89 @@ router = APIRouter(prefix="/v1/payments", tags=["payments"])
 
 
 class CheckoutRequest(BaseModel):
-    plan_id: str  # 'starter' | 'pro' | 'agency'
+    plan_id: Optional[str] = None  # 'starter' | 'pro' | 'agency' | 'multilang_addon'
+    addon: Optional[str] = None    # 'multilang'
+
+
+class AddonCheckoutRequest(BaseModel):
+    addon: str = "multilang"
+
+
+def _build_multilang_addon_line_item() -> dict:
+    """Return Stripe line_item for Multi-Language Add-on (+29 PLN/mo)."""
+    addon_price_id = os.getenv("STRIPE_PRICE_MULTILANG_ADDON", "").strip()
+    if addon_price_id:
+        return {"price": addon_price_id, "quantity": 1}
+    return {
+        "price_data": {
+            "currency": "pln",
+            "unit_amount": 2900,
+            "recurring": {"interval": "month"},
+            "product_data": {
+                "name": "PressAI VSE — Pakiet Wielojęzyczny (Add-on 8 języków)",
+                "description": "Odblokowuje wybór dowolnego języka docelowego przy generowaniu oraz tłumaczenie pojedynczych zakładek (Artykuł, YouTube, Meta, Cytaty, Schema) 1 kliknięciem.",
+            },
+        },
+        "quantity": 1,
+    }
+
+
+@router.get("/subscription")
+async def get_subscription_info(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Zwraca szczegóły planu oraz uprawnienia Pakietu Wielojęzycznego (has_multilang_addon)."""
+    multilang = await check_multilang_access(current_user.id, db, user=current_user)
+    return {
+        "plan_id": current_user.plan_id or "free",
+        "has_multilang_addon": bool(multilang.get("has_multilang_addon", False)),
+        "multilang": multilang,
+    }
+
+
+@router.post("/checkout-addon")
+async def create_addon_checkout_session(
+    body: Optional[AddonCheckoutRequest] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Tworzy sesję Stripe Checkout dla Pakietu Wielojęzycznego (+29 zł/mies.)."""
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Stripe not configured",
+        )
+
+    try:
+        session_kwargs: dict = {
+            "mode": "subscription",
+            "allow_promotion_codes": True,
+            "line_items": [_build_multilang_addon_line_item()],
+            "success_url": f"{FRONTEND_URL}/platnosci/sukces?session_id={{CHECKOUT_SESSION_ID}}&addon=multilang",
+            "cancel_url": f"{FRONTEND_URL}/cennik",
+            "metadata": {
+                "user_id": str(current_user.id),
+                "plan_id": "multilang_addon",
+                "addon": "multilang",
+            },
+            "customer_email": current_user.email
+            if not current_user.stripe_customer_id
+            else None,
+        }
+
+        if current_user.stripe_customer_id:
+            session_kwargs["customer"] = current_user.stripe_customer_id
+            session_kwargs.pop("customer_email", None)
+
+        session = stripe.checkout.Session.create(**session_kwargs)
+        return {"session_url": session.url, "checkout_url": session.url}
+    except stripe.StripeError as e:
+        logger.error("Stripe error creating addon checkout session: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Stripe error: {e.user_message or str(e)}",
+        )
 
 
 @router.post("/create-checkout-session")
@@ -49,6 +132,13 @@ async def create_checkout_session(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Stripe not configured",
+        )
+
+    if body.addon == "multilang" or body.plan_id in ("multilang_addon", "multilang"):
+        return await create_addon_checkout_session(
+            AddonCheckoutRequest(addon="multilang"),
+            current_user=current_user,
+            db=db,
         )
 
     # Pobierz plan z DB
@@ -90,7 +180,7 @@ async def create_checkout_session(
             session_kwargs.pop("customer_email", None)
 
         session = stripe.checkout.Session.create(**session_kwargs)
-        return {"session_url": session.url}
+        return {"session_url": session.url, "checkout_url": session.url}
 
     except stripe.StripeError as e:
         logger.error("Stripe error creating checkout session: %s", e)
@@ -152,14 +242,15 @@ async def stripe_webhook(
 async def _handle_checkout_completed(
     session: Any, db: AsyncSession
 ) -> None:
-    """Po udanym checkout - ustaw plan i zapisz stripe IDs."""
+    """Po udanym checkout - ustaw plan lub add-on i zapisz stripe IDs."""
     metadata = session.metadata
     if not metadata:
         logger.error("checkout.session.completed: no metadata in session")
         return
 
-    user_id = metadata["user_id"]
-    plan_id = metadata["plan_id"]
+    user_id = metadata["user_id"] if "user_id" in metadata else getattr(metadata, "user_id", None)
+    plan_id = metadata["plan_id"] if "plan_id" in metadata else getattr(metadata, "plan_id", None)
+    addon = metadata["addon"] if "addon" in metadata else getattr(metadata, "addon", None)
     customer_id = session.customer
     subscription_id = session.subscription
 
@@ -176,8 +267,8 @@ async def _handle_checkout_completed(
         except Exception as e:
             logger.warning("Could not verify subscription %s: %s", subscription_id, e)
 
-    if not user_id or not plan_id:
-        logger.error("checkout.session.completed missing metadata: user_id=%s, plan_id=%s", user_id, plan_id)
+    if not user_id or (not plan_id and not addon):
+        logger.error("checkout.session.completed missing metadata: user_id=%s, plan_id=%s, addon=%s", user_id, plan_id, addon)
         return
 
     result = await db.execute(
@@ -190,10 +281,42 @@ async def _handle_checkout_completed(
         logger.error("checkout.session.completed: user not found: %s", user_id)
         return
 
+    res_sub = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
+    sub_row = res_sub.scalar_one_or_none()
+    if sub_row is None:
+        sub_row = Subscription(
+            user_id=user.id,
+            plan_name=user.plan_id or "free",
+            has_multilang_addon=bool(user.has_multilang_addon),
+        )
+        db.add(sub_row)
+
+    if addon == "multilang" or plan_id in ("multilang_addon", "multilang"):
+        user.has_multilang_addon = True
+        if customer_id:
+            user.stripe_customer_id = customer_id
+        sub_row.has_multilang_addon = True
+        if customer_id:
+            sub_row.stripe_customer_id = customer_id
+        if subscription_id:
+            sub_row.stripe_subscription_id = subscription_id
+        await db.commit()
+        logger.info(
+            "User %s activated Multi-Language Add-on (+29 PLN/mo): customer=%s, sub=%s",
+            user.email, customer_id, subscription_id,
+        )
+        return
+
     old_plan = user.plan_id
     user.plan_id = plan_id
     user.stripe_customer_id = customer_id
     user.stripe_subscription_id = subscription_id
+    if plan_id in ("pro", "agency"):
+        user.has_multilang_addon = True
+        sub_row.has_multilang_addon = True
+    sub_row.plan_name = plan_id
+    sub_row.stripe_customer_id = customer_id
+    sub_row.stripe_subscription_id = subscription_id
     await db.commit()
     logger.info(
         "User %s upgraded: plan %s -> %s, customer=%s, sub=%s",

@@ -371,3 +371,14 @@ async def google_oauth_callback(code: str, db: AsyncSession = Depends(get_db)):
     return RedirectResponse(
         f"{frontend_url}/auth/callback?access_token={access_token}&refresh_token={refresh_token}"
     )
+
+
+@router.get("/me")
+async def auth_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alias for /v1/users/me — returns user profile, plan, usage, and multilang entitlements."""
+    from api.routers.users import get_me
+    return await get_me(current_user=current_user, db=db)
+

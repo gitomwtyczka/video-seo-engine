@@ -59,6 +59,7 @@ class User(Base):
     plan = relationship("Plan", back_populates="users")
     stripe_customer_id = Column(String(255), nullable=True)
     stripe_subscription_id = Column(String(255), nullable=True)
+    has_multilang_addon = Column(Boolean, default=False, nullable=False, server_default="false")
 
     # Verification
     verification_token = Column(String(255), nullable=True)
@@ -72,6 +73,23 @@ class User(Base):
     api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan")
     portals = relationship("WpPortal", back_populates="user", cascade="all, delete-orphan")
     youtube_channels = relationship("YouTubeChannel", back_populates="user", cascade="all, delete-orphan")
+    subscription = relationship("Subscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+
+class Subscription(Base):
+    """User subscription details and add-on flags (e.g. Multi-Language Add-on +29 PLN/mo)."""
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    plan_name = Column(String(50), nullable=False, default="free")
+    stripe_customer_id = Column(String(255), nullable=True)
+    stripe_subscription_id = Column(String(255), nullable=True)
+    has_multilang_addon = Column(Boolean, default=False, nullable=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="subscription")
 
 
 class UsageLog(Base):
@@ -108,3 +126,4 @@ class ApiKey(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="api_keys")
+

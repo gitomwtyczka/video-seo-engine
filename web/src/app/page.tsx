@@ -29,7 +29,7 @@ const plans = [
     name: 'Free',
     price: '0',
     quota: '5 filmów / mies.',
-    features: ['Schema VideoObject', 'Rozdziały AI', 'FAQ generation', '1 portal WP'],
+    features: ['Schema VideoObject', 'Rozdziały AI', 'FAQ generation', 'Cross-Language → język panelu', '1 portal WP'],
     cta: 'Zacznij za darmo',
     href: '/register',
     highlighted: false,
@@ -38,7 +38,7 @@ const plans = [
     name: 'Starter',
     price: '49',
     quota: '50 filmów / mies.',
-    features: ['Wszystko z Free', 'WordPress inject', '3 portale WP', 'Email support'],
+    features: ['Wszystko z Free', 'WordPress inject', '3 portale WP', 'Cross-Language: wideo → SEO w języku panelu', 'Opcjonalny Add-on: Pakiet Wielojęzyczny (+29 zł/mies.)', 'Email support'],
     cta: 'Wybierz Starter',
     href: '/register?plan=starter',
     highlighted: false,
@@ -47,7 +47,7 @@ const plans = [
     name: 'Pro',
     price: '149',
     quota: '250 filmów / mies.',
-    features: ['Wszystko ze Starter', '10 portali WP', 'Pakiet analiz Premium AI', 'API Access', 'Priority support'],
+    features: ['Wszystko ze Starter', '10 portali WP', '🌐 Pakiet Wielojęzyczny (8 języków) W CENIE', 'Tłumaczenie poszczególnych zakładek 1 kliknięciem', 'Pakiet analiz Premium AI', 'API Access', 'Priority support'],
     cta: 'Wybierz Pro',
     href: '/register?plan=pro',
     highlighted: true,
@@ -56,7 +56,7 @@ const plans = [
     name: 'Agency',
     price: '499',
     quota: '1 000 filmów / mies.',
-    features: ['Wszystko z Pro', '50 portali WP', 'Priorytetowe AI & wsparcie', 'White-label', 'SLA 99.9%'],
+    features: ['Wszystko z Pro', '50 portali WP', '🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji', 'Priorytetowe AI & wsparcie', 'White-label', 'SLA 99.9%'],
     cta: 'Wybierz Agency',
     href: '/register?plan=agency',
     highlighted: false,
@@ -207,6 +207,32 @@ export default function Home() {
                 </Link>
               </div>
             ))}
+          </div>
+
+          {/* Dedicated Add-on: Pakiet Wielojęzyczny */}
+          <div className="mt-12 glass rounded-2xl border border-brand-500/30 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2 max-w-2xl">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-brand-500/20 text-brand-300 border border-brand-500/30 uppercase tracking-wider">
+                  Add-on dla planu Starter
+                </span>
+                <span className="text-xs text-green-400 font-semibold">
+                  ✨ W planach Pro i Agency w cenie!
+                </span>
+              </div>
+              <h3 className="text-xl font-bold text-white">
+                🌐 Add-on: Pakiet Wielojęzyczny — +29 PLN / mies.
+              </h3>
+              <p className="text-sm text-dark-300 leading-relaxed">
+                Generuj materiały SEO, artykuły, streszczenia i posty Social Media w <strong className="text-white">8 językach</strong> (🇵🇱 PL, 🇬🇧 EN, 🇩🇪 DE, 🇪🇸 ES, 🇫🇷 FR, 🇮🇹 IT, 🇺🇦 UK, 🇵🇹 PT) oraz tłumacz poszczególne zakładki 1 kliknięciem bez zużywania limitu wideo.
+              </p>
+            </div>
+            <Link
+              href="/cennik"
+              className="px-6 py-3 rounded-xl font-semibold text-sm bg-brand-500 hover:bg-brand-400 text-white transition-smooth glow-sm whitespace-nowrap"
+            >
+              Sprawdź w Cenniku →
+            </Link>
           </div>
         </div>
       </section>

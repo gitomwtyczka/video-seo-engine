@@ -794,6 +794,13 @@ def build_schema_jsonld(
     if "T" in upload_date and "+" not in upload_date and "Z" not in upload_date:
         upload_date = upload_date + "+00:00"
 
+    target_lang = (seo.get("target_lang") or "pl").lower()[:2]
+    try:
+        from core.generator import SUPPORTED_LANGUAGES
+        watch_label = SUPPORTED_LANGUAGES.get(target_lang, SUPPORTED_LANGUAGES["pl"])["WatchAction"]
+    except Exception:
+        watch_label = "Obejrzyj wideo"
+
     video_schema: dict = {
         "@context": "https://schema.org",
         "@type": "VideoObject",
@@ -804,6 +811,12 @@ def build_schema_jsonld(
         "contentUrl": yt_url,
         "embedUrl": f"https://www.youtube.com/embed/{yt_id}",
         "duration": iso_dur,
+        "inLanguage": target_lang,
+        "potentialAction": {
+            "@type": "WatchAction",
+            "name": watch_label,
+            "target": yt_url,
+        },
     }
     if clips:
         video_schema["hasPart"] = clips
@@ -849,6 +862,7 @@ def build_schema_jsonld(
         schemas.append({
             "@context": "https://schema.org",
             "@type": "FAQPage",
+            "inLanguage": target_lang,
             "mainEntity": faq_items,
         })
 

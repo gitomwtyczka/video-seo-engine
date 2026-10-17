@@ -114,6 +114,22 @@ except ImportError:
 
 
 # ============================================================
+# MULTI-LANGUAGE & CROSS-LANGUAGE CONFIGURATION
+# ============================================================
+
+SUPPORTED_LANGUAGES: dict[str, dict[str, str]] = {
+    "pl": {"name": "polski (Polish)", "eeat_sources": "pl.wikipedia.org, gov.pl, stat.gov.pl, pap.pl, nbp.pl", "WatchAction": "Obejrzyj wideo", "summary_heading": "Podsumowanie"},
+    "en": {"name": "angielski (English)", "eeat_sources": "en.wikipedia.org, reuters.com, apnews.com, .gov, .edu, who.int", "WatchAction": "Watch video", "summary_heading": "Summary"},
+    "de": {"name": "niemiecki (German)", "eeat_sources": "de.wikipedia.org, bund.de, destatis.de, tagesschau.de", "WatchAction": "Video ansehen", "summary_heading": "Zusammenfassung"},
+    "es": {"name": "hiszpański (Spanish)", "eeat_sources": "es.wikipedia.org, ine.es, efe.com, boe.es", "WatchAction": "Ver video", "summary_heading": "Resumen"},
+    "fr": {"name": "francuski (French)", "eeat_sources": "fr.wikipedia.org, insee.fr, service-public.fr, afp.com", "WatchAction": "Regarder la vidéo", "summary_heading": "Résumé"},
+    "it": {"name": "włoski (Italian)", "eeat_sources": "it.wikipedia.org, istat.it, gov.it, ansa.it", "WatchAction": "Guarda il video", "summary_heading": "Riassunto"},
+    "uk": {"name": "ukraiński (Ukrainian)", "eeat_sources": "uk.wikipedia.org, gov.ua, ukrstat.gov.ua, ukrinform.ua", "WatchAction": "Дивитися відео", "summary_heading": "Підсумок"},
+    "pt": {"name": "portugalski (Portuguese)", "eeat_sources": "pt.wikipedia.org, gov.br, ibge.gov.br, ine.pt, lusa.pt", "WatchAction": "Assistir vídeo", "summary_heading": "Resumo"},
+}
+
+
+# ============================================================
 # FORMAT INSTRUCTIONS (Pass 2)
 # ============================================================
 
@@ -168,21 +184,7 @@ def format_duration_iso(seconds: float) -> str:
 # ============================================================
 
 def parse_vtt_full(vtt_path: str) -> tuple[str, list[tuple[float, str]], float]:
-    """Parse a WebVTT file into timestamped text, segments list, and total duration.
-
-    Args:
-        vtt_path: Absolute path to the .vtt file.
-
-    Returns:
-        Tuple of:
-          - timestamped_text: Human-readable text with [MM:SS] markers every 30s.
-          - segments: List of (start_sec, text) tuples for anchor matching.
-          - total_duration: Duration of the video in seconds.
-
-    Raises:
-        FileNotFoundError: If vtt_path does not exist.
-        ValueError: If VTT file is empty or unparseable.
-    """
+    """Parse a WebVTT file into timestamped text, segments list, and total duration."""
     with open(vtt_path, "r", encoding="utf-8") as f:
         content = f.read()
 
@@ -239,18 +241,7 @@ def parse_vtt_full(vtt_path: str) -> tuple[str, list[tuple[float, str]], float]:
 # ============================================================
 
 def find_anchor_in_vtt(anchor_text: str, segments: list[tuple[float, str]]) -> int:
-    """Find the VTT timestamp where anchor_text first appears.
-
-    Uses exact substring match first, then sliding-window fuzzy match
-    via SequenceMatcher. Accepts fuzzy matches with ratio > 0.5.
-
-    Args:
-        anchor_text: 8-15 word quote from LLM output.
-        segments: List of (start_sec, text) tuples from parse_vtt_full().
-
-    Returns:
-        Timestamp in seconds (int), or -1 if not found.
-    """
+    """Find the VTT timestamp where anchor_text first appears."""
     anchor_clean = anchor_text.lower().strip()
     best_score = 0.0
     best_time = -1
@@ -278,22 +269,7 @@ def find_anchor_in_vtt(anchor_text: str, segments: list[tuple[float, str]]) -> i
 # ============================================================
 
 def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
-    """Call LLM provider with prompt, return raw text response.
-
-    Supports: gemini (default), claude.
-
-    Args:
-        prompt: Full prompt string to send to the model.
-        api_key: API key for the selected provider.
-        provider: LLM provider name: 'gemini' or 'claude'.
-
-    Returns:
-        Raw text response from the LLM.
-
-    Raises:
-        ValueError: If unsupported provider is specified.
-        Exception: On API errors (re-raised with logging).
-    """
+    """Call LLM provider with prompt, return raw text response."""
     if provider == "claude":
         try:
             import anthropic  # type: ignore
@@ -355,18 +331,25 @@ def _generate_article_fallback(
     api_key: str,
     provider: str = "gemini",
     target_words: int = 800,
+    target_lang: str = "pl",
+    source_lang: str = "auto",
 ) -> str:
-    """Fallback: generuj długi artykuł lokalnym LLM gdy PressAI niedostępny.
-    
-    CO: Generuje pełny artykuł HTML przez lokalny LLM (Gemini/Claude).
-    PO CO: Gdy USE_PRESSAI_ARTICLE_ENGINE=false lub PressAI niedostępny.
-    JAK: Osobny prompt skupiony wyłącznie na treści artykułu, bez JSON overhead.
-    """
+    """Fallback: generuj długi artykuł lokalnym LLM gdy PressAI niedostępny."""
     keyphrase = schema.get("focus_keyphrases", [""])[0] if schema.get("focus_keyphrases") else ""
     instruction = FORMAT_INSTRUCTIONS.get(publication_type, FORMAT_INSTRUCTIONS["full_analysis"])
     post_title = schema.get("post_title", "")
-    
-    prompt = f"""Jesteś redaktorem portalu. Napisz artykuł na podstawie transkryptu wideo.
+    lang_cfg = SUPPORTED_LANGUAGES.get(target_lang, SUPPORTED_LANGUAGES["pl"])
+    lang_name = lang_cfg["name"]
+    summary_heading = lang_cfg.get("summary_heading", "Podsumowanie")
+    eeat_sources = lang_cfg["eeat_sources"]
+
+    prompt = f"""Jesteś doświadczonym redaktorem portalu. Napisz kompletny artykuł na podstawie transkryptu wideo.
+
+KRYTYCZNA DYREKTYWA JĘZYKOWA (CROSS-LANGUAGE):
+- Język źródłowy transkryptu: {source_lang}
+- JĘZYK DOCELOWY ARTYKUŁU: **{lang_name} ({target_lang.upper()})**
+- Cały artykuł HTML (lead, akapity <p>, śródtytuły <h2> i <h3>, cytaty <blockquote> oraz sekcja podsumowania '<h2>{summary_heading}</h2>') MUSI być napisany w 100% w języku **{lang_name}**!
+- Używaj naturalnej gramatyki, stylistyki i idiomów języka {lang_name}. Jeśli wplatasz linki E-E-A-T, preferuj źródła dla tego języka: {eeat_sources}.
 
 FRAZA KLUCZOWA: {keyphrase}
 TYTUŁ: {post_title}
@@ -376,7 +359,8 @@ CEL DŁUGOŚCI: minimum {target_words} słów
 ZASADY HTML:
 - Używaj <h2>, <h3>, <p>, <blockquote> (NIE <html>, <head>, <body>)
 - Apostrofy (') w atrybutach HTML, NIE cudzysłowy
-- Co 150-200 słów nowy nagłówek <h3>
+- Co 150-200 słów nowy nagłówek <h3> (w języku {lang_name})
+- Na końcu sekcja podsumowania z nagłówkiem <h2>{summary_heading}</h2>
 - Fraza kluczowa naturalnie minimum 3x w tekście
 - Pierwszy akapit zawiera główną frazę
 - Znacznik przed FAQ: <hr id='system-readmore' />
@@ -384,9 +368,12 @@ ZASADY HTML:
 TRANSKRYPT:
 {vtt_text[:120000]}
 
-Zwróć TYLKO HTML artykułu (bez JSON, bez wyjaśnień):"""
+Zwróć TYLKO HTML artykułu w języku {lang_name} (bez JSON, bez wyjaśnień):"""
     
-    logger.info("_generate_article_fallback: type=%s target=%d words provider=%s", publication_type, target_words, provider)
+    logger.info(
+        "_generate_article_fallback: type=%s target=%d words provider=%s target_lang=%s source_lang=%s",
+        publication_type, target_words, provider, target_lang, source_lang,
+    )
     return _call_llm(prompt, api_key, provider)
 
 
@@ -399,17 +386,10 @@ async def generate_article_content(
     pressai_api_url: str = "",
     pressai_token: str = "",
     internal_links: Optional[list[dict]] = None,
+    target_lang: str = "pl",
+    source_lang: str = "auto",
 ) -> tuple[str, str]:
-    """Pass 2: generuje długi artykuł (600-1200+ słów).
-    
-    CO: Generuje treść artykułu jako Pass 2 pipeline.
-    PO CO: Pass 1 generuje krótkie metadata; Pass 2 generuje pełny artykuł.
-    JAK: Próbuje PressAI M2M API. Fallback: lokalny LLM.
-    
-    Returns:
-        Tuple (article_html: str, engine: str)
-        engine = 'pressai' | 'local_fallback'
-    """
+    """Pass 2: generuje długi artykuł (600-1200+ słów) w języku `target_lang`."""
     FORMAT_MAP = {
         "analiza": "analiza", "news": "news", "explainer": "explainer",
         "wywiad": "wywiad", "poradnik": "poradnik", "felieton": "felieton",
@@ -419,8 +399,8 @@ async def generate_article_content(
     target_words = _get_target_words(publication_type)
     pressai_format = FORMAT_MAP.get(publication_type, "analiza")
     
-    # Próba PressAI M2M
-    if pressai_api_url and pressai_token:
+    # Próba PressAI M2M (tylko dla języka polskiego lub gdy obsługuje target_lang)
+    if pressai_api_url and pressai_token and target_lang == "pl":
         try:
             import httpx
             payload = {
@@ -432,6 +412,7 @@ async def generate_article_content(
                 "target_words": target_words,
                 "internal_links": internal_links or [],
                 "source": "vse",
+                "lang": target_lang,
             }
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(
@@ -449,12 +430,14 @@ async def generate_article_content(
         except Exception as e:
             logger.warning("Pass 2: PressAI failed (%s) — falling back to local LLM", e)
     
-    # Fallback: lokalny LLM
+    # Fallback: lokalny LLM (wspiera wszystkie 8 języków target_lang)
     article_html = _generate_article_fallback(
         schema=schema, vtt_text=vtt_text,
         publication_type=publication_type,
         api_key=api_key, provider=provider,
         target_words=target_words,
+        target_lang=target_lang,
+        source_lang=source_lang,
     )
     return article_html, "local_fallback"
 
@@ -673,6 +656,8 @@ def generate_seo_v4(
     internal_links: Optional[list[dict]] = None,
     site_brand: Optional[str] = None,
     publication_type: str = "full_analysis",
+    target_lang: str = "pl",
+    source_lang: str = "auto",
 ) -> dict:
     """Call LLM to generate full SEO package for a video.
 
@@ -751,10 +736,26 @@ def generate_seo_v4(
     # D6b.6: Publication type override
     pub_type_section = _get_publication_type_override(publication_type)
 
+    target_lang = (target_lang or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        target_lang = "pl"
+    lang_cfg = SUPPORTED_LANGUAGES[target_lang]
+    target_lang_name = lang_cfg["name"]
+    eeat_sources = lang_cfg["eeat_sources"]
+
     portal_desc = f"redaktorem portalu {site_brand}" if site_brand else "doświadczonym redaktorem portalu informacyjnego"
     prompt = f"""Jestes ekspertem SEO i {portal_desc}.
 
-Na podstawie transkryptu nagrania wideo przygotuj PELNY PAKIET SEO.
+## DYREKTYWA JĘZYKOWA (CROSS-LANGUAGE ENGINE — DUAL-LANGUAGE ANCHOR)
+- Język oryginalnego transkryptu wideo (SOURCE_LANG): {source_lang}
+- Język docelowy wszystkich wygenerowanych materiałów SEO (TARGET_LANG): {target_lang_name} (kod ISO: {target_lang})
+- WSZYSTKIE pola widoczne dla czytelnika (focus_keyphrases, post_title, seo_title, yt_title, meta_description, lead, chapters[].label, quotes[].text, faq[].question, faq[].answer, youtube_description_hook, youtube_hashtags, video_description, tags, external_links[].anchor_text, external_links[].reason, image_descriptions[].alt_text, image_descriptions[].caption) MUSZĄ być napisane w 100% w języku docelowym: **{target_lang_name} ({target_lang})**, naturalnym, idiomatycznym językiem redakcyjnym.
+- ⚠️ KRYTYCZNY WYJĄTEK TECHNICZNY (DUAL-LANGUAGE ANCHOR):
+  Pola `chapters[].anchor_text` oraz `quotes[].anchor_text` służą do technicznego dopasowania znaczników czasu (regex/fuzzy match) bezpośrednio w oryginalnym pliku VTT!
+  Dlatego `anchor_text` MUSI pozostać DOKŁADNYM, NIETŁUMACZONYM cytatem 8-15 słów w oryginalnym języku transkryptu ({source_lang}) — słowo w słowo tak, jak występuje w transkrypcie poniżej!
+  Natomiast `chapters[].label` oraz `quotes[].text` MUSZĄ być w języku docelowym ({target_lang_name}).
+
+Na podstawie transkryptu nagrania wideo przygotuj PELNY PAKIET SEO w języku {target_lang_name} ({target_lang}).
 
 ## DANE WEJSCIOWE
 Tytul: {title}
@@ -766,9 +767,10 @@ Transkrypt z markerami [MM:SS]:
 {saas_section}
 ## KLUCZOWE ZASADY DLA ROZDZIALOW
 
-Dla kazdego rozdzialu MUSISZ podac pole "anchor_text" \u2014 jest to DOKLADNY CYTAT 8-15 slow z transkryptu, ktore sa PIERWSZYMI slowami wypowiadanymi na poczatku danego tematu/rozdzialu.
-Ten cytat musi byc DOKLADNIE TAKI jak w transkrypcie powyzej (dokladny tekst, male/wielkie litery bez znaczenia).
-NIE parafrazuj, NIE streszczaj \u2014 kopiuj dokladny fragment.
+Dla kazdego rozdzialu MUSISZ podac pole "anchor_text" \u2014 jest to DOKLADNY CYTAT 8-15 slow z transkryptu W ORYGINALNYM JĘZYKU TRANSKRYPTU ({source_lang}), ktore sa PIERWSZYMI slowami wypowiadanymi na poczatku danego tematu/rozdzialu.
+Ten cytat musi byc DOKLADNIE TAKI jak w transkrypcie powyzej (dokladny tekst, male/wielkie litery bez znaczenia, BEZ TŁUMACZENIA).
+NIE parafrazuj, NIE streszczaj, NIE tłumacz pola anchor_text \u2014 kopiuj dokladny fragment z transkryptu.
+Natomiast pole "label" rozdzialu MUSI byc w języku docelowym: {target_lang_name} ({target_lang}).
 
 Rozdzialy musza:
 - Pokrywac CALY material od poczatku do konca (~{total_min} min)
@@ -776,73 +778,69 @@ Rozdzialy musza:
 - Miec {ch_range} rozdzialow (skaluj z dlugoscia materialu)
 - Pierwszy zaczyna sie od samego poczatku rozmowy
 
-## CO WYGENEROWAC
+## CO WYGENEROWAC (wszystkie teksty użytkowe w języku: {target_lang_name} [{target_lang}])
 
-1. **focus_keyphrases** — Lista: PIERWSZA fraza = Glowna (2-4 slowa, naturalna, wyszukiwalna). POZOSTALE = Poboczne LSI (5-8 fraz, 2-5 slow, semantycznie powiazane).
-   ZASADY POLSKIEJ GRAMATYKI (KRYTYCZNE):
-   - ZAKAZ Title Case (zle: "Nowe Przepisy Podatkowe", dobrze: "Nowe przepisy podatkowe")
-   - Fraza MUSI byc odmieniona naturalnie — zakaz wklejania z malej litery na poczatku zdania
+1. **focus_keyphrases** — Lista w języku {target_lang_name}: PIERWSZA fraza = Glowna (2-4 slowa, naturalna, wyszukiwalna w języku {target_lang_name}). POZOSTALE = Poboczne LSI (5-8 fraz, 2-5 slow, semantycznie powiazane w języku {target_lang_name}).
+   ZASADY GRAMATYKI ({target_lang_name}):
+   - ZAKAZ sztucznego Title Case (chyba że wymaga tego gramatyka języka {target_lang_name}, np. rzeczowniki w DE)
+   - Fraza MUSI brzmiec naturalnie w języku {target_lang_name}
    - Glowna fraza MUSI pojawic sie w minimum 1 srodtytule H3
    - Frazy poboczne: w pozostalych H3 i FAQ
-2. **post_title** \u2014 max 80 znakow. SEO-first tytul artykulu (tag h1). MUSI zawierac glowna focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu. Polska gramatyka.
-3. {seo_title_instruction}
-4. **yt_title** \u2014 KRYTYCZNE ZASADY:
+2. **post_title** \u2014 max 80 znakow, w języku {target_lang_name}. SEO-first tytul artykulu (tag h1). MUSI zawierac glowna focus_keyphrase. Naturalne slowa kluczowe, bez clickbaitu.
+3. {seo_title_instruction} (w języku {target_lang_name})
+4. **yt_title** \u2014 KRYTYCZNE ZASADY (w języku {target_lang_name}):
    - Dlugosc: 40-65 znakow (HARD MAX: 100). Optymalna dlugosc to 50-62 znaki.
    - Zacznij od tematu glownego lub nazwiska goscia (front-loading dla suggest feed).
    - MUSI byc INNY niz post_title i seo_title \u2014 inne ustawienie slow, inny ton.
    - NIE dodawaj brandingu portalu ani kanalu \u2014 YouTube dodaje kanal automatycznie.
-   - NIE uzywaj ogolnikow: "wazne", "ciekawe", "cos szokujacego".
-   - Wybierz jeden z formatow:
+   - NIE uzywaj ogolnikow.
+   - Wybierz jeden z formatow (zadaptowany do języka {target_lang_name}):
      A \u2014 NAPIECIE:    [Nazwisko/Temat]: [akcja] \u2014 [stawka/skutek]
      B \u2014 UJAWNIENIE:  [Temat]: [co ujawnia] \u2014 [kulisy]
-     C \u2014 PYTANIE:     Dlaczego [podmiot] milczy o [temat]?
-     D \u2014 POWER WORD:  [Prawda/Kulisy/Skandal]: [temat] + podmiot
+     C \u2014 PYTANIE:     [Pytanie intrygujące o temat/podmiot w języku {target_lang_name}]?
+     D \u2014 POWER WORD:  [Mocne słowo w {target_lang_name}]: [temat] + podmiot
    - Cel: widz klika nawet nie znajac goscia z imienia.
    - KRYTYCZNE: pole yt_title NIGDY nie moze byc puste.
-6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa.
-7. **lead** \u2014 2-3 zdania, max 300 znakow. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
+6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa, w języku {target_lang_name}.
+7. **lead** \u2014 2-3 zdania, max 300 znakow, w języku {target_lang_name}. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
 8. **quotes** \u2014 {qt_range} cytatow z rozmowy:
-   - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania). Usun jakania, powtorzenia.
+   - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania) PRZETŁUMACZONY / ZREDAGOWANY W JĘZYKU DOCELOWYM ({target_lang_name}). Usun jakania, powtorzenia.
    - "speaker": imie i nazwisko
-   - "anchor_text": DOKLADNE 8-15 pierwszych slow ORYGINALNEGO transkryptu
+   - "anchor_text": DOKLADNE 8-15 pierwszych slow ORYGINALNEGO transkryptu w języku źródłowym ({source_lang}) — BEZ TŁUMACZENIA!
 10. **chapters** \u2014 {ch_range} rozdzialow:
-    - "label": tytul (max 60 zn)
-    - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow
-11. **faq** \u2014 {faq_range} pytan i odpowiedzi. Naturalne, zorientowane na search intent.
-12. **youtube_description_hook** \u2014 max 200 znakow. Angazujacy wstep 2-3 zdania.
+    - "label": tytul rozdzialu (max 60 zn) w języku docelowym ({target_lang_name})
+    - "anchor_text": DOKLADNY CYTAT 8-15 pierwszych slow z ORYGINALNEGO transkryptu w języku źródłowym ({source_lang}) — BEZ TŁUMACZENIA!
+11. **faq** \u2014 {faq_range} pytan i odpowiedzi w języku {target_lang_name}. Naturalne, zorientowane na search intent.
+12. **youtube_description_hook** \u2014 max 200 znakow, w języku {target_lang_name}. Angazujacy wstep 2-3 zdania.
     PIERWSZE zdanie MUSI zawierac glowna fraze z focus_keyphrases[0].
     Widoczne pod wideo bez klikania "Wiecej". BEZ hashtagow, BEZ linkow.
-13. **youtube_hashtags** \u2014 lista dokladnie 3 hashtagow jako JSON array,
+13. **youtube_hashtags** \u2014 lista dokladnie 3 hashtagow jako JSON array w języku {target_lang_name},
     np. ["#polityka", "#historia", "#Polska"]. Tylko hashtagi, nic wiecej.
-14. **video_description** \u2014 max 200 zn, dla schema.
-15. **tags** \u2014 5-8 tagow lowercase.
-16. **external_links** \u2014 lista 2-3 linkow zewnetrznych DoFollow do zrodel wysokiego autorytetu.
+14. **video_description** \u2014 max 200 zn, dla schema, w języku {target_lang_name}.
+15. **tags** \u2014 5-8 tagow lowercase w języku {target_lang_name}.
+16. **external_links** \u2014 lista 2-3 linkow zewnetrznych DoFollow do zrodel wysokiego autorytetu dla rynku/języka {target_lang_name}.
     Kazdy link to dict: {{"url": "...", "anchor_text": "...", "reason": "..."}}
     ZASADY:
-    a) Zrodla ktore Google wysoko wazy (E-E-A-T):
-       - Wikipedia (polski artykul tematyczny, np. https://pl.wikipedia.org/wiki/...)
-       - Strony .gov.pl (oficjalne zrodla rzadowe: sejm.gov.pl, gov.pl, prezydent.pl, mon.gov.pl)
-       - PAP (pap.pl), Reuters (reuters.com), AP (apnews.com) \u2014 agencje prasowe
-       - Instytucje naukowe/think-tanki (PISM, OSW, uniwersytety)
+    a) Zrodla ktore Google wysoko wazy (E-E-A-T) dla języka {target_lang_name}:
+       - Preferowane autorytety: {eeat_sources}
        - YouTube (link do oryginalnego wideo: {yt_url})
     b) Linki MUSZA byc tematycznie powiazane z trescia artykulu
-    c) anchor_text to naturalny tekst w ktory jest wpleciony link
-       (np. "Polska Agencja Prasowa", "Ministerstwo Obrony Narodowej")
+    c) anchor_text to naturalny tekst w języku {target_lang_name}, w ktory jest wpleciony link
     d) Nie wymyslaj URL-i \u2014 podaj REALNE adresy stron, ktore ISTNIEJA
-    e) reason: krotkie uzasadnienie dlaczego to zrodlo jest authority
+    e) reason: krotkie uzasadnienie w języku {target_lang_name} dlaczego to zrodlo jest authority
     f) Jeden z linkow MOZE byc do oryginalnego wideo YouTube ({yt_url})
     KRYTYCZNE DLA JSON: W polach URL i anchor_text NIE uzywaj podwojnych cudzyslowow.
     Caly output to JSON \u2014 podwojne cudzysłowy wewnatrz wartosci LAMIA parsowanie.
-17. **image_descriptions** \u2014 lista 2 opisow do screenshotow z wideo (FALLBACK gdy SAAS Vision API niedostepny).
+17. **image_descriptions** \u2014 lista 2 opisow do screenshotow z wideo w języku {target_lang_name} (FALLBACK gdy SAAS Vision API niedostepny).
     Kazdy dict: {{"alt_text": "...", "caption": "...", "context": "..."}}
     ZASADY:
-    a) alt_text: max 125 zn, MUSI zawierac glowna fraze z focus_keyphrases[0].
+    a) alt_text: max 125 zn, w języku {target_lang_name}, MUSI zawierac glowna fraze z focus_keyphrases[0].
        Format: "[co widac na obrazku] - [fraza kluczowa]". Opisz scene z materialu.
-    b) caption: 1 zdanie opisujace scene widoczna na screenshocie z wideo.
+    b) caption: 1 zdanie w języku {target_lang_name} opisujace scene widoczna na screenshocie z wideo.
     c) context: gdzie wstawic screenshot w article_body ("po akapicie 1" lub "po pierwszym H2").
        Pierwsza pozycja: "po akapicie 1". Druga: "po pierwszym H2" lub "przed FAQ".
 
-## KRYTYCZNE ZASADY FORMATU JSON
+## KRYTYCZNE ZASADY FORMATU JSON I DUAL-LANGUAGE ANCHOR
 
 Twoja odpowiedz MUSI byc poprawnym JSON. Pamietaj:
 - W polach HTML (article_body) ZAWSZE uzywaj APOSTROFOW (') w atrybutach tagow HTML.
@@ -850,6 +848,7 @@ Twoja odpowiedz MUSI byc poprawnym JSON. Pamietaj:
 - Jesli musisz uzyc cudzysłowu w tekscie, escape'uj go jako \\\".
 - Poprawne: <a href='https://example.com' target='_blank'>tekst</a>
 - BLEDNE: <a href="https://example.com" target="_blank">tekst</a> (LAMIE JSON!)
+- PRZYPOMNIENIE DUAL-LANGUAGE ANCHOR: Wszystkie treści generuj w języku **{target_lang_name} ({target_lang})**, ALE pola `chapters[].anchor_text` oraz `quotes[].anchor_text` MUSZĄ być dokładnym, NIETŁUMACZONYM cytatem z oryginalnego transkryptu ({source_lang})!
 
 KRYTYCZNE: Pola post_title, seo_title, yt_title MUSZA byc niepuste.
 yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
@@ -858,7 +857,7 @@ NIGDY nie zostawiaj ich pustych.
 Odpowiedz TYLKO JSON (bez markdown):
 {{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}"""
 
-    logger.info("Calling %s for: %s [type=%s]", provider, title[:60], publication_type)
+    logger.info("Calling %s for: %s [type=%s, source=%s -> target=%s]", provider, title[:60], publication_type, source_lang, target_lang)
     if priority_keywords:
         logger.info(
             "SAAS enrichment active: %d keywords, %d links",
@@ -952,29 +951,264 @@ generate_video_schema = generate_seo_v4
 # ============================================================
 
 def _trim_slug(slug: str, max_len: int = 60) -> str:
-    """Trim slug to max_len characters at the last full word boundary.
-
-    CO: Obcina wp_slug do maksymalnie max_len znaków na granicy słowa.
-
-    PO CO: Google preferuje sligi <60 znaków. LLM ignoruje limit mimo
-    instrukcji w promptcie — potrzebny jest twardy limit w kodzie.
-    E2E test pokazał slug 81 znaków, co wychodzi poza optimum SEO.
-
-    JAK: Jeśli len(slug) > max_len, obcina do max_len i cofa do
-    ostatniego myślnika (rsplit), żeby nie urwać słowa w połowie.
-
-    Args:
-        slug: URL slug string (already lowercase, hyphens only).
-        max_len: Maximum allowed length. Default 60.
-
-    Returns:
-        Trimmed slug string, max max_len characters.
-    """
+    """Trim slug to max_len characters at the last full word boundary."""
     if len(slug) <= max_len:
         return slug
     trimmed = slug[:max_len].rsplit("-", 1)[0]
     # Edge case: no hyphen found (single long token) — hard cut at max_len
     return trimmed if trimmed else slug[:max_len]
+
+
+# ============================================================
+# JSON-LD SCHEMA BUILDER (MULTI-LANGUAGE)
+# ============================================================
+
+def build_jsonld_schemas(seo: dict, target_lang: str = "pl") -> list[dict]:
+    """Build VideoObject + Clip + FAQPage JSON-LD schemas with inLanguage and localized WatchAction."""
+    target_lang = (target_lang or seo.get("target_lang") or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        target_lang = "pl"
+    watch_label = SUPPORTED_LANGUAGES[target_lang]["WatchAction"]
+
+    yt_id = seo.get("youtube_id", "")
+    yt_url = seo.get("yt_url", f"https://www.youtube.com/watch?v={yt_id}" if yt_id else "")
+    total_dur = int(seo.get("total_duration") or seo.get("duration_seconds") or 0)
+    iso_dur = seo.get("duration_iso") or format_duration_iso(total_dur)
+    chapters = seo.get("chapters", [])
+
+    clips: list[dict] = []
+    for i, ch in enumerate(chapters):
+        ch_time = ch.get("time", ch.get("start", 0))
+        if i + 1 < len(chapters):
+            next_ch = chapters[i + 1]
+            end_time = next_ch.get("time", next_ch.get("start", total_dur))
+        else:
+            end_time = total_dur
+        clips.append({
+            "@type": "Clip",
+            "name": ch.get("label") or ch.get("title", ""),
+            "startOffset": ch_time,
+            "endOffset": end_time,
+            "url": f"{yt_url}&t={ch_time}s" if yt_url else "",
+        })
+
+    video_schema: dict = {
+        "@context": "https://schema.org",
+        "@type": "VideoObject",
+        "name": seo.get("seo_title") or seo.get("post_title", ""),
+        "description": seo.get("video_description") or seo.get("meta_description", ""),
+        "thumbnailUrl": f"https://img.youtube.com/vi/{yt_id}/maxresdefault.jpg" if yt_id else "",
+        "contentUrl": yt_url,
+        "embedUrl": f"https://www.youtube.com/embed/{yt_id}" if yt_id else "",
+        "duration": iso_dur,
+        "inLanguage": target_lang,
+        "potentialAction": {
+            "@type": "WatchAction",
+            "name": watch_label,
+            "target": yt_url,
+        },
+    }
+    if clips:
+        video_schema["hasPart"] = clips
+
+    schemas: list[dict] = [video_schema]
+
+    faq_items = []
+    for faq in seo.get("faq", []):
+        if faq.get("question") and faq.get("answer"):
+            faq_items.append({
+                "@type": "Question",
+                "name": faq["question"],
+                "acceptedAnswer": {"@type": "Answer", "text": faq["answer"]},
+            })
+    if faq_items:
+        schemas.append({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "inLanguage": target_lang,
+            "mainEntity": faq_items,
+        })
+
+    return schemas
+
+
+# ============================================================
+# PER-MATERIAL ON-DEMAND LANGUAGE ADAPTATION (KROK 2.3)
+# ============================================================
+
+def adapt_material_language(
+    material_type: str,
+    target_lang: str,
+    source_data: dict,
+    llm_provider: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> dict:
+    """Adapt/translate a specific generated SEO material into target_lang on-demand.
+
+    Supported material_type values:
+      - 'article': translates post_title, lead, article_body, faq (preserves HTML tags, <h3>, <a>, timestamps)
+      - 'youtube': translates yt_title, youtube_description_hook, chapters[].label (preserves chapters[].time!), youtube_hashtags, tags
+      - 'meta': translates seo_title, post_title, meta_description, focus_keyphrases, tags
+      - 'quotes': translates quotes[].text (preserves quotes[].speaker and quotes[].time!)
+      - 'schema': translates video_description, seo_title, faq, chapters[].label and rebuilds JSON-LD with inLanguage=target_lang
+    """
+    target_lang = (target_lang or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        raise ValueError(f"Unsupported target_lang: {target_lang}")
+
+    lang_cfg = SUPPORTED_LANGUAGES[target_lang]
+    target_lang_name = lang_cfg["name"]
+    provider = (llm_provider or os.getenv("LLM_PROVIDER", "gemini")).lower()
+
+    if not api_key:
+        if provider == "claude":
+            api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        else:
+            provider = "gemini"
+            api_key = os.getenv("GEMINI_API_KEY", "")
+            if not api_key and os.getenv("ANTHROPIC_API_KEY"):
+                provider = "claude"
+                api_key = os.getenv("ANTHROPIC_API_KEY", "")
+
+    material_type = (material_type or "article").lower().strip()
+
+    if material_type == "article":
+        payload = {
+            "post_title": source_data.get("post_title", ""),
+            "lead": source_data.get("lead", ""),
+            "article_body": source_data.get("article_body", ""),
+            "faq": source_data.get("faq", []),
+        }
+        prompt = f"""Jesteś doświadczonym redaktorem SEO (native speaker języka {target_lang_name} [{target_lang}]).
+Przetłumacz i zaadaptuj kulturowo oraz pod kątem SEO poniższy artykuł na język **{target_lang_name} ({target_lang})**.
+
+ZASADY KRYTYCZNE:
+1. Zachowaj DOKŁADNIE strukturę HTML w `article_body` (wszystkie tagi `<h3>`, `<p>`, `<ul>`, `<li>`, `<strong>`, `<aside>`, `<hr>`, `<a href='...'>`).
+2. W atrybutach HTML używaj WYŁĄCZNIE pojedynczych apostrofów (`'`), NIGDY podwójnych cudzysłowów (`"`).
+3. Zachowaj wszystkie znaczniki czasu (np. `[12:34]`, `05:20`) oraz nazwy własne i linki URL bez zmian, tłumacząc tekst wokół nich.
+4. Przetłumacz również `post_title`, `lead` oraz listę `faq` (`question` i `answer`).
+5. Zwróć WYŁĄCZNIE poprawny obiekt JSON z kluczami: `post_title`, `lead`, `article_body`, `faq`.
+
+Dane wejściowe JSON:
+{json.dumps(payload, ensure_ascii=False)}
+
+Odpowiedz TYLKO poprawnym JSON (bez markdown):"""
+
+    elif material_type == "youtube":
+        chapters_in = [
+            {"time": c.get("time", 0), "label": c.get("label", "")}
+            for c in source_data.get("chapters", [])
+        ]
+        payload = {
+            "yt_title": source_data.get("yt_title") or source_data.get("post_title", ""),
+            "youtube_description_hook": source_data.get("youtube_description_hook", ""),
+            "video_description": source_data.get("video_description", ""),
+            "chapters": chapters_in,
+            "youtube_hashtags": source_data.get("youtube_hashtags", []),
+            "tags": source_data.get("tags", []),
+        }
+        prompt = f"""Jesteś ekspertem YouTube SEO dla rynku języka **{target_lang_name} ({target_lang})**.
+Przetłumacz i zoptymalizuj pod kątem algorytmu YouTube poniższy pakiet metadanych wideo na język **{target_lang_name} ({target_lang})**.
+
+ZASADY KRYTYCZNE:
+1. `yt_title`: angażujący tytuł YouTube w języku {target_lang_name} (40-70 znaków).
+2. `youtube_description_hook` oraz `video_description`: naturalny, angażujący opis w języku {target_lang_name}.
+3. `chapters`: przetłumacz każde pole `label` na język {target_lang_name}, ale ZACHOWAJ DOKŁADNIE oryginalną wartość liczbową `time` (sekundy)!
+4. `youtube_hashtags` (3 hashtagi) i `tags` (5-8 tagów): zaadaptuj do popularnych fraz w języku {target_lang_name}.
+5. Zwróć WYŁĄCZNIE poprawny JSON z kluczami: `yt_title`, `youtube_description_hook`, `video_description`, `chapters`, `youtube_hashtags`, `tags`.
+
+Dane wejściowe JSON:
+{json.dumps(payload, ensure_ascii=False)}
+
+Odpowiedz TYLKO poprawnym JSON (bez markdown):"""
+
+    elif material_type == "meta":
+        payload = {
+            "seo_title": source_data.get("seo_title", ""),
+            "post_title": source_data.get("post_title", ""),
+            "meta_description": source_data.get("meta_description", ""),
+            "lead": source_data.get("lead", ""),
+            "focus_keyphrases": source_data.get("focus_keyphrases", []),
+            "tags": source_data.get("tags", []),
+        }
+        prompt = f"""Jesteś specjalistą Technical & On-Page SEO dla rynku języka **{target_lang_name} ({target_lang})**.
+Zaadaptuj poniższe meta tagi i frazy kluczowe na język **{target_lang_name} ({target_lang})**, dobierając naturalne, wyszukiwane w Google frazy w tym języku.
+
+ZASADY KRYTYCZNE:
+1. `seo_title`: max 60 znaków w języku {target_lang_name}.
+2. `post_title`: max 80 znaków w języku {target_lang_name}.
+3. `meta_description`: max 155 znaków w języku {target_lang_name}, zawiera główną frazę kluczową.
+4. `lead`: 2-3 zdania podsumowania w języku {target_lang_name}.
+5. `focus_keyphrases`: lista naturalnych fraz kluczowych w języku {target_lang_name} (pierwsza = główna fraza 2-4 słowa).
+6. `tags`: 5-8 tagów lowercase w języku {target_lang_name}.
+7. Zwróć WYŁĄCZNIE poprawny JSON z kluczami: `seo_title`, `post_title`, `meta_description`, `lead`, `focus_keyphrases`, `tags`.
+
+Dane wejściowe JSON:
+{json.dumps(payload, ensure_ascii=False)}
+
+Odpowiedz TYLKO poprawnym JSON (bez markdown):"""
+
+    elif material_type == "quotes":
+        quotes_in = [
+            {
+                "speaker": q.get("speaker", ""),
+                "text": q.get("text", ""),
+                "time": q.get("time", 0),
+            }
+            for q in source_data.get("quotes", [])
+        ]
+        payload = {"quotes": quotes_in}
+        prompt = f"""Jesteś redaktorem tłumaczącym kluczowe cytaty z wywiadu na język **{target_lang_name} ({target_lang})**.
+Przetłumacz pole `text` każdego cytatu na naturalny, wygładzony język **{target_lang_name} ({target_lang})**, zachowując bez zmian `speaker` oraz `time`.
+
+Dane wejściowe JSON:
+{json.dumps(payload, ensure_ascii=False)}
+
+Zwróć WYŁĄCZNIE poprawny JSON z kluczem `quotes` (bez markdown):"""
+
+    elif material_type == "schema":
+        chapters_in = [
+            {"time": c.get("time", 0), "label": c.get("label", "")}
+            for c in source_data.get("chapters", [])
+        ]
+        payload = {
+            "seo_title": source_data.get("seo_title") or source_data.get("post_title", ""),
+            "video_description": source_data.get("video_description") or source_data.get("meta_description", ""),
+            "chapters": chapters_in,
+            "faq": source_data.get("faq", []),
+        }
+        prompt = f"""Przetłumacz poniższe pola danych strukturalnych Schema.org (VideoObject + Clip + FAQPage) na język **{target_lang_name} ({target_lang})**.
+Zachowaj wartości liczbowe `time` w `chapters`.
+
+Dane wejściowe JSON:
+{json.dumps(payload, ensure_ascii=False)}
+
+Zwróć WYŁĄCZNIE poprawny JSON z kluczami: `seo_title`, `video_description`, `chapters`, `faq` (bez markdown):"""
+
+    else:
+        raise ValueError(f"Unsupported material_type: {material_type}")
+
+    raw = _call_llm(prompt, api_key, provider)
+    cleaned = raw.strip()
+    cleaned = re.sub(r"^```json\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = _sanitize_llm_json(cleaned)
+    adapted = json.loads(cleaned)
+
+    if material_type == "meta" and "focus_keyphrases" in adapted:
+        kps = adapted.get("focus_keyphrases") or []
+        if isinstance(kps, list) and kps:
+            adapted["focus_keyphrase"] = kps[0]
+
+    if material_type == "schema":
+        merged_seo = dict(source_data)
+        merged_seo.update(adapted)
+        merged_seo["target_lang"] = target_lang
+        adapted["json_ld"] = build_jsonld_schemas(merged_seo, target_lang=target_lang)
+
+    adapted["target_lang"] = target_lang
+    adapted["material_type"] = material_type
+    return adapted
 
 
 # ============================================================
@@ -993,42 +1227,20 @@ def generate_schema_without_transcript(
     site_brand: Optional[str] = None,
     publication_type: str = "full_analysis",
     meta: Optional[dict] = None,
+    target_lang: str = "pl",
+    source_lang: str = "auto",
 ) -> dict:
-    """Generate partial SEO schema from title and description only (no VTT).
+    """Generate partial SEO schema from title and description only (no VTT)."""
+    target_lang = (target_lang or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        target_lang = "pl"
+    lang_cfg = SUPPORTED_LANGUAGES[target_lang]
+    target_lang_name = lang_cfg["name"]
+    eeat_sources = lang_cfg["eeat_sources"]
 
-    CO: Generuje częściowy pakiet SEO gdy brak transkryptu VTT.
-
-    PO CO: Filmy bez napisów (livestreamy, część contentów) nie mają VTT.
-    Zamiast zwracać błąd 500, generujemy to co możliwe:
-    - focus_keyphrases, post_title, seo_title, meta_description, lead
-    - article_body (z tytułu i opisu YT)
-    - youtube_description, video_description, tags
-    - POMIJAMY: chapters (wymaga VTT do anchor-matchowania)
-    - POMIJAMY: quotes (wymagają VTT z timestampami)
-    - FAQ: minimalne 1-2 pytania z tytułu
-
-    JAK: Wywołuje LLM z uproszczonym promptem bez sekcji transkryptu.
-    Zwraca dict z chapters=[], quotes=[], partial_result=True.
-
-    Args:
-        youtube_id: YouTube video ID.
-        wp_id: WordPress post ID.
-        post_title: Video title (from YouTube metadata).
-        yt_url: Full YouTube watch URL.
-        api_key: API key for the selected LLM provider.
-        provider: LLM provider: 'gemini' (default) or 'claude'.
-        priority_keywords: Optional GSC keywords.
-        internal_links: Optional internal links.
-        site_brand: Optional portal brand name.
-        publication_type: Article type.
-        meta: Optional metadata dict (may contain description, duration).
-
-    Returns:
-        Partial SEO dict with transcript_available=False, partial_result=True.
-    """
     logger.info(
-        "[FIX A] generate_schema_without_transcript: %s via %s [type=%s]",
-        youtube_id, provider, publication_type,
+        "[FIX A] generate_schema_without_transcript: %s via %s [type=%s, source=%s -> target=%s]",
+        youtube_id, provider, publication_type, source_lang, target_lang,
     )
 
     # Extract description from meta if available
@@ -1051,35 +1263,30 @@ def generate_schema_without_transcript(
 
     desc_section = f"\nOpis wideo (YouTube):\n{video_description_hint}" if video_description_hint else ""
 
-    prompt = f"""Jestes ekspertem SEO. Przygotuj pakiet SEO dla materialu wideo.
-NIE MASZ TRANSKRYPTU — bazuj tylko na tytule i opisie.
+    prompt = f"""Jestes ekspertem SEO. Przygotuj pakiet SEO dla materialu wideo w języku docelowym: **{target_lang_name} ({target_lang})**.
+NIE MASZ TRANSKRYPTU — bazuj tylko na tytule i opisie. Wszystkie wygenerowane pola MUSZĄ być w języku {target_lang_name} ({target_lang}).
 
 ## DANE WEJSCIOWE
 Tytul: {post_title}
 URL: {yt_url}{desc_section}
 {saas_section}
-## CO WYGENEROWAC
+## CO WYGENEROWAC (w języku {target_lang_name} [{target_lang}])
 
-1. **focus_keyphrases** — Lista: PIERWSZA fraza = Glowna (2-4 slowa, naturalna, wyszukiwalna). POZOSTALE = Poboczne LSI (5-8 fraz, 2-5 slow, semantycznie powiazane).
-   ZASADY POLSKIEJ GRAMATYKI (KRYTYCZNE):
-   - ZAKAZ Title Case (zle: "Nowe Przepisy Podatkowe", dobrze: "Nowe przepisy podatkowe")
-   - Fraza MUSI byc odmieniona naturalnie — zakaz wklejania z malej litery na poczatku zdania
-   - Glowna fraza MUSI pojawic sie w minimum 1 srodtytule H3
-   - Frazy poboczne: w pozostalych H3 i FAQ
-2. **post_title** — max 80 znakow, SEO-first, z glowna fraza.
-3. {seo_title_instruction}
-4. **yt_title** — 40-65 znakow, inny niz post_title, angazujacy YouTubowy tytul.
-5. **meta_description** — max 155 znakow, z fraza kluczowa.
-6. **lead** — 2-3 zdania, max 300 znakow. Pierwsza fraza w pierwszym zdaniu.
-7. **faq** — 1-2 pytania i odpowiedzi na podstawie tytulu.
-8. **youtube_description_hook** — max 200 znakow. Angazujacy wstep 2-3 zdania.
+1. **focus_keyphrases** — Lista w języku {target_lang_name}: PIERWSZA fraza = Glowna (2-4 slowa, naturalna, wyszukiwalna). POZOSTALE = Poboczne LSI (5-8 fraz, 2-5 slow, semantycznie powiazane).
+2. **post_title** — max 80 znakow, SEO-first, z glowna fraza, w języku {target_lang_name}.
+3. {seo_title_instruction} (w języku {target_lang_name})
+4. **yt_title** — 40-65 znakow, inny niz post_title, angazujacy YouTubowy tytul w języku {target_lang_name}.
+5. **meta_description** — max 155 znakow, z fraza kluczowa, w języku {target_lang_name}.
+6. **lead** — 2-3 zdania, max 300 znakow, w języku {target_lang_name}. Pierwsza fraza w pierwszym zdaniu.
+7. **faq** — 1-2 pytania i odpowiedzi na podstawie tytulu w języku {target_lang_name}.
+8. **youtube_description_hook** — max 200 znakow, w języku {target_lang_name}. Angazujacy wstep 2-3 zdania.
    PIERWSZE zdanie MUSI zawierac glowna fraze z focus_keyphrases[0]. BEZ hashtagow.
-9. **youtube_hashtags** — lista 3 hashtagow jako JSON array.
-10. **video_description** — max 200 zn.
-11. **tags** — 5-8 tagow lowercase.
-12. **external_links** — 1-2 linki do authority sources (Wikipedia, .gov.pl).
+9. **youtube_hashtags** — lista 3 hashtagow jako JSON array w języku {target_lang_name}.
+10. **video_description** — max 200 zn, w języku {target_lang_name}.
+11. **tags** — 5-8 tagow lowercase w języku {target_lang_name}.
+12. **external_links** — 1-2 linki do authority sources ({eeat_sources}).
     Format: {{"url": "...", "anchor_text": "...", "reason": "..."}}
-13. **image_descriptions** — 1 opis screenshota.
+13. **image_descriptions** — 1 opis screenshota w języku {target_lang_name}.
     Format: {{"alt_text": "...", "caption": "...", "context": "po akapicie 1"}}
 
 NIE generuj: chapters, quotes (brak transkryptu), article_body.
@@ -1139,13 +1346,15 @@ Odpowiedz TYLKO JSON (bez markdown):
     result["saas_enriched"] = bool(priority_keywords)
     result["transcript_available"] = False  # FIX A flag
     result["partial_result"] = True          # FIX A flag
+    result["target_lang"] = target_lang
+    result["source_lang"] = source_lang
 
     if priority_keywords:
         result["saas_keywords_count"] = len(priority_keywords)
 
     logger.info(
-        "[FIX A] Partial schema generated: keyphrases=%r type=%s brand=%s",
-        keyphrases, publication_type, site_brand or "none",
+        "[FIX A] Partial schema generated: keyphrases=%r type=%s brand=%s lang=%s->%s",
+        keyphrases, publication_type, site_brand or "none", source_lang, target_lang,
     )
     
     # PASS 2: Article Generation
@@ -1171,6 +1380,8 @@ Odpowiedz TYLKO JSON (bez markdown):
                 pressai_api_url=pressai_url if pressai_enabled else "",
                 pressai_token=pressai_token if pressai_enabled else "",
                 internal_links=internal_links,
+                target_lang=target_lang,
+                source_lang=source_lang,
             )
         )
         result["article_body"] = article_html
@@ -1181,6 +1392,7 @@ Odpowiedz TYLKO JSON (bez markdown):
         result["article_body"] = result.get("article_body", "")
         result["article_engine"] = "pass1_legacy"
 
+    result["json_ld"] = build_jsonld_schemas(result, target_lang=target_lang)
     return result
 
 
@@ -1203,46 +1415,21 @@ def process_video(
     site_brand: Optional[str] = None,
     publication_type: str = "full_analysis",
     meta: Optional[dict] = None,
+    target_lang: str = "pl",
+    source_lang: str = "auto",
 ) -> dict:
-    """Run the full generation pipeline for a single video.
+    """Run the full generation pipeline for a single video."""
+    target_lang = (target_lang or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        target_lang = "pl"
 
-    D6b.6: publication_type parameter controls article format.
-    D11: LLM now returns image_descriptions as fallback for SAAS Vision API.
-    D13: wp_slug is hard-trimmed to 60 chars at word boundary after LLM call.
-    D15: _sanitize_llm_json() applied before json.loads() in generate_seo_v4().
+    if (not source_lang or source_lang == "auto") and meta and meta.get("source_lang"):
+        source_lang = meta["source_lang"]
 
-    FIX A (2026-07-10, vse-dev-01):
-    vtt_path is now Optional[str]. When None, calls generate_schema_without_transcript()
-    which generates partial SEO (no chapters/quotes) from title+description only.
-    Result contains transcript_available=False and partial_result=True.
-
-    VTT Limit (2026-07-14, Supervisor-01):
-    text_trimmed raised to 200000 chars — covers ~90 min of conversation.
-
-    Args:
-        youtube_id: YouTube video ID.
-        wp_id: WordPress post ID.
-        post_title: WordPress post title.
-        yt_url: Full YouTube watch URL.
-        vtt_path: Path to the .vtt transcript file, or None if unavailable.
-        api_key: API key for the selected LLM provider.
-        out_dir: Directory to save the result JSON. If None, does not save.
-        sleep_between: Seconds to sleep after the LLM call (rate-limit guard).
-        provider: LLM provider: 'gemini' (default) or 'claude'.
-        priority_keywords: Optional list of priority keyword phrases from GSC.
-        internal_links: Optional list of dicts with 'url' and 'title' for linking.
-        site_brand: Optional portal brand name for seo_title branding pipe.
-        publication_type: Article type: 'full_analysis', 'watching_page', 'discover'.
-        meta: Optional metadata dict (used in no-transcript path for description/duration).
-
-    Returns:
-        SEO result dict with all fields + resolved chapters + duration metadata.
-        When vtt_path is None: chapters=[], quotes=[], partial_result=True.
-
-    Raises:
-        json.JSONDecodeError: If LLM returns malformed JSON.
-    """
-    logger.info("Processing video: %s (WP#%s) via %s [type=%s]", youtube_id, wp_id, provider, publication_type)
+    logger.info(
+        "Processing video: %s (WP#%s) via %s [type=%s, lang=%s->%s]",
+        youtube_id, wp_id, provider, publication_type, source_lang, target_lang,
+    )
 
     tracker_token = current_llm_usage.set({
         "input_tokens": 0,
@@ -1267,6 +1454,8 @@ def process_video(
             site_brand=site_brand,
             publication_type=publication_type,
             meta=meta,
+            target_lang=target_lang,
+            source_lang=source_lang,
         )
         usage = current_llm_usage.get() or {}
         result["input_tokens"] = usage.get("input_tokens", 0)
@@ -1278,12 +1467,25 @@ def process_video(
         current_llm_usage.reset(tracker_token)
         return result
 
+    # Auto-detect source_lang from VTT if still unknown
+    if not source_lang or source_lang == "auto":
+        try:
+            from core.fetcher import detect_transcript_language
+            with open(vtt_path, encoding="utf-8", errors="replace") as vf:
+                raw_vtt_sample = vf.read(16000)
+            source_lang = detect_transcript_language(
+                raw_vtt_sample,
+                metadata_lang=(meta or {}).get("default_audio_language"),
+            )
+        except Exception:
+            source_lang = "pl"
+
     timestamped, segments, duration = parse_vtt_full(vtt_path)
     dur_min = int(duration // 60)
     dur_sec = int(duration % 60)
     logger.info(
-        "VTT parsed: %d chars | %d segments | %d:%02d",
-        len(timestamped), len(segments), dur_min, dur_sec,
+        "VTT parsed: %d chars | %d segments | %d:%02d | source_lang=%s | target_lang=%s",
+        len(timestamped), len(segments), dur_min, dur_sec, source_lang, target_lang,
     )
 
     result = generate_seo_v4(
@@ -1292,6 +1494,8 @@ def process_video(
         internal_links=internal_links,
         site_brand=site_brand,
         publication_type=publication_type,
+        target_lang=target_lang,
+        source_lang=source_lang,
     )
 
     # D5: Normalize keyphrases — always store as list
@@ -1385,6 +1589,8 @@ def process_video(
                 pressai_api_url=pressai_url if pressai_enabled else "",
                 pressai_token=pressai_token if pressai_enabled else "",
                 internal_links=internal_links,
+                target_lang=target_lang,
+                source_lang=source_lang,
             )
         )
         result["article_body"] = article_html
@@ -1407,6 +1613,9 @@ def process_video(
     result["publication_type"] = publication_type  # D6b.6: track type in output
     result["transcript_available"] = True   # FIX A: full transcript was used
     result["partial_result"] = False         # FIX A: full result
+    result["target_lang"] = target_lang
+    result["source_lang"] = source_lang
+    result["json_ld"] = build_jsonld_schemas(result, target_lang=target_lang)
 
     # Track SAAS enrichment in result metadata
     if priority_keywords:
@@ -1427,13 +1636,15 @@ def process_video(
 
     matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
     logger.info(
-        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d, img_descs=%d",
+        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d, img_descs=%d, lang=%s->%s",
         len(resolved_chapters), matched_count, len(resolved_chapters),
         keyphrases, publication_type,
         "enriched" if result.get("saas_enriched") else "standalone",
         site_brand or "none",
         len(ext_links),
         len(img_descs),
+        source_lang,
+        target_lang,
     )
     usage = current_llm_usage.get() or {}
     result["input_tokens"] = usage.get("input_tokens", 0)
@@ -1444,3 +1655,4 @@ def process_video(
     )
     current_llm_usage.reset(tracker_token)
     return result
+

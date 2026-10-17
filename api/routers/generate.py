@@ -23,6 +23,7 @@ FIX D (2026-07-10, vse-dev-01):
 FIX A (2026-07-10, vse-dev-01):
   - transcript_available and partial_result propagated from pipeline result
 """
+import asyncio
 import json
 import logging
 import time
@@ -35,34 +36,19 @@ from sqlalchemy import select, desc
 from api.auth import get_current_user
 from api.db import AsyncSessionLocal, get_db
 from api.models.user import User
-from api.quota import check_quota, log_usage
+from api.quota import check_quota, log_usage, check_multilang_access
 from api.models.job import TranscriptJob
-from api.models.request import GenerateRequest
+from api.models.request import GenerateRequest, AdaptMaterialRequest
 from api.models.response import GenerateResponse
 from api.services.pipeline import run_generate
+from core.generator import adapt_material_language, current_llm_usage, calculate_cost_usd, SUPPORTED_LANGUAGES
 
 router = APIRouter(prefix="/v1", tags=["generate"])
 logger = logging.getLogger(__name__)
 
 
 def _parse_runtime_error(exc: RuntimeError) -> tuple[str, str]:
-    """Parse RuntimeError into user-friendly Polish message and error_code.
-
-    CO: Przekształca techniczne wyjątki RuntimeError na czytelne komunikaty po polsku.
-
-    PO CO: Surowe komunikaty RuntimeError (np. 'No transcript available for xyz...')
-    trafiały prosto do frontendu, dezorientując użytkownika. Frontend potrzebuje
-    human-friendly message + machine-readable code do warunkowego renderowania UI.
-
-    JAK: Sprawdza kluczowe frazy w treści wyjątku i zwraca odpowiedni
-    komunikat PL + kod błędu. Fallback = oryginalny str(exc).
-
-    Args:
-        exc: RuntimeError z pipeline.run_generate().
-
-    Returns:
-        Tuple (error_message: str, error_code: str).
-    """
+    """Parse RuntimeError into user-friendly Polish message and error_code."""
     exc_str = str(exc)
 
     if "No transcript available" in exc_str:
@@ -84,17 +70,7 @@ def _parse_runtime_error(exc: RuntimeError) -> tuple[str, str]:
 
 
 async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
-    """Zapisuje schema_data do najnowszego job'u dla danego video_url.
-
-    CO: Persystencja wyniku generowania w DB.
-
-    PO CO: Bez tego schema jest utracona po zakończeniu HTTP response.
-    Strona /historia potrzebuje dostępu do wygenerowanego contentu
-    aby użytkownik mógł wrócić do wyników bez ponownego generowania.
-
-    JAK: Szuka najnowszego job'u z status='fetched' dla danego video_url,
-    aktualizuje schema_data i status na 'done'.
-    """
+    """Zapisuje schema_data do najnowszego job'u dla danego video_url."""
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -119,8 +95,6 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
                     job.id,
                 )
             else:
-                # Brak pasującego job'u — utwórz nowy ze statusem 'done'
-                from datetime import datetime, timezone
                 new_job = TranscriptJob(
                     video_url=video_url,
                     status="done",
@@ -137,8 +111,6 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
                 )
     except Exception as exc:
         logger.error("[generate] Failed to save schema_data to DB: %s", exc)
-        # Nie rzucamy wyjątku — zapis do DB jest best-effort,
-        # użytkownik i tak dostał wynik w HTTP response
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -147,20 +119,7 @@ async def generate_endpoint(
     current_user: User = Depends(check_quota),
     db: AsyncSession = Depends(get_db),
 ) -> GenerateResponse:
-    """Fetch YouTube transcript and generate SEO schema via LLM.
-
-    Does NOT write to WordPress. Returns the full schema_data dict
-    which can be passed to /v1/inject later.
-    Saves schema_data to transcript_jobs for /historia access.
-
-    D6b: Accepts publication_type to control article format.
-    D9: Accepts portal_id to select server-side YAML profile.
-    FIX D: RuntimeError messages parsed to user-friendly Polish messages + error_code.
-    FIX A: transcript_available and partial_result propagated from pipeline.
-    Quota & Tiering:
-      - Twarda blokada limitu (check_quota zwraca 429).
-      - Dla Free i Starter wymuszony tani i szybki gemini-2.5-flash.
-    """
+    """Fetch YouTube transcript and generate SEO schema via LLM."""
     plan_id = getattr(current_user, "plan_id", "free") or "free"
     effective_provider = req.llm_provider
     if plan_id in ("free", "starter"):
@@ -168,20 +127,33 @@ async def generate_endpoint(
     elif not effective_provider:
         effective_provider = "gemini"
 
+    ui_lang = (req.ui_lang or "pl").lower()[:2]
+    target_lang = (req.target_lang or req.lang or ui_lang or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        target_lang = "pl"
+
+    entitlements = await check_multilang_access(current_user.id, db, user=current_user)
+    if target_lang != ui_lang and not entitlements.get("allow_target_override", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Wybór innego języka docelowego niż język panelu wymaga Pakietu Wielojęzycznego (+29 zł/mies.) lub planu Pro / Agency.",
+        )
+
     logger.info(
-        "[/v1/generate] video_url=%s requested_provider=%s effective_provider=%s plan=%s type=%s portal_id=%s",
-        req.video_url, req.llm_provider, effective_provider, plan_id, req.publication_type, req.portal_id,
+        "[/v1/generate] video_url=%s requested_provider=%s effective_provider=%s plan=%s type=%s portal_id=%s target_lang=%s ui_lang=%s",
+        req.video_url, req.llm_provider, effective_provider, plan_id, req.publication_type, req.portal_id, target_lang, ui_lang,
     )
     start = time.time()
     try:
         result = await run_generate(
             video_url=req.video_url,
             llm_provider=effective_provider,
-            lang=req.lang,
+            lang=target_lang,
             post_title_override=req.post_title,
             publication_type=req.publication_type,  # D6b
             portal_id=req.portal_id,  # D9
             user_id=str(current_user.id),  # OAuth: private video access
+            target_lang=target_lang,
         )
 
         schema_data = result["seo"]
@@ -214,6 +186,8 @@ async def generate_endpoint(
             schema_data=schema_data,
             transcript_available=has_transcript,
             partial_result=is_partial if is_partial else None,
+            source_lang=result.get("source_lang", schema_data.get("source_lang", "pl")),
+            target_lang=result.get("target_lang", schema_data.get("target_lang", target_lang)),
         )
     except ValueError as exc:
         logger.error("[/v1/generate] ValueError: %s", exc)
@@ -259,3 +233,94 @@ async def generate_endpoint(
             llm_provider=effective_provider,
         )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/adapt-material")
+async def adapt_material_endpoint(
+    req: AdaptMaterialRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """On-demand per-material language adaptation (Article, YouTube, Meta, Quotes, Schema).
+
+    Does NOT consume monthly video quota (logged with endpoint='adapt_material').
+    Requires allow_per_material_adapt == True (Pro, Agency, or +29 PLN/mo Add-on).
+    """
+    entitlements = await check_multilang_access(current_user.id, db, user=current_user)
+    if not entitlements.get("allow_per_material_adapt", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Tłumaczenie poszczególnych materiałów na inne języki wymaga Pakietu Wielojęzycznego (+29 zł/mies.) lub planu Pro / Agency.",
+        )
+
+    target_lang = (req.target_lang or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        raise HTTPException(status_code=422, detail=f"Nieobsługiwany język docelowy: {target_lang}")
+
+    plan_id = (getattr(current_user, "plan_id", "free") or "free").lower()
+    effective_provider = req.llm_provider or "gemini"
+    if plan_id in ("free", "starter"):
+        effective_provider = "gemini"
+
+    start = time.time()
+
+    def _run_sync_adapt() -> tuple[dict, dict]:
+        token = current_llm_usage.set({
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "last_provider": effective_provider,
+        })
+        try:
+            adapted = adapt_material_language(
+                material_type=req.material_type,
+                target_lang=target_lang,
+                source_data=req.source_data,
+                llm_provider=effective_provider,
+            )
+            usage = current_llm_usage.get() or {}
+            return adapted, usage
+        finally:
+            current_llm_usage.reset(token)
+
+    try:
+        adapted_data, usage = await asyncio.to_thread(_run_sync_adapt)
+        in_tok = int(usage.get("input_tokens", 0))
+        out_tok = int(usage.get("output_tokens", 0))
+        used_prov = usage.get("last_provider", effective_provider)
+        cost_usd = calculate_cost_usd(used_prov, in_tok, out_tok)
+
+        yt_id = req.youtube_id or req.source_data.get("youtube_id") or ""
+        await log_usage(
+            user_id=current_user.id,
+            db=db,
+            youtube_id=yt_id,
+            success=True,
+            endpoint="adapt_material",
+            llm_provider=used_prov,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            estimated_cost_usd=cost_usd,
+        )
+
+        return {
+            "status": "ok",
+            "material_type": req.material_type,
+            "target_lang": target_lang,
+            "adapted_data": adapted_data,
+            "processing_time_s": round(time.time() - start, 2),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[/v1/adapt-material] Error adapting material")
+        await log_usage(
+            user_id=current_user.id,
+            db=db,
+            youtube_id=req.youtube_id or "",
+            success=False,
+            error_msg=str(exc),
+            endpoint="adapt_material",
+            llm_provider=effective_provider,
+        )
+        raise HTTPException(status_code=500, detail=f"Błąd adaptacji językowej: {exc}") from exc
+

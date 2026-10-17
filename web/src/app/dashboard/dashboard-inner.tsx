@@ -21,17 +21,18 @@ import EmailVerificationBanner from './email-verification-banner'
 import { ErrorBoundary } from './error-boundary'
 import { YouTubePublishModal } from './YouTubePublishModal'
 
-import type {
-  GenerateResponse,
-  SchemaData,
-  ChapterItem,
-  FaqItem,
-  QuoteItem,
-  UserPlan,
-  UserProfile,
-  InjectResult,
-  CopiedKey,
-  TabKey,
+import {
+  VSE_LANGUAGES,
+  type GenerateResponse,
+  type SchemaData,
+  type ChapterItem,
+  type FaqItem,
+  type QuoteItem,
+  type UserPlan,
+  type UserProfile,
+  type InjectResult,
+  type CopiedKey,
+  type TabKey,
 } from './types'
 import {
   extractChapters,
@@ -75,16 +76,43 @@ export default function DashboardInner() {
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<{ raw: SchemaData; videoId: string; time?: number; inputUrl: string } | null>(null)
+  const [result, setResult] = useState<{
+    raw: SchemaData
+    videoId: string
+    time?: number
+    inputUrl: string
+    sourceLang?: string
+    targetLang?: string
+  } | null>(null)
   const [error, setError] = useState('')
   const [copiedKey, setCopiedKey] = useState<CopiedKey>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('article')
 
+  // Multi-Language & Cross-Language Engine ("Złoty Środek") state
+  const [uiLang, setUiLang] = useState<string>('pl')
+  const [targetLang, setTargetLang] = useState<string>('pl')
+  const [materialTranslations, setMaterialTranslations] = useState<Record<string, Record<string, SchemaData>>>({})
+  const [activeTabLang, setActiveTabLang] = useState<Record<string, string>>({})
+  const [adaptingLang, setAdaptingLang] = useState<string | null>(null)
+  const [adaptError, setAdaptError] = useState<string>('')
+  const [showMultilangUpsell, setShowMultilangUpsell] = useState<boolean>(false)
+  const [addonCheckoutLoading, setAddonCheckoutLoading] = useState<boolean>(false)
+
   const [showInjectModal, setShowInjectModal] = useState(false)
   const [ytModalOpen, setYtModalOpen] = useState(false)
   const [ytChannels, setYtChannels] = useState<any[]>([])
   const [ytDescription, setYtDescription] = useState<string>('')
+
+  // Load saved UI language from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = window.localStorage.getItem('vse_ui_lang')
+    if (saved && VSE_LANGUAGES.some((l) => l.code === saved)) {
+      setUiLang(saved)
+      setTargetLang(saved)
+    }
+  }, [])
 
   useEffect(() => {
     apiGet<any[]>('/v1/youtube/channels')
@@ -122,10 +150,27 @@ export default function DashboardInner() {
   useEffect(() => {
     if (jobData?.schema_data) {
       const videoId = jobData.video_id || ''
+      const sData = jobData.schema_data as SchemaData
+      const initTarget = (sData.target_lang as string) || 'pl'
+      const initSource = (sData.source_lang as string) || 'pl'
       setResult({
-        raw: jobData.schema_data as SchemaData,
+        raw: sData,
         videoId,
         inputUrl: jobData.video_url,
+        sourceLang: initSource,
+        targetLang: initTarget,
+      })
+      setMaterialTranslations({
+        article: { [initTarget]: sData },
+        youtube: { [initTarget]: sData },
+        chapters: { [initTarget]: sData },
+        schema: { [initTarget]: sData },
+      })
+      setActiveTabLang({
+        article: initTarget,
+        youtube: initTarget,
+        chapters: initTarget,
+        schema: initTarget,
       })
       setUrl(jobData.video_url)
       setActiveTab('article')
@@ -152,6 +197,112 @@ export default function DashboardInner() {
     (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
     (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))
 
+  const hasMultilangAddon =
+    isPro ||
+    Boolean(userProfile?.is_admin) ||
+    Boolean(userProfile?.has_multilang_addon) ||
+    Boolean(userProfile?.multilang?.has_multilang_addon)
+
+  const canOverrideTargetLang =
+    hasMultilangAddon || Boolean(userProfile?.multilang?.allow_target_override)
+
+  const canAdaptPerMaterial =
+    hasMultilangAddon || Boolean(userProfile?.multilang?.allow_per_material_adapt)
+
+  const handleUiLangChange = (newLang: string) => {
+    setUiLang(newLang)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('vse_ui_lang', newLang)
+    }
+    if (!canOverrideTargetLang) {
+      setTargetLang(newLang)
+    }
+  }
+
+  const handleBuyMultilangAddon = async () => {
+    setAddonCheckoutLoading(true)
+    try {
+      const res = await apiPost<{ session_url?: string; checkout_url?: string }>(
+        '/v1/payments/checkout-addon',
+        { addon: 'multilang' }
+      )
+      const redirectUrl = res?.session_url || res?.checkout_url
+      if (redirectUrl) {
+        window.location.href = redirectUrl
+      }
+    } catch (err: unknown) {
+      setAdaptError(err instanceof Error ? err.message : 'Nie udało się utworzyć sesji płatności Stripe')
+    } finally {
+      setAddonCheckoutLoading(false)
+    }
+  }
+
+  const handleAdaptMaterial = async (tab: TabKey, langCode: string) => {
+    if (!result?.raw) return
+    setAdaptError('')
+
+    if (!canAdaptPerMaterial) {
+      setShowMultilangUpsell(true)
+      return
+    }
+
+    // Instant cache hit (0ms)
+    const cached = materialTranslations[tab]?.[langCode]
+    if (cached) {
+      setActiveTabLang((prev) => ({ ...prev, [tab]: langCode }))
+      return
+    }
+
+    const materialTypeMap: Record<string, string> = {
+      article: 'article',
+      youtube: 'youtube',
+      chapters: 'youtube',
+      schema: 'schema',
+    }
+    const materialType = materialTypeMap[tab] || 'article'
+
+    setAdaptingLang(langCode)
+    try {
+      const resp = await apiPost<{
+        status: string
+        material_type: string
+        target_lang: string
+        adapted_data: Record<string, unknown>
+      }>('/v1/adapt-material', {
+        material_type: materialType,
+        target_lang: langCode,
+        source_data: result.raw,
+        youtube_id: result.videoId,
+      })
+
+      if (resp?.adapted_data) {
+        const mergedSchema: SchemaData = {
+          ...result.raw,
+          ...resp.adapted_data,
+          target_lang: langCode,
+        }
+        setMaterialTranslations((prev) => {
+          const next = { ...prev }
+          next[tab] = { ...(next[tab] || {}), [langCode]: mergedSchema }
+          if (tab === 'youtube' || tab === 'chapters') {
+            next.youtube = { ...(next.youtube || {}), [langCode]: mergedSchema }
+            next.chapters = { ...(next.chapters || {}), [langCode]: mergedSchema }
+          }
+          return next
+        })
+        setActiveTabLang((prev) => ({
+          ...prev,
+          [tab]: langCode,
+          ...(tab === 'youtube' || tab === 'chapters' ? { youtube: langCode, chapters: langCode } : {}),
+        }))
+      }
+    } catch (err: unknown) {
+      setAdaptError(err instanceof Error ? err.message : 'Błąd tłumaczenia materiału')
+    } finally {
+      setAdaptingLang(null)
+    }
+  }
+
   const handleCopy = useCallback(async (text: string, id: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -162,12 +313,16 @@ export default function DashboardInner() {
     }
   }, [])
 
+  const currentTabLang = activeTabLang[activeTab] || result?.targetLang || (result?.raw?.target_lang as string) || targetLang || 'pl'
+  const activeSchema: SchemaData | null =
+    (result && materialTranslations[activeTab]?.[currentTabLang]) || result?.raw || null
+
   useEffect(() => {
-    if (result?.raw) {
-      const wpLink = result.raw?.wp_url as string | undefined
-      setYtDescription(buildYtDescription(result.raw as SchemaData, wpLink))
+    if (activeSchema) {
+      const wpLink = activeSchema?.wp_url as string | undefined
+      setYtDescription(buildYtDescription(activeSchema, wpLink))
     }
-  }, [result])
+  }, [activeSchema])
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -176,7 +331,11 @@ export default function DashboardInner() {
 
     setLoading(true)
     setError('')
+    setAdaptError('')
+    setShowMultilangUpsell(false)
     setResult(null)
+
+    const effectiveTargetLang = canOverrideTargetLang ? targetLang : uiLang
 
     try {
       let data: GenerateResponse | null = null
@@ -192,7 +351,9 @@ export default function DashboardInner() {
         if (portalIdParam) {
           formData.append('portal_id', portalIdParam)
         }
-        formData.append('lang', 'pl')
+        formData.append('lang', effectiveTargetLang)
+        formData.append('target_lang', effectiveTargetLang)
+        formData.append('ui_lang', uiLang)
         formData.append('llm_provider', 'claude')
 
         data = await apiPostForm<GenerateResponse>('/v1/audio/generate', formData)
@@ -200,7 +361,9 @@ export default function DashboardInner() {
         data = await apiPost<GenerateResponse>('/v1/generate', {
           video_url: url.trim(),
           llm_provider: 'claude',
-          lang: 'pl',
+          lang: effectiveTargetLang,
+          target_lang: effectiveTargetLang,
+          ui_lang: uiLang,
           publication_type: publicationType,
           portal_id: portalIdParam,
         })
@@ -212,8 +375,30 @@ export default function DashboardInner() {
       const schema = data.schema_data ?? null
       if (!schema) throw new Error('Serwer nie zwrócił schema_data')
 
+      const detectedSourceLang = (data.source_lang || schema.source_lang || 'pl') as string
+      const detectedTargetLang = (data.target_lang || schema.target_lang || effectiveTargetLang) as string
       const effectiveInputUrl = inputMode === 'audio' ? `audio://${data.video_id}` : url.trim()
-      setResult({ raw: schema, videoId: data.video_id, time: data.processing_time_s, inputUrl: effectiveInputUrl })
+
+      setResult({
+        raw: schema,
+        videoId: data.video_id,
+        time: data.processing_time_s,
+        inputUrl: effectiveInputUrl,
+        sourceLang: detectedSourceLang,
+        targetLang: detectedTargetLang,
+      })
+      setMaterialTranslations({
+        article: { [detectedTargetLang]: schema },
+        youtube: { [detectedTargetLang]: schema },
+        chapters: { [detectedTargetLang]: schema },
+        schema: { [detectedTargetLang]: schema },
+      })
+      setActiveTabLang({
+        article: detectedTargetLang,
+        youtube: detectedTargetLang,
+        chapters: detectedTargetLang,
+        schema: detectedTargetLang,
+      })
       setActiveTab('article')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Nieznany błąd')
@@ -230,12 +415,15 @@ export default function DashboardInner() {
     )
   }
 
-  const schema = result?.raw ?? null
+  const schema = activeSchema
   const chapters = extractChapters(schema)
   const faq = extractFaq(schema)
   const planLabel = userProfile?.plan?.display_name ?? 'Free'
   const usageUsed = userProfile?.usage?.used_this_month ?? 0
   const usageQuota = userProfile?.usage?.quota ?? 5
+
+  const sourceLangMeta = VSE_LANGUAGES.find((l) => l.code === (result?.sourceLang || result?.raw?.source_lang || 'pl'))
+  const targetLangMeta = VSE_LANGUAGES.find((l) => l.code === currentTabLang) || VSE_LANGUAGES[0]
 
   return (
     <ErrorBoundary>
@@ -243,15 +431,33 @@ export default function DashboardInner() {
         {/* Sidebar */}
         <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-20">
           <div className="p-6 border-b border-gray-800">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <span className="font-bold text-white block">VSE</span>
+                  <span className="text-xs text-gray-500">Video SEO Engine</span>
+                </div>
               </div>
-              <div>
-                <span className="font-bold text-white block">VSE</span>
-                <span className="text-xs text-gray-500">Video SEO Engine</span>
+
+              {/* Compact UI Language Switcher (🌐 PL ▾) */}
+              <div title="Język interfejsu i domyślny język generowania">
+                <select
+                  aria-label="Język panelu"
+                  value={uiLang}
+                  onChange={(e) => handleUiLangChange(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 hover:border-violet-500 text-xs font-semibold text-gray-200 rounded-lg px-2 py-1.5 cursor-pointer focus:outline-none focus:border-violet-500"
+                >
+                  {VSE_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.flag} {l.short}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
@@ -283,7 +489,14 @@ export default function DashboardInner() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-white truncate">{session?.user?.email}</p>
-                <p className="text-xs text-violet-400">{planLabel}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs text-violet-400">{planLabel}</p>
+                  {hasMultilangAddon && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                      🌐 8 języków
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -294,6 +507,16 @@ export default function DashboardInner() {
               >
                 ↑ Zmień plan
               </a>
+              {!hasMultilangAddon && (
+                <button
+                  type="button"
+                  onClick={handleBuyMultilangAddon}
+                  disabled={addonCheckoutLoading}
+                  className="text-left text-xs text-emerald-400 hover:text-emerald-300 transition-colors py-0.5"
+                >
+                  🌐 + Pakiet Wielojęzyczny (29 zł)
+                </button>
+              )}
               {userProfile?.plan?.id !== 'free' && (
                 <ManageSubscriptionLink accessToken={(session as { accessToken?: string })?.accessToken} />
               )}
@@ -316,9 +539,14 @@ export default function DashboardInner() {
               accessToken={(session as { accessToken?: string })?.accessToken}
             />
 
-            <h1 className="text-2xl font-bold text-white mb-1">Video & Audio SEO Engine</h1>
+            <div className="flex items-start justify-between gap-4 mb-1">
+              <h1 className="text-2xl font-bold text-white">Video & Audio SEO Engine</h1>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300">
+                🌐 Cross-Language Engine (8 języków)
+              </span>
+            </div>
             <p className="text-gray-400 mb-8">
-              Wklej link YouTube lub wgraj plik MP3 — AI wygeneruje kompletny pakiet SEO, transkrypcję i artykuł.
+              Wklej link YouTube (w dowolnym języku!) lub wgraj plik MP3 — AI wygeneruje kompletny pakiet SEO, rozdziały i artykuł w wybranym języku.
             </p>
 
             {jobLoading && (
@@ -343,8 +571,8 @@ export default function DashboardInner() {
               </div>
             )}
 
-            {/* Portal & Publication Type Selector */}
-            <div className="grid grid-cols-2 gap-3 mb-5">
+            {/* Portal, Publication Type & Target Language Selector */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Portal docelowy</label>
                 {portalsLoading ? (
@@ -418,7 +646,86 @@ export default function DashboardInner() {
                   <option value="discover">🔍 Discover</option>
                 </select>
               </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs text-gray-400">Język wyniku SEO</label>
+                  {!canOverrideTargetLang && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMultilangUpsell(true)}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium"
+                    >
+                      🔒 Odblokuj 8 języków
+                    </button>
+                  )}
+                </div>
+                <select
+                  id="target-lang-selector"
+                  value={canOverrideTargetLang ? targetLang : uiLang}
+                  onChange={(e) => {
+                    const nextLang = e.target.value
+                    if (!canOverrideTargetLang && nextLang !== uiLang) {
+                      setShowMultilangUpsell(true)
+                      return
+                    }
+                    setTargetLang(nextLang)
+                  }}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                >
+                  {VSE_LANGUAGES.map((l) => {
+                    const locked = !canOverrideTargetLang && l.code !== uiLang
+                    return (
+                      <option key={l.code} value={l.code}>
+                        {l.flag} {l.label} ({l.short}){locked ? ' 🔒 (Pakiet Wielojęzyczny / Pro)' : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
             </div>
+
+            {/* Upsell Banner for Multi-Language Add-on (+29 PLN/mo) or Pro */}
+            {showMultilangUpsell && !hasMultilangAddon && (
+              <div className="mb-5 p-4 bg-gradient-to-r from-violet-950/70 via-gray-900 to-emerald-950/50 border border-violet-500/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-white">🌐 Pakiet Wielojęzyczny — publikuj na rynki zagraniczne</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      +29 zł / mies.
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    W Twoim obecnym planie możesz wklejać filmy w dowolnym języku i generować SEO w języku panelu ({uiLang.toUpperCase()}).
+                    Aby dowolnie zmieniać język docelowy przed generowaniem oraz tłumaczyć pojedyncze zakładki (Artykuł, YouTube, Rozdziały, Schema) 1 kliknięciem na 8 języków:
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleBuyMultilangAddon}
+                    disabled={addonCheckoutLoading}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                  >
+                    {addonCheckoutLoading ? 'Przekierowanie...' : '🌐 Dokup Pakiet (+29 zł/mies.)'}
+                  </button>
+                  <Link
+                    href="/cennik"
+                    className="px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                  >
+                    🚀 Przejdź na Pro (149 zł — w cenie!)
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setShowMultilangUpsell(false)}
+                    className="text-xs text-gray-400 hover:text-white px-2 py-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Input Mode Selector */}
             <div className="flex gap-2 mb-3">
@@ -455,7 +762,7 @@ export default function DashboardInner() {
                     type="text"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=..."
+                    placeholder="https://www.youtube.com/watch?v=... (polski lub zagraniczny film)"
                     className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
                   />
                 ) : (
@@ -558,9 +865,14 @@ export default function DashboardInner() {
             {/* Results */}
             {result && (
               <div>
-                <div className="flex items-center justify-between mb-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">Wyniki SEO</h2>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h2 className="text-lg font-semibold text-white">Wyniki SEO</h2>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-xs text-violet-300">
+                        🌐 Źródło: {sourceLangMeta ? `${sourceLangMeta.flag} ${sourceLangMeta.short}` : (result.sourceLang || 'AUTO').toUpperCase()} → Wynik: {targetLangMeta.flag} {targetLangMeta.label} ({targetLangMeta.short})
+                      </span>
+                    </div>
                     <p className="text-xs text-gray-500 mt-0.5">
                       Źródło: <span className="font-mono">{result.videoId}</span>
                       {result.time && <> • {result.time.toFixed(1)}s</>}
@@ -595,6 +907,69 @@ export default function DashboardInner() {
                   chaptersCount={chapters.length}
                   faqCount={faq.length}
                 />
+
+                {/* Per-Material Language Switcher Bar ("Złoty Środek") */}
+                {activeTab !== 'shorts' && (
+                  <div className="mb-4 p-3 bg-gray-900/90 border border-gray-800 rounded-xl">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-gray-400 flex items-center gap-1.5">
+                        🌐 Język tego materiału:
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {VSE_LANGUAGES.map((l) => {
+                          const isCurrent = currentTabLang === l.code
+                          const isCached = Boolean(materialTranslations[activeTab]?.[l.code])
+                          const isLocked = !canAdaptPerMaterial && !isCurrent
+                          const isAdaptingThis = adaptingLang === l.code
+                          return (
+                            <button
+                              key={l.code}
+                              type="button"
+                              disabled={Boolean(adaptingLang)}
+                              onClick={() => handleAdaptMaterial(activeTab, l.code)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center gap-1 ${
+                                isCurrent
+                                  ? 'bg-violet-600 text-white border-violet-500 shadow-sm'
+                                  : isCached
+                                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                                  : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:border-violet-500/50 hover:text-white'
+                              }`}
+                              title={
+                                isLocked
+                                  ? `Odblokuj tłumaczenie na ${l.label} (Pakiet Wielojęzyczny +29 zł lub plan Pro)`
+                                  : `Przełącz / przetłumacz ten materiał na ${l.label}`
+                              }
+                            >
+                              <span>{l.flag}</span>
+                              <span>{l.short}</span>
+                              {isAdaptingThis && (
+                                <span className="animate-spin inline-block w-3 h-3 border border-white/40 border-t-white rounded-full ml-0.5" />
+                              )}
+                              {!isAdaptingThis && isCached && !isCurrent && (
+                                <span className="text-[10px] text-emerald-400">✓</span>
+                              )}
+                              {isLocked && <span className="text-[10px] opacity-80">🔒</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {adaptingLang && (
+                      <div className="mt-2.5 flex items-center gap-2 text-xs text-violet-300">
+                        <span className="animate-spin inline-block w-3 h-3 border border-violet-400/30 border-t-violet-400 rounded-full" />
+                        Tłumaczenie i adaptacja SEO tej zakładki na język{' '}
+                        <strong>{VSE_LANGUAGES.find((x) => x.code === adaptingLang)?.label}</strong>... (nie zużywa limitu wideo)
+                      </div>
+                    )}
+
+                    {adaptError && (
+                      <div className="mt-2.5 text-xs text-red-400">
+                        ⚠️ {adaptError}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Tab: Schemat */}
                 {activeTab === 'schema' && (
@@ -637,7 +1012,7 @@ export default function DashboardInner() {
           const selectedPortal = portals.find((p) => p.id === selectedPortalId)
           return (
             <InjectModal
-              schemaData={result.raw}
+              schemaData={activeSchema || result.raw}
               videoUrl={result.inputUrl}
               accessToken={accessToken}
               onClose={() => setShowInjectModal(false)}
@@ -650,7 +1025,7 @@ export default function DashboardInner() {
         })()}
 
         {ytModalOpen && result && (() => {
-          const wpUrl = result.raw?.wp_article_url || result.raw?.published_url || ""
+          const wpUrl = (activeSchema || result.raw)?.wp_article_url || (activeSchema || result.raw)?.published_url || ""
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
 
           return (
@@ -659,7 +1034,7 @@ export default function DashboardInner() {
               isOpen={ytModalOpen}
               onClose={() => setYtModalOpen(false)}
               videoId={result?.videoId || result?.raw?.video_id || extractVideoId(result?.inputUrl || "") || ""}
-              schemaData={result.raw ?? {}}
+              schemaData={activeSchema ?? result.raw ?? {}}
               wpUrl={wpUrl}
               channels={ytChannels}
               accessToken={accessToken || ""}

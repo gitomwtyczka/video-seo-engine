@@ -230,7 +230,7 @@ async def startup_event() -> None:
     # Auto-create tables on startup (safe: CREATE TABLE IF NOT EXISTS)
     try:
         # Import models to register them with Base
-        from api.models.user import User, Plan, UsageLog, ApiKey  # noqa: F401
+        from api.models.user import User, Plan, UsageLog, ApiKey, Subscription  # noqa: F401
         from api.models.job import TranscriptJob  # noqa: F401
         from api.models.app_settings import AppSettings  # noqa: F401
         from api.models.portal import WpPortal  # noqa: F401
@@ -246,6 +246,8 @@ async def startup_event() -> None:
             await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS output_tokens INTEGER DEFAULT 0;"))
             await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(50);"))
             await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS estimated_cost_usd DOUBLE PRECISION;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS has_multilang_addon BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS has_multilang_addon BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text(
                 "CREATE TABLE IF NOT EXISTS api_keys ("
                 "id UUID PRIMARY KEY, "
@@ -263,7 +265,7 @@ async def startup_event() -> None:
             await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS allowed_domain VARCHAR(255);"))
             await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'Default';"))
             await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;"))
-        logger.info("Database tables verified/created and usage_logs + api_keys columns migrated.")
+        logger.info("Database tables verified/created and usage_logs + api_keys + subscriptions columns migrated.")
         
         from sqlalchemy import delete
         from datetime import datetime, timezone

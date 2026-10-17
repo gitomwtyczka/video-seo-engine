@@ -333,7 +333,7 @@ def _try_ytdlp_with_cookies_file(video_id: str, cookies_path: str) -> Optional[s
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        for lang_spec in ["pl", "en"]:
+        for lang_spec in ["pl", "en", "en.*,de.*,es.*,fr.*,it.*,uk.*,pt.*,pl.*,orig"]:
             cmd = [
                 "yt-dlp",
                 "--no-update",
@@ -418,7 +418,7 @@ def _try_ytdlp_with_browser(video_id: str, browser: str) -> Optional[str]:
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        for lang_spec in ["pl", "en"]:
+        for lang_spec in ["pl", "en", "en.*,de.*,es.*,fr.*,it.*,uk.*,pt.*,pl.*,orig"]:
             cmd = [
                 "yt-dlp",
                 "--no-update",

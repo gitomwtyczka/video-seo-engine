@@ -14,6 +14,13 @@ D11 Video Thumbnails (2026-06-21, vse-dev-26):
   Fallback chain: maxresdefault.jpg → sddefault.jpg → hqdefault.jpg
   For second screenshot: /1.jpg, /2.jpg, /3.jpg (YouTube auto-generated storyboard frames)
 
+Multi-Language & Cross-Language Engine (2026-10-17, vse-dev-01):
+  - Extracts default_audio_language in fetch_metadata_api_v3() and fetch_metadata()
+  - fetch_transcript_youtube_api() / fetch_transcript_api() never rejects foreign-language
+    videos when target lang is missing (falls back to original manual/ASR track)
+  - fetch_transcript_ytdlp() falls back to --sub-langs "en.*,de.*,es.*,fr.*,it.*,uk.*,pt.*,pl.*,orig"
+  - Detects and returns source_lang in process_video()
+
 Dependencies (in requirements.txt):
   youtube-transcript-api>=1.2.4
   yt-dlp>=2024.1.0  (transcript fallback only — metadata disabled on VPS)
@@ -21,6 +28,7 @@ Dependencies (in requirements.txt):
 Environment variables:
   YOUTUBE_API_KEY  — Required on VPS. Falls back to yt-dlp locally if not set.
 """
+import glob
 import json
 import logging
 import os
@@ -42,6 +50,88 @@ try:
 except ImportError:
     HAS_TRANSCRIPT_API = False
     logger.warning("youtube-transcript-api not installed — transcript fetching unavailable")
+
+SUPPORTED_LANG_CODES = ("pl", "en", "de", "es", "fr", "it", "uk", "pt")
+
+_LANG_STOPWORDS: dict[str, set[str]] = {
+    "pl": {"jest", "nie", "się", "jak", "czy", "ale", "tylko", "przez", "oraz", "żeby", "który", "bardzo"},
+    "en": {"the", "and", "that", "this", "with", "from", "your", "have", "are", "for", "you", "about"},
+    "de": {"und", "der", "die", "das", "nicht", "mit", "sich", "auf", "für", "eine", "auch", "werden"},
+    "es": {"que", "los", "las", "para", "con", "una", "por", "como", "más", "pero", "este", "esta"},
+    "fr": {"les", "des", "une", "dans", "pour", "que", "qui", "sur", "pas", "plus", "avec", "sont"},
+    "it": {"che", "non", "per", "con", "una", "sono", "della", "anche", "come", "più", "questo", "nella"},
+    "uk": {"що", "не", "на", "для", "як", "але", "це", "він", "вона", "ми", "ви", "про", "або"},
+    "pt": {"que", "não", "para", "com", "uma", "por", "mais", "como", "mas", "foi", "este", "isso"},
+}
+
+
+def normalize_lang_code(raw_lang: Optional[str]) -> str:
+    """Normalize a BCP-47 language tag (e.g. 'en-US', 'pl-auto', 'de_DE') to 2-char lowercase code."""
+    if not raw_lang:
+        return ""
+    cleaned = raw_lang.strip().lower().replace("_", "-")
+    if cleaned.endswith("-auto"):
+        cleaned = cleaned[:-5]
+    base = cleaned.split("-")[0]
+    if base == "ua":
+        return "uk"
+    return base[:2] if len(base) >= 2 else base
+
+
+def detect_transcript_language(
+    vtt_text: Optional[str],
+    metadata_lang: Optional[str] = None,
+    track_lang: Optional[str] = None,
+) -> str:
+    """Detect the 2-letter source language code of a transcript.
+
+    Priority:
+      1. WebVTT header 'Language: xx'
+      2. Explicit track_lang from YouTube caption track (if not empty/unknown)
+      3. Lexical stopword heuristic on VTT body text (PL/EN/DE/ES/FR/IT/UK/PT)
+      4. metadata_lang (defaultAudioLanguage / defaultLanguage from YouTube metadata)
+      5. Default fallback 'pl'
+    """
+    if vtt_text:
+        m = re.search(r"(?im)^Language:\s*([a-zA-Z_-]+)", vtt_text[:600])
+        if m:
+            norm = normalize_lang_code(m.group(1))
+            if norm:
+                return norm
+
+    norm_track = normalize_lang_code(track_lang)
+    if norm_track and norm_track not in ("orig", "und", "auto"):
+        # Verify with lexical heuristic if vtt_text is substantial
+        if not vtt_text:
+            return norm_track
+
+    if vtt_text:
+        clean_lines = []
+        for line in vtt_text.splitlines():
+            s = line.strip()
+            if not s or s.startswith("WEBVTT") or "-->" in s or s.startswith("Kind:") or s.startswith("Language:") or s.isdigit():
+                continue
+            clean_lines.append(re.sub(r"<[^>]+>", "", s))
+        sample_text = " ".join(clean_lines)[:15000].lower()
+        words = re.findall(r"[a-ząćęłńóśźżäöüßáéíóúñàèìòùâêîôûçãõіїєґа-я]+", sample_text)
+        if len(words) >= 15:
+            scores: dict[str, int] = {code: 0 for code in _LANG_STOPWORDS}
+            for w in words:
+                for code, stop_set in _LANG_STOPWORDS.items():
+                    if w in stop_set:
+                        scores[code] += 1
+            best_code, best_score = max(scores.items(), key=lambda kv: kv[1])
+            if best_score >= 3:
+                return best_code
+
+    if norm_track and norm_track not in ("orig", "und", "auto"):
+        return norm_track
+
+    norm_meta = normalize_lang_code(metadata_lang)
+    if norm_meta:
+        return norm_meta
+
+    return "pl"
 
 
 # ---------------------------------------------------------------------------
@@ -163,33 +253,10 @@ def fetch_video_thumbnails(
     output_dir: str,
     count: int = 2,
 ) -> list[dict]:
-    """Download YouTube video thumbnails for article screenshots.
-
-    CO: Pobiera thumbnails z YouTube dla screenshotów w artykule.
-
-    PO CO: Artykuły z obrazkami rankują wyżej w Google (Image SEO, Discover).
-    RankMath i Google wymagają ImageObject w schema. Thumbnails z YouTube
-    są najszybszym źródłem — nie wymagają renderowania wideo.
-
-    JAK: Dla pierwszego screena próbuje maxresdefault → sddefault → hqdefault.
-    Dla drugiego screena: /1.jpg, /2.jpg, /3.jpg (YouTube auto-generated
-    storyboard frames — różne momenty wideo).
-    Pliki zapisywane do output_dir z unikalnymi nazwami.
-
-    Args:
-        video_id: YouTube video ID (11 chars).
-        output_dir: Directory to save downloaded thumbnails.
-        count: Number of thumbnails to download (1 or 2).
-
-    Returns:
-        List of dicts: [{"path": "...", "width": 1280, "height": 720,
-        "source": "youtube_maxres", "url": "https://img.youtube.com/..."}]
-        Empty list on complete failure (graceful degradation).
-    """
+    """Download YouTube video thumbnails for article screenshots."""
     os.makedirs(output_dir, exist_ok=True)
     results: list[dict] = []
 
-    # Primary thumbnail: main video thumbnail (best quality)
     primary_chain = [
         ("maxresdefault", 1280, 720),
         ("sddefault", 640, 480),
@@ -200,7 +267,6 @@ def fetch_video_thumbnails(
         thumb_url = f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
         try:
             resp = _requests_lib.get(thumb_url, timeout=15)
-            # YouTube returns 200 + tiny grey placeholder for missing resolutions
             if resp.status_code == 200 and len(resp.content) > 5000:
                 filename = f"{video_id}_thumb_0.jpg"
                 filepath = os.path.join(output_dir, filename)
@@ -228,8 +294,6 @@ def fetch_video_thumbnails(
     if count < 2:
         return results
 
-    # Secondary thumbnail: YouTube auto-generated storyboard frames
-    # These are different moments of the video (YouTube generates /1.jpg, /2.jpg, /3.jpg)
     secondary_chain = ["1", "2", "3"]
     for frame_id in secondary_chain:
         thumb_url = f"https://img.youtube.com/vi/{video_id}/{frame_id}.jpg"
@@ -268,59 +332,78 @@ def fetch_video_thumbnails(
 # Transcript fetching — youtube-transcript-api v1.2.4+ (instance API)
 # ---------------------------------------------------------------------------
 
-def fetch_transcript_api(video_id: str, lang: str = "pl") -> Tuple[Optional[str], Optional[str]]:
+def fetch_transcript_youtube_api(video_id: str, lang: str = "pl") -> Tuple[Optional[str], Optional[str]]:
     """Fetch transcript via youtube-transcript-api v1.2.4+.
 
+    Multi-Language & Cross-Language priority:
+      1. Manual track in `lang`
+      2. Original manual track in any language (`!is_generated`)
+      3. Automatic (`ASR`) track in `lang`
+      4. First available original `is_generated` track or first available track from `transcript_list`
+         (e.g. English 'en', German 'de', Spanish 'es') — NEVER rejects foreign-language videos!
+
     Returns (vtt_text, language_used) or (None, None) on failure.
-    Priority: manual in target lang > auto in target lang > manual any > auto any.
     """
     if not HAS_TRANSCRIPT_API:
         return None, None
     try:
+        vid = extract_video_id(video_id)
         ytt = YouTubeTranscriptApi()
         formatter = WebVTTFormatter()
 
-        transcript_list = ytt.list(video_id)
-
-        manual_match = None
-        auto_match = None
-        any_manual = None
-        any_auto = None
-
-        for t in transcript_list:
-            if t.language_code == lang:
-                if not t.is_generated:
-                    manual_match = t
-                else:
-                    auto_match = t
-            elif not t.is_generated and any_manual is None:
-                any_manual = t
-            elif t.is_generated and any_auto is None:
-                any_auto = t
-
-        lang_used = lang
-        if manual_match:
-            entries = ytt.fetch(video_id, languages=[lang])
-            lang_used = lang
-        elif auto_match:
-            entries = ytt.fetch(video_id, languages=[lang])
-            lang_used = f"{lang}-auto"
-        elif any_manual:
-            entries = ytt.fetch(video_id, languages=[any_manual.language_code])
-            lang_used = any_manual.language_code
-        elif any_auto:
-            entries = ytt.fetch(video_id, languages=[any_auto.language_code])
-            lang_used = f"{any_auto.language_code}-auto"
-        else:
-            logger.warning("[fetcher] No transcripts found for %s", video_id)
+        transcript_list = list(ytt.list(vid))
+        if not transcript_list:
+            logger.warning("[fetcher] Empty transcript_list for %s", vid)
             return None, None
 
+        target_norm = normalize_lang_code(lang) or "pl"
+
+        manual_target = None
+        manual_any = None
+        asr_target = None
+        asr_any = None
+
+        for t in transcript_list:
+            t_norm = normalize_lang_code(getattr(t, "language_code", ""))
+            is_gen = bool(getattr(t, "is_generated", False))
+            if t_norm == target_norm:
+                if not is_gen and manual_target is None:
+                    manual_target = t
+                elif is_gen and asr_target is None:
+                    asr_target = t
+            else:
+                if not is_gen and manual_any is None:
+                    manual_any = t
+                elif is_gen and asr_any is None:
+                    asr_any = t
+
+        # Priority: 1. manual in lang -> 2. manual in any lang -> 3. ASR in lang -> 4. ASR any / first available
+        chosen = manual_target or manual_any or asr_target or asr_any or transcript_list[0]
+        chosen_code = getattr(chosen, "language_code", target_norm)
+        is_chosen_gen = bool(getattr(chosen, "is_generated", False))
+
+        try:
+            entries = chosen.fetch()
+        except Exception:
+            entries = ytt.fetch(vid, languages=[chosen_code])
+
         vtt_text = formatter.format_transcript(entries)
-        logger.info("[fetcher] transcript-api OK: %s lang=%s", video_id, lang_used)
-        return vtt_text, lang_used
+        norm_used = normalize_lang_code(chosen_code) or chosen_code
+        if vtt_text and "Language:" not in vtt_text[:200]:
+            vtt_text = vtt_text.replace("WEBVTT", f"WEBVTT\nLanguage: {norm_used}", 1)
+        lang_used = f"{norm_used}-auto" if is_chosen_gen else norm_used
+        logger.info(
+            "[fetcher] transcript-api OK: %s requested=%s chosen=%s (generated=%s)",
+            vid, lang, lang_used, is_chosen_gen,
+        )
+        return vtt_text, norm_used
     except Exception as e:
         logger.warning("[fetcher] transcript-api error for %s: %s", video_id, e)
         return None, None
+
+
+# Backward-compatible alias
+fetch_transcript_api = fetch_transcript_youtube_api
 
 
 def fetch_transcript_ytdlp(
@@ -328,52 +411,79 @@ def fetch_transcript_ytdlp(
 ) -> Tuple[Optional[str], Optional[str]]:
     """Fallback: fetch subtitles via yt-dlp. Returns (vtt_text, language_used).
 
-    WARNING: May fail on Oracle Cloud VPS due to YouTube IP ban.
+    Multi-Language support:
+      - First tries `--sub-langs {lang}`
+      - If no .vtt is downloaded, falls back to downloading original subtitles in main languages:
+        `--sub-langs "en.*,de.*,es.*,fr.*,it.*,uk.*,pt.*,pl.*,orig"`
     """
     import sys
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    vtt_path = os.path.join(output_dir, f"{video_id}.{lang}.vtt")
-    
-    cookies_file = os.environ.get('YTDLP_COOKIES_FILE', '')
-    cmd_base = [
-        "yt-dlp",
-        "--skip-download",
-        "--write-auto-sub",
-        "--write-sub",
-        "--sub-lang", lang,
-        "--sub-format", "vtt",
-        "--output", os.path.join(output_dir, f"{video_id}.%(ext)s"),
-        url
+
+    # Support callers passing (video_url, output_dir="data/vtt", lang="pl")
+    if lang and (os.path.sep in lang or "/" in lang or lang.startswith("data")):
+        output_dir, lang = lang, (output_dir if len(output_dir) <= 5 and output_dir != "." else "pl")
+
+    vid = extract_video_id(video_id)
+    url = f"https://www.youtube.com/watch?v={vid}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    cookies_file = os.environ.get("YTDLP_COOKIES_FILE", "")
+    sub_lang_specs = [
+        lang,
+        "en.*,de.*,es.*,fr.*,it.*,uk.*,pt.*,pl.*,orig",
     ]
 
-    methods_to_try = []
-    if cookies_file and os.path.exists(cookies_file):
-        methods_to_try.append(('file', cmd_base + ['--cookies', cookies_file]))
-    
-    if sys.platform == 'win32':  # local runner na Windows
-        methods_to_try.append(('firefox', cmd_base + ['--cookies-from-browser', 'firefox']))
-        methods_to_try.append(('chrome', cmd_base + ['--cookies-from-browser', 'chrome']))
-        
-    methods_to_try.append(('none', cmd_base))
-    
-    for cookies_method, cmd in methods_to_try:
-        try:
-            logger.info("[fetcher] yt-dlp using cookies: %s", cookies_method)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            
-            if os.path.exists(vtt_path):
-                with open(vtt_path, 'r', encoding='utf-8') as f:
-                    return f.read(), lang
-            
-            if result.returncode != 0 and cookies_method != 'none':
-                logger.warning("[fetcher] yt-dlp cookies method '%s' failed, retrying...", cookies_method)
-                continue
-                
-        except Exception as e:
-            logger.warning("[fetcher] yt-dlp subtitle error for %s using %s: %s", video_id, cookies_method, e)
-            if cookies_method != 'none':
-                continue
-                
+    for sub_langs in sub_lang_specs:
+        cmd_base = [
+            "yt-dlp",
+            "--skip-download",
+            "--write-auto-sub",
+            "--write-sub",
+            "--sub-langs", sub_langs,
+            "--sub-format", "vtt",
+            "--output", os.path.join(output_dir, f"{vid}.%(ext)s"),
+            url,
+        ]
+
+        methods_to_try = []
+        if cookies_file and os.path.exists(cookies_file):
+            methods_to_try.append(("file", cmd_base + ["--cookies", cookies_file]))
+
+        if sys.platform == "win32":
+            methods_to_try.append(("firefox", cmd_base + ["--cookies-from-browser", "firefox"]))
+            methods_to_try.append(("chrome", cmd_base + ["--cookies-from-browser", "chrome"]))
+
+        methods_to_try.append(("none", cmd_base))
+
+        for cookies_method, cmd in methods_to_try:
+            try:
+                logger.info("[fetcher] yt-dlp sub-langs=%r cookies=%s", sub_langs, cookies_method)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+                exact_path = os.path.join(output_dir, f"{vid}.{lang}.vtt")
+                if os.path.exists(exact_path):
+                    with open(exact_path, "r", encoding="utf-8") as f:
+                        return f.read(), normalize_lang_code(lang) or lang
+
+                vtt_candidates = sorted(glob.glob(os.path.join(output_dir, f"{vid}.*.vtt")))
+                if vtt_candidates:
+                    chosen_path = vtt_candidates[0]
+                    parts = os.path.basename(chosen_path).split(".")
+                    detected_lang = normalize_lang_code(parts[1]) if len(parts) >= 3 else normalize_lang_code(lang)
+                    with open(chosen_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    if content.strip():
+                        logger.info("[fetcher] yt-dlp matched %s (detected_lang=%s)", chosen_path, detected_lang)
+                        return content, detected_lang or lang
+
+                if result.returncode != 0 and cookies_method != "none":
+                    logger.warning("[fetcher] yt-dlp cookies method '%s' failed, retrying...", cookies_method)
+                    continue
+
+            except Exception as e:
+                logger.warning("[fetcher] yt-dlp subtitle error for %s using %s: %s", vid, cookies_method, e)
+                if cookies_method != "none":
+                    continue
+
     return None, None
 
 
@@ -382,20 +492,22 @@ def fetch_transcript_api_v3(
     lang: str,
     api_key: str = "",
     access_token: Optional[str] = None,
+    oauth_token: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Fetch transcript via YouTube Data API v3 (Captions endpoint).
 
-    When access_token (OAuth 2.0 Bearer token with youtube.force-ssl scope) is provided:
+    When access_token / oauth_token (OAuth 2.0 Bearer token with youtube.force-ssl scope) is provided:
       1. Lists caption tracks via GET /youtube/v3/captions?part=snippet&videoId={video_id}
-      2. Selects best track: manual in lang -> ASR in lang -> manual any -> first available
+      2. Selects best track: manual in lang -> manual any -> ASR in lang -> first available
       3. Downloads VTT via GET /youtube/v3/captions/{caption_id}?tfmt=vtt
       4. Works on VPS without Local Runner, including Private & Scheduled videos!
     """
+    token = oauth_token or access_token
     try:
         headers: dict[str, str] = {"Accept": "application/json"}
-        if access_token:
+        if token:
             url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}"
-            headers["Authorization"] = f"Bearer {access_token}"
+            headers["Authorization"] = f"Bearer {token}"
         elif api_key:
             url = f"https://www.googleapis.com/youtube/v3/captions?part=snippet&videoId={video_id}&key={api_key}"
         else:
@@ -411,9 +523,7 @@ def fetch_transcript_api_v3(
             return None, None
 
         def _lang_matches(item_lang: str, target: str) -> bool:
-            item_l = (item_lang or "").lower()
-            tgt_l = (target or "").lower()
-            return item_l == tgt_l or item_l.startswith(f"{tgt_l}-") or item_l.startswith(tgt_l)
+            return normalize_lang_code(item_lang) == normalize_lang_code(target)
 
         manual_lang = None
         asr_lang = None
@@ -432,15 +542,15 @@ def fetch_transcript_api_v3(
             elif not is_asr and manual_any is None:
                 manual_any = item
 
-        chosen = manual_lang or asr_lang or manual_any or items[0]
+        chosen = manual_lang or manual_any or asr_lang or items[0]
         caption_id = chosen["id"]
         chosen_snip = chosen.get("snippet", {})
-        chosen_lang = chosen_snip.get("language", lang) or lang
+        chosen_lang = normalize_lang_code(chosen_snip.get("language", lang)) or lang
 
         dl_headers: dict[str, str] = {}
-        if access_token:
+        if token:
             dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt"
-            dl_headers["Authorization"] = f"Bearer {access_token}"
+            dl_headers["Authorization"] = f"Bearer {token}"
         else:
             dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt&key={api_key}"
 
@@ -454,15 +564,15 @@ def fetch_transcript_api_v3(
             return None, None
 
         if not vtt_text.startswith("WEBVTT"):
-            vtt_text = f"WEBVTT\n\n{vtt_text}\n"
+            vtt_text = f"WEBVTT\nLanguage: {chosen_lang}\n\n{vtt_text}\n"
 
         logger.info(
             "[fetcher] API v3 captions OK: %s caption_id=%s lang=%s oauth=%s (%d chars)",
-            video_id, caption_id, chosen_lang, bool(access_token), len(vtt_text),
+            video_id, caption_id, chosen_lang, bool(token), len(vtt_text),
         )
         return vtt_text, chosen_lang
     except Exception as e:
-        logger.warning("[fetcher] API v3 captions error for %s (oauth=%s): %s", video_id, bool(access_token), e)
+        logger.warning("[fetcher] API v3 captions error for %s (oauth=%s): %s", video_id, bool(token), e)
     return None, None
 
 
@@ -476,6 +586,7 @@ def fetch_metadata_api_v3(video_id: str, api_key: str, access_token: str | None 
     Uses googleapis.com — NOT blocked on Oracle Cloud VPS.
     When access_token is provided, requests part=snippet,contentDetails,statistics,status
     so Private and Scheduled videos owned by the user's channel are accessible.
+    Extracts normalized 2-char `default_audio_language`.
 
     Returns metadata dict or {} on failure.
     """
@@ -529,6 +640,9 @@ def fetch_metadata_api_v3(video_id: str, api_key: str, access_token: str | None 
     stats = item.get("statistics", {})
     status_obj = item.get("status", {})
 
+    raw_audio_lang = snippet.get("defaultAudioLanguage") or snippet.get("defaultLanguage") or ""
+    default_audio_lang = normalize_lang_code(raw_audio_lang)
+
     meta = {
         "video_id": video_id,
         "title": snippet.get("title", ""),
@@ -545,11 +659,13 @@ def fetch_metadata_api_v3(video_id: str, api_key: str, access_token: str | None 
         "tags": snippet.get("tags", []),
         "privacy_status": status_obj.get("privacyStatus", "public"),
         "publish_at": status_obj.get("publishAt"),
+        "default_audio_language": default_audio_lang,
         "webpage_url": f"https://www.youtube.com/watch?v={video_id}",
     }
     logger.info(
-        "[fetcher] API v3 OK: %s title=%r duration=%s views=%s privacy=%s",
-        video_id, meta["title"][:50], duration_iso_str, meta["view_count"], meta["privacy_status"],
+        "[fetcher] API v3 OK: %s title=%r duration=%s views=%s lang=%s privacy=%s",
+        video_id, meta["title"][:50], duration_iso_str, meta["view_count"],
+        default_audio_lang or "auto", meta["privacy_status"],
     )
     return meta
 
@@ -564,7 +680,8 @@ def fetch_metadata_ytdlp(video_id: str) -> dict:
     WARNING: Fails on Oracle Cloud VPS (YouTube IP ban). Use only locally
     or as last-resort when YOUTUBE_API_KEY is not set.
     """
-    url = f"https://www.youtube.com/watch?v={video_id}"
+    vid = extract_video_id(video_id)
+    url = f"https://www.youtube.com/watch?v={vid}"
     try:
         result = subprocess.run(
             ["yt-dlp", "--dump-json", "--no-playlist", url],
@@ -573,12 +690,13 @@ def fetch_metadata_ytdlp(video_id: str) -> dict:
         if result.returncode != 0:
             logger.warning(
                 "[fetcher] yt-dlp metadata error for %s: %s",
-                video_id, result.stderr[:200]
+                vid, result.stderr[:200]
             )
             return {}
         data = json.loads(result.stdout)
+        raw_lang = data.get("language") or data.get("original_language") or ""
         return {
-            "video_id": video_id,
+            "video_id": vid,
             "title": data.get("title", ""),
             "description": data.get("description", ""),
             "published_at": format_published_date(data.get("upload_date", "")),
@@ -592,16 +710,21 @@ def fetch_metadata_ytdlp(video_id: str) -> dict:
             "channel_title": data.get("channel", ""),
             "webpage_url": data.get("webpage_url", url),
             "tags": data.get("tags", []),
+            "default_audio_language": normalize_lang_code(raw_lang),
         }
     except json.JSONDecodeError:
-        logger.error("[fetcher] yt-dlp returned invalid JSON for %s", video_id)
+        logger.error("[fetcher] yt-dlp returned invalid JSON for %s", vid)
         return {}
     except FileNotFoundError:
         logger.error("[fetcher] yt-dlp not found — install: pip install yt-dlp")
         return {}
     except Exception as e:
-        logger.error("[fetcher] yt-dlp error for %s: %s", video_id, e)
+        logger.error("[fetcher] yt-dlp error for %s: %s", vid, e)
         return {}
+
+
+# Alias for callers expecting fetch_metadata
+fetch_metadata = fetch_metadata_ytdlp
 
 
 # ---------------------------------------------------------------------------
@@ -615,17 +738,7 @@ def process_video(
     api_key: Optional[str] = None,
     access_token: Optional[str] = None,
 ) -> dict:
-    """Fetch metadata + transcript for one video. Returns metadata dict.
-
-    Strategy:
-      1. Metadata: YOUTUBE_API_KEY / OAuth access_token → API v3 (VPS-safe, supports Private/Scheduled).
-         Fallback: yt-dlp (local only).
-      2. Priority 0 Transcript (when access_token is provided):
-         YouTube Data API v3 Captions endpoint via OAuth Bearer token.
-         If captions are returned, skips blocked youtube-transcript-api / yt-dlp on VPS.
-      3. Fallback Transcript: youtube-transcript-api → yt-dlp VTT → API v3 key.
-      4. Save VTT to output_dir/<video_id>.<lang>.vtt.
-    """
+    """Fetch metadata + transcript for one video. Returns metadata dict with `source_lang`."""
     video_id = extract_video_id(video_url)
     logger.info("[fetcher] Processing %s (lang=%s, oauth=%s)", video_id, lang, bool(access_token))
     os.makedirs(output_dir, exist_ok=True)
@@ -675,7 +788,7 @@ def process_video(
     # 2. Transcript: transcript-api (<= 35 min)
     if best_coverage < 0.8 and duration_seconds <= 35 * 60:
         logger.info("[fetcher] Duration <= 35 min (%.0f s), trying transcript-api...", duration_seconds)
-        vtt_text, lang_used = fetch_transcript_api(video_id, lang)
+        vtt_text, lang_used = fetch_transcript_youtube_api(video_id, lang)
         if vtt_text:
             cov = check_vtt_coverage(vtt_text, duration_seconds)
             if cov >= 0.8:
@@ -722,16 +835,24 @@ def process_video(
         else:
             logger.warning("[fetcher] Warning: All methods failed to fetch transcript.")
 
-    # 5. Save VTT
+    # 5. Detect source_lang and save VTT
+    source_lang = detect_transcript_language(
+        best_vtt,
+        metadata_lang=meta.get("default_audio_language"),
+        track_lang=best_lang,
+    )
+    meta["source_lang"] = source_lang
+
     if best_vtt:
-        vtt_path = os.path.join(output_dir, f"{video_id}.{best_lang}.vtt")
+        effective_lang = normalize_lang_code(best_lang) or source_lang or lang
+        vtt_path = os.path.join(output_dir, f"{video_id}.{effective_lang}.vtt")
         with open(vtt_path, "w", encoding="utf-8") as f:
             f.write(best_vtt)
-        logger.info("[fetcher] VTT saved: %s (%d chars)", vtt_path, len(best_vtt))
+        logger.info("[fetcher] VTT saved: %s (%d chars, source_lang=%s)", vtt_path, len(best_vtt), source_lang)
         meta["vtt_path"] = vtt_path
-        meta["vtt_language"] = best_lang
+        meta["vtt_language"] = effective_lang
     else:
-        logger.warning("[fetcher] No transcript available for %s", video_id)
+        logger.warning("[fetcher] No transcript available for %s (source_lang=%s)", video_id, source_lang)
         meta["vtt_path"] = None
         meta["vtt_language"] = None
 
