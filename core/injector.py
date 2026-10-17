@@ -889,13 +889,14 @@ def _split_first_paragraph(html: str) -> tuple[str, str]:
     Returns:
         Tuple of (first_p, rest_html). If no <p> found, returns ('', html).
     """
-    match = re.search(r'(<p>.*?</p>)', html, re.DOTALL)
+    cleaned = re.sub(r'^\s*<h2[^>]*>.*?</h2>\s*', '', html, count=1, flags=re.I | re.S)
+    match = re.search(r'(<p[^>]*>.*?</p>)', cleaned, re.DOTALL | re.IGNORECASE)
     if match:
         # Include anything before the first <p> (like <aside class="context-box"> or <hr id='system-readmore' />)
-        first_p = html[:match.end()].strip()
-        rest = html[match.end():].strip()
+        first_p = cleaned[:match.end()].strip()
+        rest = cleaned[match.end():].strip()
         return first_p, rest
-    return "", html
+    return "", cleaned
 
 
 # ============================================================
@@ -1002,6 +1003,9 @@ def build_post_content(
     # D11: Build figure blocks from uploaded images
     uploaded_images = seo.get("uploaded_images", [])
     figure_blocks = _build_figure_blocks(uploaded_images)
+
+    # Strip leading <h2>...</h2> from the very start of article_body before splitting
+    article_body = re.sub(r'^\s*<h2[^>]*>.*?</h2>\s*', '', article_body, count=1, flags=re.I | re.S)
 
     # D2: Split article_body into first paragraph + rest
     first_p, rest_body = _split_first_paragraph(article_body)
