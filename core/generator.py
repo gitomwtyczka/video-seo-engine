@@ -81,6 +81,7 @@ VTT Limit fix (2026-07-14, Supervisor-01):
 Dependencies:
   pip install google-genai anthropic python-dotenv json-repair
 """
+import contextvars
 import json
 import logging
 import os
@@ -90,6 +91,18 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Kontekstowy licznik tokenów LLM (thread/async-safe per wywołanie process_video)
+current_llm_usage: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar("current_llm_usage", default=None)
+
+
+def calculate_cost_usd(provider: str, input_tokens: int, output_tokens: int) -> float:
+    """Oblicza szacunkowy koszt w USD na podstawie tokenów wejściowych i wyjściowych."""
+    if provider == "gemini":
+        return round((input_tokens * 0.075 + output_tokens * 0.30) / 1_000_000, 6)
+    elif provider == "claude":
+        return round((input_tokens * 3.00 + output_tokens * 15.00) / 1_000_000, 6)
+    return 0.0
 
 # D15: json-repair optional import (PRIMARY sanitizer backend)
 try:
@@ -282,22 +295,51 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
         Exception: On API errors (re-raised with logging).
     """
     if provider == "claude":
-        import anthropic  # type: ignore
-        client = anthropic.Anthropic(api_key=api_key)
-        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
-        msg = client.messages.create(
-            model=model,
-            max_tokens=8192,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text
-    elif provider == "gemini":
+        try:
+            import anthropic  # type: ignore
+            client = anthropic.Anthropic(api_key=api_key)
+            model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+            msg = client.messages.create(
+                model=model,
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            usage = getattr(msg, "usage", None)
+            in_tok = getattr(usage, "input_tokens", 0) if usage else 0
+            out_tok = getattr(usage, "output_tokens", 0) if usage else 0
+            logger.info("LLM Claude (%s) usage: input=%d, output=%d tokens", model, in_tok, out_tok)
+            tracker = current_llm_usage.get()
+            if tracker is not None:
+                tracker["input_tokens"] += in_tok
+                tracker["output_tokens"] += out_tok
+                tracker["last_provider"] = "claude"
+            return msg.content[0].text
+        except Exception as e:
+            logger.warning(
+                "Claude LLM failed (%s: %s). Activating automatic fallback to gemini-2.5-flash.",
+                type(e).__name__,
+                e,
+            )
+            provider = "gemini"
+            api_key = os.getenv("GEMINI_API_KEY", api_key)
+
+    if provider == "gemini":
         from google import genai  # type: ignore
         client = genai.Client(api_key=api_key)
-        return client.models.generate_content(
+        resp = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-        ).text
+        )
+        usage = getattr(resp, "usage_metadata", None)
+        in_tok = getattr(usage, "prompt_token_count", 0) if usage else 0
+        out_tok = getattr(usage, "candidates_token_count", 0) if usage else 0
+        logger.info("LLM Gemini (gemini-2.5-flash) usage: input=%d, output=%d tokens", in_tok, out_tok)
+        tracker = current_llm_usage.get()
+        if tracker is not None:
+            tracker["input_tokens"] += in_tok
+            tracker["output_tokens"] += out_tok
+            tracker["last_provider"] = "gemini"
+        return resp.text
     else:
         raise ValueError(f"Unsupported LLM provider: {provider!r}. Use 'gemini' or 'claude'.")
 
@@ -709,7 +751,8 @@ def generate_seo_v4(
     # D6b.6: Publication type override
     pub_type_section = _get_publication_type_override(publication_type)
 
-    prompt = f"""Jestes ekspertem SEO i redaktorem portalu prawy.pl.
+    portal_desc = f"redaktorem portalu {site_brand}" if site_brand else "doświadczonym redaktorem portalu informacyjnego"
+    prompt = f"""Jestes ekspertem SEO i {portal_desc}.
 
 Na podstawie transkryptu nagrania wideo przygotuj PELNY PAKIET SEO.
 
@@ -747,7 +790,7 @@ Rozdzialy musza:
    - Dlugosc: 40-65 znakow (HARD MAX: 100). Optymalna dlugosc to 50-62 znaki.
    - Zacznij od tematu glownego lub nazwiska goscia (front-loading dla suggest feed).
    - MUSI byc INNY niz post_title i seo_title \u2014 inne ustawienie slow, inny ton.
-   - NIE dodawaj brandingu ("| prawy.pl", "Prawy TV") \u2014 YouTube dodaje kanal automatycznie.
+   - NIE dodawaj brandingu portalu ani kanalu \u2014 YouTube dodaje kanal automatycznie.
    - NIE uzywaj ogolnikow: "wazne", "ciekawe", "cos szokujacego".
    - Wybierz jeden z formatow:
      A \u2014 NAPIECIE:    [Nazwisko/Temat]: [akcja] \u2014 [stawka/skutek]
@@ -1107,8 +1150,8 @@ Odpowiedz TYLKO JSON (bez markdown):
     
     # PASS 2: Article Generation
     pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
-    pressai_url = os.getenv("PRESSAI_API_URL", "")
-    pressai_token = os.getenv("PRESSAI_EXTERNAL_TOKEN", "")
+    pressai_url = os.getenv("SAAS_API_URL") or os.getenv("PRESSAI_API_URL", "")
+    pressai_token = os.getenv("SAAS_API_TOKEN") or os.getenv("PRESSAI_EXTERNAL_TOKEN") or os.getenv("EXTERNAL_API_TOKEN", "")
     
     import asyncio
     try:
@@ -1201,13 +1244,18 @@ def process_video(
     """
     logger.info("Processing video: %s (WP#%s) via %s [type=%s]", youtube_id, wp_id, provider, publication_type)
 
+    tracker_token = current_llm_usage.set({
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "last_provider": provider,
+    })
     # FIX A: Guard — when vtt_path is None, use partial schema generator
     if vtt_path is None:
         logger.warning(
             "[FIX A] vtt_path=None for %s — calling generate_schema_without_transcript()",
             youtube_id,
         )
-        return generate_schema_without_transcript(
+        result = generate_schema_without_transcript(
             youtube_id=youtube_id,
             wp_id=wp_id,
             post_title=post_title,
@@ -1220,6 +1268,15 @@ def process_video(
             publication_type=publication_type,
             meta=meta,
         )
+        usage = current_llm_usage.get() or {}
+        result["input_tokens"] = usage.get("input_tokens", 0)
+        result["output_tokens"] = usage.get("output_tokens", 0)
+        result["llm_provider"] = usage.get("last_provider", provider)
+        result["estimated_cost_usd"] = calculate_cost_usd(
+            result["llm_provider"], result["input_tokens"], result["output_tokens"]
+        )
+        current_llm_usage.reset(tracker_token)
+        return result
 
     timestamped, segments, duration = parse_vtt_full(vtt_path)
     dur_min = int(duration // 60)
@@ -1307,8 +1364,8 @@ def process_video(
 
     # PASS 2: Article Generation
     pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
-    pressai_url = os.getenv("PRESSAI_API_URL", "")
-    pressai_token = os.getenv("PRESSAI_EXTERNAL_TOKEN", "")
+    pressai_url = os.getenv("SAAS_API_URL") or os.getenv("PRESSAI_API_URL", "")
+    pressai_token = os.getenv("SAAS_API_TOKEN") or os.getenv("PRESSAI_EXTERNAL_TOKEN") or os.getenv("EXTERNAL_API_TOKEN", "")
     
     import asyncio
     try:
@@ -1378,4 +1435,12 @@ def process_video(
         len(ext_links),
         len(img_descs),
     )
+    usage = current_llm_usage.get() or {}
+    result["input_tokens"] = usage.get("input_tokens", 0)
+    result["output_tokens"] = usage.get("output_tokens", 0)
+    result["llm_provider"] = usage.get("last_provider", provider)
+    result["estimated_cost_usd"] = calculate_cost_usd(
+        result["llm_provider"], result["input_tokens"], result["output_tokens"]
+    )
+    current_llm_usage.reset(tracker_token)
     return result
