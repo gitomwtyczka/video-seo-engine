@@ -1,19 +1,18 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "VSE Commercial v2.0: One-Click Backup, Stage 1 + Phase 5.1 YT OAuth Captions + Sequential VPS Deploy",
-  "timestamp": "2026-10-17T13:59:00+02:00",
+  "status": "done",
+  "current_task": "Completed VSE Commercial v2.0 (Stage 1, Phase 4 WP Plugin & Phase 5.1 YT OAuth Captions + Sequential VPS Deploy)",
+  "timestamp": "2026-10-17T22:42:35+02:00",
   "last_completed": [
-    "b3fecb49f86d7ba21be95f869affc7fe006bf228: fix(core): strip leading h2 from article_body before splitting [sup-worker-01]",
-    "bd8210755a87a8c6665559755a89c50648939f41: feat(plugin): add vse-video-seo WordPress plugin and /v1/plugin API endpoints [vse-dev-02]",
-    "c7634b1202045e7dcd824dff3535eb403a951c7d: fix(pipeline): default categories for prawy.pl and remove duplicate excerpt [sup-worker-01]"
+    "7aa982e9b8ad0e3026871267d414f05f1063479b: feat(v2): apply Stage 1 quota, model tiering, Stripe promo codes & runner updates [vse-dev-01]",
+    "1ccbf8daf45f48061550d1d8a95b80b34fb608f1: feat(fetcher,pipeline): add Phase 5.1 YouTube Data API v3 OAuth Captions Priority 0 & token usage propagation [vse-dev-01]",
+    "d7e05b113684431ffdb6ff0532b38236c40bbf6f: feat(generator): add LLM token/cost tracking, Claude->Gemini fallback & white-label prompt [vse-dev-01]",
+    "803235f2a3a2ef3591b18b91a60d6d21fd3146f1: feat(web): update pricing tiers, dashboard types/utils & YouTubePublishModal overrideDescription [vse-dev-01]",
+    "d8ff30656a871cefd79c368f8c891a700ef2b0b2: feat(web): deduplicate types/utils in dashboard-inner.tsx while preserving MP3 & subcomponents [vse-dev-01]",
+    "128570b10d3f0079dc84be85a3a0fd01354a5bc4: fix(deps): require sqlalchemy[asyncio] and greenlet explicitly for SQLAlchemy 2.1+ [vse-dev-01]",
+    "e5c768c7f34544827904795efb8ed9382e511d3e: docs(tasks): mark VSE Commercial v2.0 (Stage 1, Phase 4 & Phase 5.1) complete [vse-dev-01]",
+    "d289db5f5fa25c73f12790ee3e5c51a29c5e93cb: docs(roadmap): mark Phases 2B, 3, 4 and 5.1 complete with commit SHAs [vse-dev-01]",
+    "c00aaf974f3122098caace2d4cb49ddfde056825: report: vse-dev-01 VSE Commercial v2.0 complete [vse-dev-01]"
   ],
-  "pending": [
-    "KROK 0: One-Click Backup & Revert",
-    "KROK 1: Stage 1 clean application on origin/main",
-    "KROK 2: Phase 5.1 YouTube Data API v3 OAuth Captions",
-    "KROK 3: QA & GitHub Push",
-    "KROK 4: Sequential VPS Deploy & E2E",
-    "KROK 5: DoD"
-  ]
+  "pending": []
 }
