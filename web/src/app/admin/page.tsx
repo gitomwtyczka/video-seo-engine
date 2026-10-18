@@ -1,15 +1,13 @@
 'use client'
 /**
- * CO: Panel Administratora — zarządzanie użytkownikami i planami
- * PO CO: Admin może zmieniać plany użytkowników bez SQL na VPS.
- *        Wcześniej zmiana planu (np. tobroz@gmail.com → agency) wymagała ręcznego SQL.
- *        Panel eliminuje tę potrzebę — dostęp przez UI bez wiedzy DevOps.
+ * CO: Panel Administratora — zarządzanie użytkownikami, planami, limitami VIP, kredytami Top-Up i pakietem MultiLang
+ * PO CO: Admin może przydzielać plany, indywidualne limity miesięczne (custom_monthly_quota / Unlimited),
+ *        bezterminowe pakiety Top-Up (+50 / +150 / +500) oraz dodatek Multi-Language bez udziału Stripe i bez SQL na VPS.
  *        Sekcja "Ustawienia systemu" pozwala włączyć/wyłączyć tryb debug bez SSH na VPS.
- * JAK: Wywołuje GET /v1/admin/users → tabela użytkowników.
- *      PATCH /v1/admin/users/{id}/plan → modal ze zmianą planu.
+ * JAK: Wywołuje GET /v1/admin/users → tabela użytkowników z plakietkami MultiLang, Stripe/Admin, VIP Limit i Top-Up.
+ *      PATCH /v1/admin/users/{id}/plan → modal kompleksowego zarządzania kontem bez Stripe.
  *      GET /v1/admin/stats → statystyki systemu.
  *      GET/POST /v1/admin/debug-mode → przełącznik trybu debug.
- *      Chroniony przez middleware.ts: requires is_admin=true lub plan=agency.
  */
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
@@ -17,7 +15,7 @@ import { useEffect, useState, useCallback } from 'react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface AdminUser {
+interface UserAdmin {
   id: string
   email: string
   full_name: string | null
@@ -27,8 +25,15 @@ interface AdminUser {
   plan_id: string
   plan_name: string
   usage_this_month: number
+  monthly_quota?: number
+  custom_monthly_quota?: number | null
+  extra_quota_balance?: number
+  has_multilang_addon?: boolean
+  has_stripe_subscription?: boolean
   created_at: string | null
 }
+
+type AdminUser = UserAdmin
 
 interface AdminStats {
   total_users: number
@@ -45,10 +50,10 @@ const PLAN_COLORS: Record<string, string> = {
 }
 
 const PLAN_OPTIONS = [
-  { id: 'free', label: 'Free', desc: '5 generacji/mies.' },
-  { id: 'starter', label: 'Starter', desc: '50 generacji/mies.' },
-  { id: 'pro', label: 'Pro', desc: '300 generacji/mies.' },
-  { id: 'agency', label: 'Agency', desc: 'Unlimited' },
+  { id: 'free', label: 'Free', desc: '5/mies.', defaultQuota: 5 },
+  { id: 'starter', label: 'Starter', desc: '50/mies.', defaultQuota: 50 },
+  { id: 'pro', label: 'Pro', desc: '250/mies.', defaultQuota: 250 },
+  { id: 'agency', label: 'Agency', desc: '1000/mies.', defaultQuota: 1000 },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -81,32 +86,80 @@ function ChangePlanModal({
   onSuccess,
   accessToken,
 }: {
-  user: AdminUser
+  user: UserAdmin
   onClose: () => void
-  onSuccess: (userId: string, newPlan: string) => void
+  onSuccess: (updatedUser: UserAdmin) => void
   accessToken: string
 }) {
-  const [selectedPlan, setSelectedPlan] = useState(user.plan_id)
+  const [selectedPlan, setSelectedPlan] = useState(user.plan_id || 'free')
+  const [hasMultilang, setHasMultilang] = useState<boolean>(
+    Boolean(user.has_multilang_addon || user.plan_id === 'pro' || user.plan_id === 'agency')
+  )
+
+  const initialQuotaMode: 'default' | 'custom' | 'unlimited' =
+    user.custom_monthly_quota === -1
+      ? 'unlimited'
+      : user.custom_monthly_quota !== null && user.custom_monthly_quota !== undefined
+      ? 'custom'
+      : 'default'
+
+  const [quotaMode, setQuotaMode] = useState<'default' | 'custom' | 'unlimited'>(initialQuotaMode)
+  const [customQuotaInput, setCustomQuotaInput] = useState<string>(
+    user.custom_monthly_quota !== null && user.custom_monthly_quota !== undefined && user.custom_monthly_quota >= 0
+      ? String(user.custom_monthly_quota)
+      : '400'
+  )
+
+  const [extraQuotaBalance, setExtraQuotaBalance] = useState<number>(user.extra_quota_balance ?? 0)
+  const [cancelStripe, setCancelStripe] = useState<boolean>(Boolean(user.has_stripe_subscription))
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  const handlePlanSelect = (planId: string) => {
+    setSelectedPlan(planId)
+    if (planId === 'pro' || planId === 'agency') {
+      setHasMultilang(true)
+    }
+  }
+
   const handleSave = async () => {
-    if (selectedPlan === user.plan_id) { onClose(); return }
     setSaving(true)
     setError('')
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const payload: Record<string, unknown> = {
+        plan_id: selectedPlan,
+        has_multilang_addon: hasMultilang,
+        extra_quota_balance: Math.max(0, Number(extraQuotaBalance) || 0),
+        cancel_stripe_subscription: Boolean(user.has_stripe_subscription && cancelStripe),
+      }
+
+      if (quotaMode === 'default') {
+        payload.clear_custom_quota = true
+      } else if (quotaMode === 'unlimited') {
+        payload.custom_monthly_quota = -1
+        payload.clear_custom_quota = false
+      } else {
+        const parsedCustom = parseInt(customQuotaInput, 10)
+        if (isNaN(parsedCustom) || parsedCustom < 0) {
+          throw new Error('Podaj prawidłowy indywidualny limit miesięczny (liczba >= 0).')
+        }
+        payload.custom_monthly_quota = parsedCustom
+        payload.clear_custom_quota = false
+      }
+
       const res = await fetch(`${apiUrl}/v1/admin/users/${user.id}/plan`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ plan_id: selectedPlan }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
-      onSuccess(user.id, selectedPlan)
+      onSuccess(data as UserAdmin)
       onClose()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Nieznany błąd')
@@ -116,12 +169,12 @@ function ChangePlanModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-lg shadow-2xl my-8">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h3 className="text-lg font-semibold text-white">Zmień plan</h3>
-            <p className="text-sm text-gray-400 mt-0.5 truncate max-w-xs">{user.email}</p>
+            <h3 className="text-lg font-semibold text-white">Zarządzaj planem i limitami — Bez Stripe</h3>
+            <p className="text-sm text-gray-400 mt-0.5 truncate max-w-sm">{user.email}</p>
           </div>
           <button
             onClick={onClose}
@@ -133,32 +186,202 @@ function ChangePlanModal({
           </button>
         </div>
 
-        <div className="space-y-2 mb-5">
-          {PLAN_OPTIONS.map((plan) => (
+        {/* 1. Plan bazowy */}
+        <div className="mb-5">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            1. Plan bazowy
+          </label>
+          <div className="grid grid-cols-2 gap-2.5">
+            {PLAN_OPTIONS.map((plan) => (
+              <button
+                key={plan.id}
+                type="button"
+                id={`plan-option-${plan.id}`}
+                onClick={() => handlePlanSelect(plan.id)}
+                className={`flex items-center justify-between p-3 rounded-xl border transition-all text-left ${
+                  selectedPlan === plan.id
+                    ? 'border-violet-500/70 bg-violet-500/15'
+                    : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                    selectedPlan === plan.id ? 'border-violet-400' : 'border-gray-600'
+                  }`}>
+                    {selectedPlan === plan.id && (
+                      <div className="w-2 h-2 rounded-full bg-violet-400" />
+                    )}
+                  </div>
+                  <span className="font-medium text-sm text-white">{plan.label}</span>
+                </div>
+                <span className="text-xs text-gray-400">{plan.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 2. Pakiet Wielojęzyczny */}
+        <div className="mb-5 p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              id="admin-multilang-checkbox"
+              type="checkbox"
+              checked={hasMultilang}
+              onChange={(e) => setHasMultilang(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-800 text-violet-600 focus:ring-violet-500"
+            />
+            <div>
+              <span className="text-sm font-medium text-white block">
+                🌐 Aktywuj pakiet Wielojęzyczny (Multi-Language 8 języków)
+              </span>
+              <span className="text-xs text-gray-400 block mt-0.5">
+                Odblokowuje generowanie i tłumaczenie zakładek 1-kliknięciem na PL, EN, DE, ES, FR, IT, UK, PT.
+              </span>
+            </div>
+          </label>
+        </div>
+
+        {/* 3. Indywidualny limit miesięczny (custom_monthly_quota) */}
+        <div className="mb-5">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            2. Indywidualny limit miesięczny (VIP / Custom)
+          </label>
+          <div className="grid grid-cols-3 gap-2 mb-2.5">
             <button
-              key={plan.id}
-              id={`plan-option-${plan.id}`}
-              onClick={() => setSelectedPlan(plan.id)}
-              className={`w-full flex items-center justify-between p-3.5 rounded-xl border transition-all ${
-                selectedPlan === plan.id
-                  ? 'border-violet-500/60 bg-violet-500/10'
-                  : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+              type="button"
+              onClick={() => setQuotaMode('default')}
+              className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all ${
+                quotaMode === 'default'
+                  ? 'bg-violet-600/20 border-violet-500 text-violet-200'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                  selectedPlan === plan.id ? 'border-violet-500' : 'border-gray-600'
-                }`}>
-                  {selectedPlan === plan.id && (
-                    <div className="w-2 h-2 rounded-full bg-violet-500" />
-                  )}
-                </div>
-                <span className="font-medium text-white">{plan.label}</span>
-              </div>
-              <span className="text-xs text-gray-400">{plan.desc}</span>
+              Domyślny z planu
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => setQuotaMode('custom')}
+              className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all ${
+                quotaMode === 'custom'
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-200'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              Własny limit (VIP)
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuotaMode('unlimited')}
+              className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all ${
+                quotaMode === 'unlimited'
+                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-200'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              ♾️ Nielimitowany (-1)
+            </button>
+          </div>
+          {quotaMode === 'custom' && (
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                id="admin-custom-quota-input"
+                type="number"
+                min={0}
+                value={customQuotaInput}
+                onChange={(e) => setCustomQuotaInput(e.target.value)}
+                placeholder="np. 400 lub 2000"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+              />
+              <button
+                type="button"
+                onClick={() => setCustomQuotaInput('400')}
+                className="px-2.5 py-2 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:border-gray-600"
+              >
+                400
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomQuotaInput('2000')}
+                className="px-2.5 py-2 text-xs bg-gray-800 border border-gray-700 rounded-lg text-gray-300 hover:border-gray-600"
+              >
+                2000
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* 4. Bezterminowe kredyty Top-Up (extra_quota_balance) */}
+        <div className="mb-5 p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">
+              3. Bezterminowe kredyty Top-Up (extra_quota_balance)
+            </label>
+            <span className="text-xs font-mono text-emerald-400 font-bold">
+              Stan: +{extraQuotaBalance} filmów
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mb-2.5">
+            <button
+              type="button"
+              onClick={() => setExtraQuotaBalance((prev) => prev + 50)}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 transition-colors"
+            >
+              +50 filmów
+            </button>
+            <button
+              type="button"
+              onClick={() => setExtraQuotaBalance((prev) => prev + 150)}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 transition-colors"
+            >
+              +150 filmów
+            </button>
+            <button
+              type="button"
+              onClick={() => setExtraQuotaBalance((prev) => prev + 500)}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 transition-colors"
+            >
+              +500 filmów
+            </button>
+            <button
+              type="button"
+              onClick={() => setExtraQuotaBalance(0)}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gray-800 border border-gray-700 text-gray-400 hover:text-white transition-colors"
+            >
+              Wyzeruj (0)
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">Docelowa pula Top-Up:</span>
+            <input
+              id="admin-extra-quota-input"
+              type="number"
+              min={0}
+              value={extraQuotaBalance}
+              onChange={(e) => setExtraQuotaBalance(Math.max(0, parseInt(e.target.value || '0', 10) || 0))}
+              className="w-28 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+        </div>
+
+        {/* 5. Bezpiecznik Stripe */}
+        {user.has_stripe_subscription && (
+          <div className="mb-5 p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/40">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                id="admin-cancel-stripe-checkbox"
+                type="checkbox"
+                checked={cancelStripe}
+                onChange={(e) => setCancelStripe(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-amber-500 bg-gray-800 text-amber-500 focus:ring-amber-500"
+              />
+              <div>
+                <span className="text-xs font-semibold text-amber-300 block">
+                  🛑 Anuluj aktywną subskrypcję w Stripe (aby Stripe nie pobierał opłat i nie nadpisał ręcznie nadanego planu)
+                </span>
+              </div>
+            </label>
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
@@ -168,21 +391,23 @@ function ChangePlanModal({
 
         <div className="flex gap-3">
           <button
+            type="button"
             onClick={onClose}
             className="flex-1 py-2.5 border border-gray-700 text-gray-300 rounded-xl hover:border-gray-600 hover:text-white transition-colors text-sm font-medium"
           >
             Anuluj
           </button>
           <button
+            type="button"
             id="confirm-plan-change-btn"
             onClick={handleSave}
-            disabled={saving || selectedPlan === user.plan_id}
+            disabled={saving}
             className="flex-1 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-xl font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm flex items-center justify-center gap-2"
           >
             {saving ? (
               <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Zapisywanie...</>
             ) : (
-              'Zapisz zmianę'
+              'Zapisz zmiany (Bez Stripe)'
             )}
           </button>
         </div>
@@ -297,12 +522,6 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
 // ─── Debug Mode Toggle ────────────────────────────────────────────────────────
 
 function DebugModeToggle({ accessToken }: { accessToken: string }) {
-  /**
-   * CO: Przełącznik trybu debug w panelu admina.
-   * PO CO: Admin może włączyć/wyłączyć verbose logging bez SSH na VPS.
-   *        Gdy ON: docker logs vse-api pokazuje każdy request + pełne stack traces.
-   * JAK: GET /v1/admin/debug-mode przy mount, POST przy toggle.
-   */
   const [enabled, setEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -387,22 +606,16 @@ function DebugModeToggle({ accessToken }: { accessToken: string }) {
 // ─── Main Admin Page ────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  /**
-   * CO: AdminPage — panel zarządzania użytkownikami na /admin
-   * PO CO: Operacyjny panel do zmiany planów bez SQL. Jeden klik = zmiana subskrypcji.
-   *        Sekcja "Ustawienia systemu" daje kontrolę nad trybem debug bez SSH.
-   * JAK: Session z NextAuth, Bearer token do /v1/admin/*. Lista + modal edycji.
-   */
   const { data: session, status } = useSession()
   const router = useRouter()
 
-  const [users, setUsers] = useState<AdminUser[]>([])
+  const [users, setUsers] = useState<UserAdmin[]>([])
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [modalUser, setModalUser] = useState<AdminUser | null>(null)
-  const [deleteModalUser, setDeleteModalUser] = useState<AdminUser | null>(null)
+  const [modalUser, setModalUser] = useState<UserAdmin | null>(null)
+  const [deleteModalUser, setDeleteModalUser] = useState<UserAdmin | null>(null)
   const [planFilter, setPlanFilter] = useState<string>('all')
 
   const accessToken = (session?.accessToken as string) || ''
@@ -449,13 +662,9 @@ export default function AdminPage() {
     if (accessToken) fetchData()
   }, [accessToken, fetchData])
 
-  const handlePlanSuccess = useCallback((userId: string, newPlan: string) => {
+  const handlePlanSuccess = useCallback((updatedUser: UserAdmin) => {
     setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? { ...u, plan_id: newPlan, plan_name: PLAN_OPTIONS.find((p) => p.id === newPlan)?.label ?? newPlan }
-          : u
-      )
+      prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u))
     )
   }, [])
 
@@ -466,7 +675,6 @@ export default function AdminPage() {
       return { ...prev, total_users: prev.total_users > 0 ? prev.total_users - 1 : 0 }
     })
   }, [])
-
 
   // Filtered users
   const filteredUsers = users.filter((u) => {
@@ -548,7 +756,7 @@ export default function AdminPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-white">Panel Administratora</h1>
-            <p className="text-gray-400 mt-0.5">Zarządzanie użytkownikami i planami subskrypcji</p>
+            <p className="text-gray-400 mt-0.5">Zarządzanie użytkownikami, limitami VIP, pakietami Top-Up i MultiLang (Bez Stripe)</p>
           </div>
           <button
             id="admin-refresh-btn"
@@ -689,73 +897,116 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((user, idx) => (
-                  <tr
-                    key={user.id}
-                    id={`user-row-${idx}`}
-                    className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-300 flex-shrink-0">
-                          {user.email[0]?.toUpperCase()}
+                {filteredUsers.map((user, idx) => {
+                  const hasMultilangBadge = Boolean(
+                    user.has_multilang_addon || user.plan_id === 'pro' || user.plan_id === 'agency'
+                  )
+                  const defaultPlanQuota =
+                    PLAN_OPTIONS.find((p) => p.id === user.plan_id)?.defaultQuota ?? 5
+                  const effectiveQuota =
+                    user.monthly_quota !== undefined ? user.monthly_quota : defaultPlanQuota
+                  const isVipCustomQuota =
+                    user.custom_monthly_quota !== null && user.custom_monthly_quota !== undefined
+                  const extraTopup = user.extra_quota_balance ?? 0
+
+                  return (
+                    <tr
+                      key={user.id}
+                      id={`user-row-${idx}`}
+                      className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors"
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-300 flex-shrink-0">
+                            {user.email[0]?.toUpperCase()}
+                          </div>
+                          <span className="text-sm text-white font-medium">{user.email}</span>
+                          {user.is_admin && (
+                            <span className="text-xs text-amber-400" title="Administrator">👑</span>
+                          )}
                         </div>
-                        <span className="text-sm text-white font-medium">{user.email}</span>
-                        {user.is_admin && (
-                          <span className="text-xs text-amber-400" title="Administrator">👑</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-gray-300">{user.full_name || '—'}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <PlanBadge plan={user.plan_id} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-gray-300 font-mono">{user.usage_this_month}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs text-gray-500">{formatDate(user.created_at)}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1.5">
-                        {user.is_active ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                            Aktywny
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm text-gray-300">{user.full_name || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <PlanBadge plan={user.plan_id} />
+                          {hasMultilangBadge && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                              🌐 MultiLang
+                            </span>
+                          )}
+                          {user.has_stripe_subscription ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                              💳 Stripe
+                            </span>
+                          ) : user.plan_id !== 'free' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              🎁 Admin / Ręczny
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm text-gray-200 font-mono">
+                            {user.usage_this_month} / {effectiveQuota === -1 ? '∞' : effectiveQuota}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs text-red-400">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
-                            Nieaktywny
-                          </span>
-                        )}
-                        {user.is_verified && (
-                          <span className="text-xs text-gray-500 ml-1">✓ zweryfikowany</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button
-                          id={`change-plan-btn-${idx}`}
-                          onClick={() => setModalUser(user)}
-                          className="px-3 py-1.5 text-xs font-medium bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:border-violet-500/50 hover:text-violet-400 transition-colors"
-                        >
-                          Zmień plan
-                        </button>
-                        <button
-                          id={`delete-user-btn-${idx}`}
-                          onClick={() => setDeleteModalUser(user)}
-                          className="px-3 py-1.5 text-xs font-medium bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
-                        >
-                          Usuń
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {isVipCustomQuota && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              VIP Limit
+                            </span>
+                          )}
+                          {extraTopup > 0 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                              ⚡ +{extraTopup} Top-Up
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs text-gray-500">{formatDate(user.created_at)}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1.5">
+                          {user.is_active ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                              Aktywny
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-red-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
+                              Nieaktywny
+                            </span>
+                          )}
+                          {user.is_verified && (
+                            <span className="text-xs text-gray-500 ml-1">✓ zweryfikowany</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            id={`change-plan-btn-${idx}`}
+                            onClick={() => setModalUser(user)}
+                            className="px-3 py-1.5 text-xs font-medium bg-gray-800 border border-gray-700 text-gray-300 rounded-lg hover:border-violet-500/50 hover:text-violet-400 transition-colors"
+                          >
+                            Plan / Limity
+                          </button>
+                          <button
+                            id={`delete-user-btn-${idx}`}
+                            onClick={() => setDeleteModalUser(user)}
+                            className="px-3 py-1.5 text-xs font-medium bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
+                          >
+                            Usuń
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}
