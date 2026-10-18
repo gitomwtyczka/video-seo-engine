@@ -59,9 +59,9 @@ logger = logging.getLogger(__name__)
 
 PLAN_LIMITS: dict[str, int] = {
     "free": 5,
-    "starter": 30,
-    "pro": 110,
-    "agency": 250,
+    "starter": 50,
+    "pro": 250,
+    "agency": 1000,
 }
 
 
