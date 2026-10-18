@@ -1,10 +1,10 @@
 """
 Admin router: user management for administrators.
 
-CO: Endpointy zarządzania użytkownikami — lista, szczegóły, zmiana planu.
+CO: Endpointy zarządzania użytkownikami — lista, szczegóły, zmiana planu, limitów, Top-Up i MultiLang.
     Dodatkowo: GET/POST /v1/admin/debug-mode — przełącznik trybu debug.
-PO CO: Admin może zarządzać subskrypcjami bez logowania do bazy SQL na VPS.
-       Wcześniej zmiana planu wymagała ręcznego SQL (np. tobroz@gmail.com → agency).
+PO CO: Admin może zarządzać subskrypcjami, indywidualnymi limitami (VIP/Unlimited), pakietami Top-Up
+       oraz dodatkiem MultiLang bezpośrednio z panelu /admin bez Stripe i bez ręcznego SQL na VPS.
        Tryb debug pozwala włączyć verbose logging bez restartu kontenera.
 JAK: Używa get_current_admin dependency (wymaga is_admin=True na koncie).
      Endpointy pod /v1/admin/* — chronione przez JWT + is_admin check.
@@ -25,12 +25,19 @@ from sqlalchemy.orm import selectinload
 
 from api.db import get_db
 from api.auth import get_current_admin
-from api.models.user import User, Plan, UsageLog
+from api.models.user import User, Plan, UsageLog, Subscription
 from api.models.app_settings import AppSettings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
+
+DEFAULT_PLAN_QUOTAS = {
+    "free": 5,
+    "starter": 50,
+    "pro": 250,
+    "agency": 1000,
+}
 
 
 # --- Pydantic schemas ---
@@ -51,6 +58,11 @@ class UserAdminView(BaseModel):
     plan_id: str
     plan_name: str
     usage_this_month: int
+    monthly_quota: int = 5
+    custom_monthly_quota: Optional[int] = None
+    extra_quota_balance: int = 0
+    has_multilang_addon: bool = False
+    has_stripe_subscription: bool = False
     created_at: Optional[str]
 
 
@@ -61,14 +73,12 @@ class UserListResponse(BaseModel):
 
 class PlanChangeRequest(BaseModel):
     plan_id: str  # e.g. 'free', 'starter', 'pro', 'agency'
-
-
-class PlanChangeResponse(BaseModel):
-    user_id: str
-    email: str
-    old_plan: str
-    new_plan: str
-    message: str
+    has_multilang_addon: Optional[bool] = None
+    custom_monthly_quota: Optional[int] = None
+    clear_custom_quota: bool = False
+    extra_quota_balance: Optional[int] = None
+    add_extra_quota: Optional[int] = None
+    cancel_stripe_subscription: bool = False
 
 
 class AdminStatsResponse(BaseModel):
@@ -89,16 +99,59 @@ class DebugModeRequest(BaseModel):
 # --- Helpers ---
 
 async def _count_usage_this_month(db: AsyncSession, user_id) -> int:
-    """Count successful generations by user in current calendar month."""
+    """Count successful video generations by user in current calendar month (excluding adaptations and topup markers)."""
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     result = await db.execute(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user_id)
         .where(UsageLog.success == True)  # noqa: E712
+        .where(UsageLog.endpoint != "adapt_material")
+        .where(~UsageLog.endpoint.like("topup:%"))
         .where(UsageLog.created_at >= month_start)
     )
-    return result.scalar_one() or 0
+    return int(result.scalar_one() or 0)
+
+
+def _resolve_effective_monthly_quota(user: User) -> int:
+    """Return effective monthly quota for user (custom_monthly_quota overrides plan.monthly_quota or default map)."""
+    custom_q = getattr(user, "custom_monthly_quota", None)
+    if custom_q is not None:
+        return int(custom_q)
+    plan = getattr(user, "plan", None)
+    if plan is not None and getattr(plan, "monthly_quota", None) is not None:
+        return int(plan.monthly_quota)
+    plan_key = (getattr(user, "plan_id", None) or "free").lower()
+    return DEFAULT_PLAN_QUOTAS.get(plan_key, 5)
+
+
+def _build_user_admin_view(user: User, usage: int) -> UserAdminView:
+    plan = getattr(user, "plan", None)
+    plan_id = getattr(user, "plan_id", None) or "free"
+    plan_name = plan.display_name if plan else plan_id.capitalize()
+    custom_q = getattr(user, "custom_monthly_quota", None)
+    effective_q = _resolve_effective_monthly_quota(user)
+    extra_bal = int(getattr(user, "extra_quota_balance", 0) or 0)
+    has_addon = bool(getattr(user, "has_multilang_addon", False)) or plan_id in ("pro", "agency")
+    has_stripe = bool(getattr(user, "stripe_subscription_id", None))
+
+    return UserAdminView(
+        id=str(user.id),
+        email=user.email,
+        full_name=user.full_name,
+        is_active=bool(user.is_active),
+        is_admin=bool(user.is_admin),
+        is_verified=bool(user.is_verified),
+        plan_id=plan_id,
+        plan_name=plan_name,
+        usage_this_month=usage,
+        monthly_quota=effective_q,
+        custom_monthly_quota=int(custom_q) if custom_q is not None else None,
+        extra_quota_balance=extra_bal,
+        has_multilang_addon=has_addon,
+        has_stripe_subscription=has_stripe,
+        created_at=user.created_at.isoformat() if user.created_at else None,
+    )
 
 
 # --- Endpoints ---
@@ -111,8 +164,8 @@ async def list_users(
     limit: int = 100
 ):
     """
-    CO: Zwraca paginowaną listę wszystkich użytkowników z ich planami i statystykami.
-    PO CO: Admin może zobaczyć kto jest w systemie i jaki ma plan — bez SQL.
+    CO: Zwraca paginowaną listę wszystkich użytkowników z ich planami, limitami i statystykami.
+    PO CO: Admin może zobaczyć kto jest w systemie i jaki ma plan/limity — bez SQL.
     JAK: SELECT users + eager load plans (selectinload), zlicza usage_logs bieżącego miesiąca.
          selectinload wymagany — bez niego async SQLAlchemy rzuca MissingGreenlet przy u.plan.
     """
@@ -132,19 +185,7 @@ async def list_users(
     user_views = []
     for user in users:
         usage = await _count_usage_this_month(db, user.id)
-        plan = user.plan
-        user_views.append(UserAdminView(
-            id=str(user.id),
-            email=user.email,
-            full_name=user.full_name,
-            is_active=user.is_active,
-            is_admin=user.is_admin,
-            is_verified=user.is_verified,
-            plan_id=user.plan_id or "free",
-            plan_name=plan.display_name if plan else "Free",
-            usage_this_month=usage,
-            created_at=user.created_at.isoformat() if user.created_at else None,
-        ))
+        user_views.append(_build_user_admin_view(user, usage))
 
     return UserListResponse(users=user_views, total=total)
 
@@ -157,7 +198,7 @@ async def get_user(
 ):
     """
     CO: Szczegóły konkretnego użytkownika.
-    PO CO: Deep dive na konkretne konto — debug, weryfikacja planu.
+    PO CO: Deep dive na konkretne konto — debug, weryfikacja planu i limitów.
     JAK: SELECT users WHERE id = user_id + selectinload(User.plan).
     """
     try:
@@ -175,22 +216,10 @@ async def get_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     usage = await _count_usage_this_month(db, user.id)
-    plan = user.plan
-    return UserAdminView(
-        id=str(user.id),
-        email=user.email,
-        full_name=user.full_name,
-        is_active=user.is_active,
-        is_admin=user.is_admin,
-        is_verified=user.is_verified,
-        plan_id=user.plan_id or "free",
-        plan_name=plan.display_name if plan else "Free",
-        usage_this_month=usage,
-        created_at=user.created_at.isoformat() if user.created_at else None,
-    )
+    return _build_user_admin_view(user, usage)
 
 
-@router.patch("/users/{user_id}/plan", response_model=PlanChangeResponse)
+@router.patch("/users/{user_id}/plan", response_model=UserAdminView)
 async def change_user_plan(
     user_id: str,
     payload: PlanChangeRequest,
@@ -198,16 +227,17 @@ async def change_user_plan(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    CO: Zmienia plan subskrypcji wskazanego użytkownika.
-    PO CO: Jedyna operacja zapisu w panelu admin. Zastępuje ręczny SQL.
-    JAK: Weryfikuje że plan_id istnieje w tabeli plans, potem UPDATE users SET plan_id.
+    CO: Zmienia plan subskrypcji, pakiet MultiLang, indywidualny limit miesięczny (VIP/Unlimited)
+        oraz bezterminową pulę kredytów Top-Up wskazanego użytkownika (bez Stripe).
+    PO CO: Pozwala adminowi ręcznie nadawać plany B2B/VIP, darmowe kredyty Top-Up oraz anulować
+           aktywną subskrypcję Stripe jednym kliknięciem z panelu /admin.
+    JAK: Waliduje plan_id, aktualizuje tabelę users oraz synchronizuje tabelę subscriptions.
     """
     try:
         uid = uuid.UUID(user_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user ID format")
 
-    # Verify target plan exists
     valid_plans = ["free", "starter", "pro", "agency"]
     if payload.plan_id not in valid_plans:
         raise HTTPException(
@@ -217,7 +247,7 @@ async def change_user_plan(
 
     result = await db.execute(
         select(User)
-        .options(selectinload(User.plan))  # eager load — fixes MissingGreenlet
+        .options(selectinload(User.plan))
         .where(User.id == uid)
     )
     user = result.scalar_one_or_none()
@@ -226,16 +256,79 @@ async def change_user_plan(
 
     old_plan = user.plan_id or "free"
     user.plan_id = payload.plan_id
-    await db.commit()
-    await db.refresh(user)
 
-    return PlanChangeResponse(
-        user_id=str(user.id),
-        email=user.email,
-        old_plan=old_plan,
-        new_plan=payload.plan_id,
-        message=f"Plan changed: {old_plan} → {payload.plan_id}"
+    # Multi-Language Add-on
+    if payload.has_multilang_addon is not None:
+        user.has_multilang_addon = bool(payload.has_multilang_addon)
+    elif payload.plan_id in ("pro", "agency"):
+        user.has_multilang_addon = True
+
+    # Synchronizacja z tabelą subscriptions
+    sub_res = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
+    sub = sub_res.scalar_one_or_none()
+    if sub is not None:
+        sub.plan_name = payload.plan_id
+        if payload.has_multilang_addon is not None:
+            sub.has_multilang_addon = bool(payload.has_multilang_addon)
+        elif payload.plan_id in ("pro", "agency"):
+            sub.has_multilang_addon = True
+    else:
+        sub = Subscription(
+            user_id=user.id,
+            plan_name=payload.plan_id,
+            has_multilang_addon=bool(user.has_multilang_addon),
+            stripe_customer_id=user.stripe_customer_id,
+            stripe_subscription_id=user.stripe_subscription_id,
+        )
+        db.add(sub)
+
+    # Indywidualny limit miesięczny (custom_monthly_quota: None = domyślny z planu, -1 = Unlimited, >=0 = VIP limit)
+    if payload.clear_custom_quota:
+        user.custom_monthly_quota = None
+    elif payload.custom_monthly_quota is not None:
+        user.custom_monthly_quota = int(payload.custom_monthly_quota)
+
+    # Darmowe kredyty Top-Up od admina bez Stripe (extra_quota_balance)
+    if payload.extra_quota_balance is not None:
+        user.extra_quota_balance = max(0, int(payload.extra_quota_balance))
+    if payload.add_extra_quota is not None:
+        current_extra = int(getattr(user, "extra_quota_balance", 0) or 0)
+        user.extra_quota_balance = max(0, current_extra + int(payload.add_extra_quota))
+
+    # Bezpiecznik Stripe: opcjonalne anulowanie aktywnej subskrypcję w Stripe przy ręcznej zmianie
+    if payload.cancel_stripe_subscription and user.stripe_subscription_id:
+        old_sub_id = user.stripe_subscription_id
+        try:
+            stripe.Subscription.delete(old_sub_id)
+            logger.info("Admin %s cancelled Stripe subscription %s for user %s", admin.email, old_sub_id, user.email)
+        except Exception as e:
+            logger.warning("Could not cancel Stripe subscription %s for user %s: %s", old_sub_id, user.email, e)
+        user.stripe_subscription_id = None
+        if sub is not None:
+            sub.stripe_subscription_id = None
+
+    await db.commit()
+
+    # Odśwież user wraz z relacją plan
+    refreshed_res = await db.execute(
+        select(User)
+        .options(selectinload(User.plan))
+        .where(User.id == uid)
     )
+    user = refreshed_res.scalar_one()
+    usage = await _count_usage_this_month(db, user.id)
+
+    logger.info(
+        "Admin %s updated user %s: plan %s -> %s, multilang=%s, custom_quota=%s, extra_topup=%s",
+        admin.email,
+        user.email,
+        old_plan,
+        user.plan_id,
+        user.has_multilang_addon,
+        user.custom_monthly_quota,
+        user.extra_quota_balance,
+    )
+    return _build_user_admin_view(user, usage)
 
 
 @router.delete("/users/{user_id}")
