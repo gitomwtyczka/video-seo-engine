@@ -15,6 +15,16 @@ from api.models.user import User, UsageLog, Subscription
 ALLOWED_LANGUAGES = ["pl", "en", "de", "es", "fr", "it", "uk", "pt"]
 
 
+def get_effective_monthly_quota(user: User) -> int:
+    """Return effective monthly quota for user (custom_monthly_quota overrides plan.monthly_quota)."""
+    custom_q = getattr(user, "custom_monthly_quota", None)
+    if custom_q is not None:
+        return int(custom_q)
+    if user.plan and user.plan.monthly_quota is not None:
+        return int(user.plan.monthly_quota)
+    return 5
+
+
 def get_multilang_entitlements(plan_name: str, has_addon: bool = False) -> dict:
     """Return Multi-Language & Cross-Language ('Złoty Środek') entitlements for a plan + add-on."""
     plan_key = (plan_name or "free").lower().strip()
@@ -93,21 +103,24 @@ async def check_quota(
     db: AsyncSession = Depends(get_db)
 ) -> User:
     """
-    FastAPI dependency: block request if user exceeded monthly quota.
+    FastAPI dependency: block request if user exceeded monthly quota and has no Top-Up credits.
+    If monthly quota is exceeded but extra_quota_balance > 0, consumes 1 Top-Up credit.
     Attach user to request for downstream use.
     """
     plan = current_user.plan
-    if plan is None:
+    if plan is None and getattr(current_user, "custom_monthly_quota", None) is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No active plan found"
         )
 
-    # Unlimited plan
-    if plan.monthly_quota == -1:
+    effective_monthly_quota = get_effective_monthly_quota(current_user)
+
+    # Unlimited plan / custom quota
+    if effective_monthly_quota == -1:
         return current_user
 
-    # Count this month's successful video executions (exclude per-material adaptations)
+    # Count this month's successful video executions (exclude per-material adaptations and topup markers)
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -116,15 +129,24 @@ async def check_quota(
         .where(UsageLog.user_id == current_user.id)
         .where(UsageLog.success == True)  # noqa: E712
         .where(UsageLog.endpoint != "adapt_material")
+        .where(~UsageLog.endpoint.like("topup:%"))
         .where(UsageLog.created_at >= month_start)
     )
-    used = result.scalar_one()
+    used_this_month = int(result.scalar_one() or 0)
 
-    if plan.monthly_quota != -1 and used >= plan.monthly_quota:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Miesięczny limit filmów w Twoim planie został wyczerpany. Przejdź na wyższy plan."
-        )
+    if effective_monthly_quota != -1 and used_this_month >= effective_monthly_quota:
+        extra_balance = int(getattr(current_user, "extra_quota_balance", 0) or 0)
+        if extra_balance > 0:
+            current_user.extra_quota_balance = extra_balance - 1
+            await db.flush()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Miesięczny limit filmów ({used_this_month}/{effective_monthly_quota}) został wyczerpany. "
+                    "Dokup pakiet Top-Up (+50 / +150 / +500 filmów) lub przejdź na wyższy plan."
+                ),
+            )
 
     return current_user
 
@@ -162,4 +184,3 @@ async def log_usage(
     )
     db.add(log)
     await db.commit()
-
