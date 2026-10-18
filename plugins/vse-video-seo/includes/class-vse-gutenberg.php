@@ -50,12 +50,16 @@ class VSE_Gutenberg {
                 'nonce'         => wp_create_nonce( 'wp_rest' ),
                 'editorNonce'   => wp_create_nonce( 'vse_editor_nonce' ),
                 'hasApiKey'     => ! empty( $api_key ),
-                'settingsUrl'   => esc_url_raw( admin_url( 'options-general.php?page=vse-video-seo' ) ),
+                'settingsUrl'   => esc_url_raw( admin_url( 'admin.php?page=vse-video-seo&tab=connection' ) ),
+                'generatorUrl'  => esc_url_raw( admin_url( 'admin.php?page=vse-video-seo&tab=generate' ) ),
+                'historyUrl'    => esc_url_raw( admin_url( 'admin.php?page=vse-video-seo&tab=history' ) ),
                 'registerUrl'   => 'https://vse.impresjapr.pl/register?utm_source=wp_plugin',
-                'pricingUrl'    => 'https://vse.impresjapr.pl/#pricing',
+                'pricingUrl'    => 'https://vse.impresjapr.pl/cennik',
+                'topupUrl'      => 'https://vse.impresjapr.pl/cennik#topup',
                 'dashboardUrl'  => 'https://vse.impresjapr.pl/dashboard',
                 'activeAdapter' => VSE_SEO_Adapter::detect_active_plugin_label(),
                 'cachedStatus'  => is_array( $cached_status ) ? $cached_status : array(),
+                'pluginVersion' => VSE_VIDEO_SEO_VERSION,
             )
         );
     }
