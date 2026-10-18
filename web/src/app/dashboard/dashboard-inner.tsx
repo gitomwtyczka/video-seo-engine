@@ -666,23 +666,25 @@ export default function DashboardInner() {
             </div>
 
             {/* Compact UI Language Switcher at the bottom of Sidebar */}
-            <div className="mb-3 pt-2 border-t border-gray-800/80 flex items-center justify-between gap-2">
-              <label htmlFor="sidebar-ui-lang" className="text-[11px] text-gray-400 flex items-center gap-1 whitespace-nowrap">
-                🌐 {t.uiLangLabel}:
-              </label>
-              <select
-                id="sidebar-ui-lang"
-                aria-label={t.uiLangLabel}
-                value={uiLang}
-                onChange={(e) => handleUiLangChange(e.target.value)}
-                className="bg-gray-950 border border-gray-800 hover:border-gray-600 text-xs text-gray-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-violet-500"
-              >
-                {VSE_LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.flag} {l.short} — {l.label}
-                  </option>
-                ))}
-              </select>
+            <div className="mb-3 pt-2.5 border-t border-gray-800/80">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="sidebar-ui-lang" className="text-[11px] text-gray-400 truncate">
+                  🌐 {t.uiLangLabel}:
+                </label>
+                <select
+                  id="sidebar-ui-lang"
+                  aria-label={t.uiLangLabel}
+                  value={uiLang}
+                  onChange={(e) => handleUiLangChange(e.target.value)}
+                  className="w-28 flex-shrink-0 bg-gray-950 border border-gray-800 hover:border-gray-600 text-xs text-gray-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-violet-500"
+                >
+                  {VSE_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label} ({l.short})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <button
@@ -702,21 +704,6 @@ export default function DashboardInner() {
               isVerified={userProfile?.is_verified}
               accessToken={(session as { accessToken?: string })?.accessToken}
             />
-
-            {/* START20 Promo Banner for Free users with >= 3 used videos */}
-            {userPlan === 'free' && !hasMultilangAddon && usageUsed >= 3 && (
-              <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-950/60 via-violet-950/70 to-emerald-950/60 border border-amber-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
-                <p className="text-xs sm:text-sm text-amber-200 leading-relaxed">
-                  🔥 Wykorzystałeś już <strong className="text-white">{usageUsed}/{usageQuota}</strong> darmowych filmów! Przejdź na Starter lub Pro — wpisz kod <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 font-mono font-bold text-white">START20</span> w koszyku Stripe i odbierz <strong className="text-emerald-300">-20% na pierwszy miesiąc</strong>.
-                </p>
-                <Link
-                  href="/cennik"
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-emerald-600 hover:opacity-90 text-xs font-bold text-white whitespace-nowrap shadow-md"
-                >
-                  Odbierz -20% ↗
-                </Link>
-              </div>
-            )}
 
             <div className="flex flex-wrap items-start justify-between gap-4 mb-1">
               <h1 className="text-2xl font-bold text-white">{t.heading}</h1>
@@ -860,7 +847,7 @@ export default function DashboardInner() {
                     const locked = !canOverrideTargetLang && l.code !== uiLang
                     return (
                       <option key={l.code} value={l.code}>
-                        {l.flag} {l.label} ({l.short}){locked ? t.lockedSuffix : ''}
+                        {l.label} ({l.short}){locked ? t.lockedSuffix : ''}
                       </option>
                     )
                   })}

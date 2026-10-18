@@ -104,7 +104,7 @@ export default function CennikPage() {
     <main className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-20 px-4">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-10">
+        <div className="text-center mb-16">
           <span className="inline-block px-4 py-1 rounded-full text-xs font-semibold bg-violet-900/40 text-violet-300 border border-violet-700/40 mb-4 uppercase tracking-widest">
             Cennik
           </span>
@@ -113,13 +113,6 @@ export default function CennikPage() {
           </h1>
           <p className="text-gray-400 text-lg max-w-xl mx-auto">
             Automatyzuj SEO wideo. Płać miesięcznie, anuluj kiedy chcesz.
-          </p>
-        </div>
-
-        {/* Promo code banner */}
-        <div className="mb-12 p-4 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-violet-950/60 to-emerald-950/60 border border-emerald-500/30 text-center shadow-lg">
-          <p className="text-sm text-emerald-300 font-medium">
-            🎁 Oferta startowa: wpisz kod <span className="px-2 py-0.5 mx-1 rounded bg-emerald-500/20 border border-emerald-400/40 font-mono font-bold text-white">START20</span> w koszyku Stripe, aby otrzymać <strong className="text-white">-20% na pierwszy miesiąc!</strong>
           </p>
         </div>
 
