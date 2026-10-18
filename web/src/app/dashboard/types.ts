@@ -105,8 +105,18 @@ export interface UserProfile {
   multilang?: MultilangEntitlements
   plan_badge?: string
   desktop_runner_active?: boolean
+  extra_quota_balance?: number
+  custom_monthly_quota?: number | null
+  monthly_quota?: number
+  used_this_month?: number
   plan: UserPlan
-  usage: { used_this_month: number; quota: number; percent: number }
+  usage: {
+    used_this_month: number
+    quota: number
+    percent: number
+    extra_quota_balance?: number
+    custom_monthly_quota?: number | null
+  }
 }
 
 export interface InjectResult {
@@ -120,4 +130,3 @@ export interface InjectResult {
 
 export type CopiedKey = string | null
 export type TabKey = 'schema' | 'article' | 'chapters' | 'youtube' | 'shorts'
-
