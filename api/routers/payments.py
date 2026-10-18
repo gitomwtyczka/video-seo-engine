@@ -39,18 +39,21 @@ router = APIRouter(prefix="/v1/payments", tags=["payments"])
 TOPUP_PACKS: dict[str, dict[str, Any]] = {
     "topup_50": {
         "credits": 50,
+        "videos": 50,
         "amount_gr": 3900,
         "name": "VSE Pakiet Top-Up +50 filmów",
         "description": "Dodatkowe 50 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
     },
     "topup_150": {
         "credits": 150,
+        "videos": 150,
         "amount_gr": 9900,
         "name": "VSE Pakiet Top-Up +150 filmów",
         "description": "Dodatkowe 150 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
     },
     "topup_500": {
         "credits": 500,
+        "videos": 500,
         "amount_gr": 27900,
         "name": "VSE Pakiet Top-Up +500 filmów",
         "description": "Dodatkowe 500 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
@@ -130,6 +133,7 @@ async def create_topup_checkout_session(
         )
 
     pack = TOPUP_PACKS[pack_id]
+    pack_credits = int(pack.get("credits") or pack.get("videos") or 0)
 
     try:
         session_kwargs: dict[str, Any] = {
@@ -154,7 +158,8 @@ async def create_topup_checkout_session(
                 "user_id": str(current_user.id),
                 "type": "topup",
                 "pack_id": pack_id,
-                "credits": str(pack["credits"]),
+                "credits": str(pack_credits),
+                "videos": str(pack_credits),
             },
             "customer_email": current_user.email
             if not current_user.stripe_customer_id
@@ -443,13 +448,15 @@ async def _handle_checkout_completed(
     meta_type = metadata["type"] if "type" in metadata else getattr(metadata, "type", None)
     pack_id = metadata["pack_id"] if "pack_id" in metadata else getattr(metadata, "pack_id", None)
     credits_raw = metadata["credits"] if "credits" in metadata else getattr(metadata, "credits", None)
+    if not credits_raw:
+        credits_raw = metadata["videos"] if "videos" in metadata else getattr(metadata, "videos", None)
     plan_id = metadata["plan_id"] if "plan_id" in metadata else getattr(metadata, "plan_id", None)
     addon = metadata["addon"] if "addon" in metadata else getattr(metadata, "addon", None)
     customer_id = session["customer"] if "customer" in session else getattr(session, "customer", None)
     subscription_id = session["subscription"] if "subscription" in session else getattr(session, "subscription", None)
 
     # Obsługa jednorazowych pakietów Top-Up (idempotentna po session_id)
-    if meta_type == "topup":
+    if meta_type == "topup" or (pack_id and pack_id in TOPUP_PACKS):
         if not user_id or not session_id:
             logger.error("checkout.session.completed topup missing user_id or session_id")
             return
@@ -473,10 +480,12 @@ async def _handle_checkout_completed(
             logger.error("checkout.session.completed topup: user not found: %s", user_id)
             return
 
+        pack_def = TOPUP_PACKS.get(pack_id or "", {})
+        default_pack_credits = int(pack_def.get("credits") or pack_def.get("videos") or 0)
         try:
-            credits_to_add = int(credits_raw) if credits_raw else int(TOPUP_PACKS.get(pack_id or "", {}).get("credits", 0))
+            credits_to_add = int(credits_raw) if credits_raw else default_pack_credits
         except (ValueError, TypeError):
-            credits_to_add = int(TOPUP_PACKS.get(pack_id or "", {}).get("credits", 0))
+            credits_to_add = default_pack_credits
 
         if credits_to_add <= 0:
             logger.error("checkout.session.completed topup: invalid credits=%r for pack_id=%r", credits_raw, pack_id)
