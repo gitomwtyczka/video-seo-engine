@@ -1,9 +1,9 @@
 /**
  * CO: Hook do pobierania i zarządzania portalami WP użytkownika.
- * PO CO: InjectModal potrzebuje listy portali do dropdown.
- *        Osobny hook zamiast inline fetch — reusable, czytelny.
+ * PO CO: InjectModal oraz Dashboard potrzebują listy portali do dropdownu
+ *        (w tym informacji o auto-sparowanych portalach przez wtyczkę VSE v3.0 — auth_mode="plugin_token").
  * JAK: Fetch GET /v1/portals przy mount. Pobiera credentials osobno
- *      przez GET /v1/portals/{id}/credentials gdy user wybierze portal.
+ *      przez GET /v1/portals/{id}/full gdy user wybierze portal.
  */
 import { useState, useEffect, useCallback } from 'react'
 import { apiGet, apiPost, apiDelete } from '../lib/api-client'
@@ -13,6 +13,10 @@ export interface Portal {
   name: string
   url: string
   wp_username: string
+  auth_mode?: 'app_password' | 'plugin_token' | string
+  is_plugin_connected?: boolean
+  api_key_id?: string | null
+  profile_id?: string | null
   is_default: boolean
   created_at?: string
 }
@@ -24,8 +28,10 @@ export interface PortalWithPassword extends Portal {
 export interface PortalCreatePayload {
   name: string
   url: string
-  wp_username: string
-  wp_app_password: string
+  wp_username?: string
+  wp_app_password?: string
+  auth_mode?: 'app_password' | 'plugin_token'
+  api_key_id?: string | null
   is_default?: boolean
   profile_id?: string | null
 }
