@@ -1,13 +1,14 @@
-"""Router: /v1/plugin/* — WordPress Micro-Plugin (vse-video-seo) Backend API.
+"""Router: /v1/plugin/* — WordPress Plugin v3.0 (vse-video-seo) Backend API.
 
-CO: Obsługuje generowanie i walidację kluczy API dla wtyczki WordPress `vse-video-seo`,
-    darmowy podgląd Video SEO Score + Google Rich Result (`/v1/plugin/preview`) oraz
-    generowanie i wstrzykiwanie paczki Schema JSON-LD + Meta SEO (`/v1/plugin/inject-data`).
+CO: Obsługuje generowanie i walidację kluczy API dla wtyczki WordPress `vse-video-seo` (v3.0),
+    auto-parowanie portalu WordPress (`POST /v1/plugin/validate`),
+    darmowy podgląd Video SEO Score + Google Rich Result (`POST /v1/plugin/preview`),
+    generowanie pełnego pakietu VSE: Artykuł + TL;DR + Rozdziały + FAQ + Schema JSON-LD + Meta SEO
+    (`POST /v1/plugin/inject-data`) oraz pobieranie historii generacji z VSE bez zużycia quota
+    (`POST /v1/plugin/history` i `POST /v1/plugin/history-item`).
 
-PO CO: Wtyczka `vse-video-seo` pełni rolę Lead Magnetu PLG (Product-Led Growth).
-       Pozwala użytkownikom WordPressa za darmo sprawdzić Video SEO Score i wstrzyknąć
-       czyste Schema JSON-LD (VideoObject + Clip + FAQPage) dla 5 filmów/mies.,
-       jednocześnie promując przejście na pełny silnik VSE Pro / Agency.
+PO CO: Wtyczka `vse-video-seo` v3.0 łączy funkcję Lead Magnetu PLG z pełnym dwukierunkowym
+       mostem publikacyjnym VSE <-> WordPress (bez konieczności konfigurowania WP Application Passwords).
 """
 import asyncio
 from datetime import datetime, timezone
@@ -18,18 +19,21 @@ import re
 import secrets
 from typing import Any, Optional
 from urllib.parse import urlparse
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.auth import get_current_user
 from api.db import get_db
+from api.models.job import TranscriptJob
+from api.models.portal import WpPortal
 from api.models.user import ApiKey, User, UsageLog
-from api.quota import log_usage
+from api.quota import check_multilang_access, get_effective_monthly_quota, log_usage
 from api.services.pipeline import run_generate
 from core.fetcher import (
     extract_video_id,
@@ -37,7 +41,13 @@ from core.fetcher import (
     fetch_metadata_ytdlp,
     iso_duration,
 )
-from core.injector import _build_rankmath_meta, build_focus_keywords, build_schema_jsonld
+from core.injector import (
+    _build_rankmath_meta,
+    build_focus_keywords,
+    build_schema_jsonld,
+    build_wp_article_sections,
+    build_wp_post_html,
+)
 
 router = APIRouter(prefix="/v1/plugin", tags=["plugin"])
 logger = logging.getLogger(__name__)
@@ -77,21 +87,26 @@ def _normalize_domain(domain_or_url: Optional[str]) -> Optional[str]:
 
 
 async def _get_monthly_usage(db: AsyncSession, user_id: Any) -> int:
-    """Count successful pipeline/plugin generations in the current UTC month."""
+    """Count successful pipeline/plugin generations in the current UTC month (excluding adaptations and topup markers)."""
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     result = await db.execute(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user_id)
         .where(UsageLog.success == True)  # noqa: E712
+        .where(UsageLog.endpoint != "adapt_material")
+        .where(~UsageLog.endpoint.like("topup:%"))
         .where(UsageLog.created_at >= month_start)
     )
     return int(result.scalar_one() or 0)
 
 
 def _resolve_quota_for_user(user: User) -> tuple[str, int]:
-    """Return (plan_id, monthly_quota) for a User."""
+    """Return (plan_id, effective_monthly_quota) for a User."""
     plan_id = (getattr(user, "plan_id", None) or "free").lower()
+    custom_q = getattr(user, "custom_monthly_quota", None)
+    if custom_q is not None:
+        return plan_id, int(custom_q)
     if user.plan and user.plan.monthly_quota is not None:
         return plan_id, int(user.plan.monthly_quota)
     return plan_id, PLAN_LIMITS.get(plan_id, 5)
@@ -217,6 +232,91 @@ def _extract_description_chapters(description: str) -> list[dict]:
     return chapters[:12]
 
 
+def _build_inject_response_from_seo(
+    seo: dict[str, Any],
+    video_id: str,
+    plan_id: str,
+    monthly_quota: int,
+    used_this_month: int,
+    extra_quota_balance: int,
+    job_id: Optional[str] = None,
+    target_lang: str = "pl",
+    saas_data: Optional[dict] = None,
+    upload_date: Optional[str] = None,
+) -> "InjectDataResponse":
+    """Construct a complete InjectDataResponse from a generated SEO dict."""
+    resolved_upload_date = (
+        upload_date
+        or seo.get("upload_date")
+        or seo.get("published_at")
+        or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    )
+    schemas = build_schema_jsonld(
+        seo=seo,
+        yt_id=video_id,
+        upload_date=resolved_upload_date,
+        target_lang=target_lang,
+    )
+    sections = build_wp_article_sections(
+        seo=seo,
+        yt_id=video_id,
+        schemas=schemas,
+        include_embed=True,
+    )
+    full_article_html = build_wp_post_html(
+        seo=seo,
+        yt_id=video_id,
+        schemas=schemas,
+        include_embed=True,
+        post_format="full_article",
+    )
+
+    rm_meta = _build_rankmath_meta(seo, saas_data)
+    post_title = sections["post_title"] or seo.get("post_title") or seo.get("seo_title") or ""
+    seo_title = (
+        rm_meta.get("rank_math_title")
+        or seo.get("seo_title")
+        or post_title
+        or f"Film YouTube ({video_id})"
+    )
+    meta_description = rm_meta.get("rank_math_description") or seo.get("meta_description") or ""
+    focus_keyword = (
+        rm_meta.get("rank_math_focus_keyword")
+        or build_focus_keywords(seo, saas_data)
+        or seo.get("focus_keyphrase", "")
+    )
+    chapters = seo.get("chapters") or []
+    remaining = -1 if monthly_quota < 0 else max(0, monthly_quota - used_this_month)
+
+    return InjectDataResponse(
+        status="ok",
+        job_id=job_id,
+        video_id=video_id,
+        before_score=28,
+        after_score=96,
+        post_title=post_title,
+        seo_title=seo_title,
+        meta_description=meta_description,
+        focus_keyword=focus_keyword,
+        chapters=chapters,
+        schema_json=schemas,
+        full_article_html=full_article_html,
+        article_body_html=sections["article_body_html"],
+        tldr_html=sections["tldr_html"],
+        chapters_html=sections["chapters_html"],
+        faq_html=sections["faq_html"],
+        summary_bullets=sections["summary_bullets"],
+        faq=sections["faq"],
+        quotes=sections["quotes"],
+        target_lang=target_lang,
+        plan=plan_id,
+        monthly_quota=monthly_quota,
+        used_this_month=used_this_month,
+        remaining_quota=remaining,
+        extra_quota_balance=extra_quota_balance,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Pydantic Schemas
 # ---------------------------------------------------------------------------
@@ -249,6 +349,9 @@ class ApiKeyItemResponse(BaseModel):
 class ValidateKeyRequest(BaseModel):
     api_key: str
     domain: Optional[str] = None
+    site_url: Optional[str] = None
+    site_name: Optional[str] = None
+    plugin_version: Optional[str] = None
 
 
 class ValidateKeyResponse(BaseModel):
@@ -257,7 +360,12 @@ class ValidateKeyResponse(BaseModel):
     monthly_quota: int
     used_this_month: int
     remaining_quota: int
+    extra_quota_balance: int = 0
     allowed_domain: Optional[str] = None
+    portal_paired: bool = True
+    portal_id: Optional[str] = None
+    portal_name: Optional[str] = None
+    multilang_enabled: bool = False
     upgrade_url: str = "https://vse.impresjapr.pl/#pricing"
 
 
@@ -284,23 +392,64 @@ class InjectDataRequest(BaseModel):
     post_title: Optional[str] = None
     post_url: Optional[str] = None
     lang: str = "pl"
+    target_lang: Optional[str] = None
 
 
 class InjectDataResponse(BaseModel):
     status: str = "ok"
+    job_id: Optional[str] = None
     video_id: str
     before_score: int
     after_score: int
+    post_title: str = ""
     seo_title: str
     meta_description: str
     focus_keyword: str
     chapters: list[dict]
     schema_json: list[dict]
+    full_article_html: str = ""
+    article_body_html: str = ""
+    tldr_html: str = ""
+    chapters_html: str = ""
+    faq_html: str = ""
+    summary_bullets: list[str] = []
+    faq: list[dict[str, Any]] = []
+    quotes: list[dict[str, Any]] = []
+    target_lang: str = "pl"
     plan: str
     monthly_quota: int
     used_this_month: int
     remaining_quota: int
+    extra_quota_balance: int = 0
     upgrade_url: str = "https://vse.impresjapr.pl/register?utm_source=wp_plugin"
+
+
+class PluginHistoryRequest(BaseModel):
+    api_key: str
+    domain: Optional[str] = None
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class PluginHistoryItemSummary(BaseModel):
+    job_id: str
+    video_url: str
+    video_id: str
+    post_title: str
+    seo_title: str
+    created_at: str
+    lang: str = "pl"
+
+
+class PluginHistoryResponse(BaseModel):
+    status: str = "ok"
+    items: list[PluginHistoryItemSummary]
+    total: int
+
+
+class PluginHistoryItemRequest(BaseModel):
+    api_key: str
+    domain: Optional[str] = None
+    job_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -377,11 +526,73 @@ async def validate_plugin_api_key(
     req: ValidateKeyRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ValidateKeyResponse:
-    """Validate an API key from the WordPress plugin and return plan & quota usage."""
-    api_key_obj, user = await _verify_api_key_and_domain(db, req.api_key, req.domain)
+    """Validate an API key from the WordPress plugin, auto-pair WpPortal, and return plan & quota usage."""
+    effective_domain_input = req.domain or req.site_url
+    api_key_obj, user = await _verify_api_key_and_domain(db, req.api_key, effective_domain_input)
     plan_id, monthly_quota = _resolve_quota_for_user(user)
     used = await _get_monthly_usage(db, user.id)
     remaining = -1 if monthly_quota < 0 else max(0, monthly_quota - used)
+    extra_balance = int(getattr(user, "extra_quota_balance", 0) or 0)
+
+    # Auto-pairing WpPortal for 1-click connection (no WP Application Passwords needed)
+    norm_domain = _normalize_domain(req.domain or req.site_url or api_key_obj.allowed_domain)
+    paired_portal: Optional[WpPortal] = None
+
+    if norm_domain:
+        raw_site_url = (req.site_url or f"https://{norm_domain}").strip().rstrip("/")
+        if "://" not in raw_site_url:
+            raw_site_url = f"https://{raw_site_url}"
+        portal_url = raw_site_url
+        portal_name = (req.site_name or norm_domain).strip()[:255]
+
+        res_portals = await db.execute(
+            select(WpPortal).where(WpPortal.user_id == user.id)
+        )
+        user_portals = list(res_portals.scalars().all())
+
+        for p in user_portals:
+            if getattr(p, "api_key_id", None) == api_key_obj.id or _normalize_domain(p.url) == norm_domain:
+                paired_portal = p
+                break
+
+        if paired_portal is None:
+            is_default = len(user_portals) == 0
+            paired_portal = WpPortal(
+                user_id=user.id,
+                name=portal_name,
+                url=portal_url,
+                wp_username="",
+                wp_app_password="",
+                auth_mode="plugin_token",
+                api_key_id=api_key_obj.id,
+                is_default=is_default,
+            )
+            db.add(paired_portal)
+            await db.commit()
+            await db.refresh(paired_portal)
+            logger.info(
+                "[/v1/plugin/validate] Auto-paired new WpPortal '%s' (%s) for user %s via key %s",
+                portal_name, portal_url, user.id, api_key_obj.key_prefix,
+            )
+        else:
+            paired_portal.auth_mode = "plugin_token"
+            paired_portal.api_key_id = api_key_obj.id
+            paired_portal.url = portal_url
+            if req.site_name and (
+                not paired_portal.name or _normalize_domain(paired_portal.name) == norm_domain
+            ):
+                paired_portal.name = portal_name
+            await db.commit()
+            await db.refresh(paired_portal)
+            logger.info(
+                "[/v1/plugin/validate] Updated paired WpPortal '%s' (%s) to plugin_token for user %s",
+                paired_portal.name, portal_url, user.id,
+            )
+
+    multilang = await check_multilang_access(user.id, db, user=user)
+    multilang_enabled = bool(
+        multilang.get("allow_target_override", False) or multilang.get("has_multilang_addon", False)
+    )
 
     return ValidateKeyResponse(
         valid=True,
@@ -389,7 +600,12 @@ async def validate_plugin_api_key(
         monthly_quota=monthly_quota,
         used_this_month=used,
         remaining_quota=remaining,
+        extra_quota_balance=extra_balance,
         allowed_domain=api_key_obj.allowed_domain,
+        portal_paired=paired_portal is not None,
+        portal_id=str(paired_portal.id) if paired_portal else None,
+        portal_name=paired_portal.name if paired_portal else None,
+        multilang_enabled=multilang_enabled,
     )
 
 
@@ -471,19 +687,38 @@ async def inject_plugin_video_seo(
     req: InjectDataRequest,
     db: AsyncSession = Depends(get_db),
 ) -> InjectDataResponse:
-    """Generate full VideoObject + Clip + FAQPage JSON-LD and SEO meta for the WordPress plugin."""
+    """Generate full VideoObject + Clip + FAQPage JSON-LD, SEO Article, TL;DR, FAQ and SEO meta for the WordPress plugin."""
     _, user = await _verify_api_key_and_domain(db, req.api_key, req.domain)
     plan_id, monthly_quota = _resolve_quota_for_user(user)
     used = await _get_monthly_usage(db, user.id)
 
+    effective_lang = (req.target_lang or req.lang or "pl").strip().lower()[:2]
+    if effective_lang != "pl":
+        entitlements = await check_multilang_access(user.id, db, user=user)
+        if not entitlements.get("allow_target_override", False) and not entitlements.get("has_multilang_addon", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Generowanie w języku innym niż polski wymaga Pakietu Wielojęzycznego (+29 zł/mies.) "
+                    "lub planu Pro / Agency."
+                ),
+            )
+
+    extra_balance = int(getattr(user, "extra_quota_balance", 0) or 0)
     if monthly_quota != -1 and used >= monthly_quota:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"Wykorzystano miesięczny limit filmów w planie {plan_id.upper()} "
-                f"({used}/{monthly_quota}). Przejdź na wyższy plan na https://vse.impresjapr.pl/dashboard"
-            ),
-        )
+        if extra_balance > 0:
+            user.extra_quota_balance = extra_balance - 1
+            extra_balance = user.extra_quota_balance
+            await db.flush()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Wykorzystano miesięczny limit filmów w planie {plan_id.upper()} "
+                    f"({used}/{monthly_quota}). Dokup pakiet Top-Up (+50 / +150 / +500 filmów) "
+                    "lub przejdź na wyższy plan na https://vse.impresjapr.pl/dashboard"
+                ),
+            )
 
     try:
         video_id = extract_video_id(req.video_url.strip())
@@ -499,10 +734,11 @@ async def inject_plugin_video_seo(
         result = await run_generate(
             video_url=req.video_url.strip(),
             llm_provider=effective_provider,
-            lang=req.lang or "pl",
+            lang=effective_lang,
             post_title_override=req.post_title,
             publication_type="full_analysis",
             user_id=str(user.id),
+            target_lang=effective_lang,
         )
     except Exception as exc:
         logger.error("[/v1/plugin/inject-data] Generation failed for %s: %s", video_id, exc)
@@ -520,7 +756,7 @@ async def inject_plugin_video_seo(
             detail=f"Nie udało się wygenerować danych Video SEO: {exc}",
         ) from exc
 
-    seo = result.get("seo") or {}
+    seo = dict(result.get("seo") or {})
     meta = result.get("meta") or {}
     saas_data = result.get("saas_data") or {}
 
@@ -528,13 +764,39 @@ async def inject_plugin_video_seo(
         meta.get("published_at")
         or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
     )
-    schemas = build_schema_jsonld(seo=seo, yt_id=video_id, upload_date=upload_date)
+    seo["video_id"] = video_id
+    seo["target_lang"] = effective_lang
+    seo["upload_date"] = upload_date
 
-    rm_meta = _build_rankmath_meta(seo, saas_data)
-    seo_title = rm_meta.get("rank_math_title") or seo.get("seo_title") or seo.get("post_title") or meta.get("title", "")
-    meta_description = rm_meta.get("rank_math_description") or seo.get("meta_description") or ""
-    focus_keyword = rm_meta.get("rank_math_focus_keyword") or build_focus_keywords(seo, saas_data) or seo.get("focus_keyphrase", "")
-    chapters = seo.get("chapters") or []
+    # Save generated result to transcript_jobs so it appears in VSE Dashboard history and WP Plugin history
+    saved_job_id: Optional[str] = None
+    try:
+        res_job = await db.execute(
+            select(TranscriptJob)
+            .where(TranscriptJob.video_url.contains(video_id))
+            .where(TranscriptJob.user_id == user.id)
+            .where(TranscriptJob.status.in_(["fetched", "processing", "pending", "cloud_fallback"]))
+            .order_by(desc(TranscriptJob.created_at))
+            .limit(1)
+        )
+        existing_job = res_job.scalar_one_or_none()
+        if existing_job:
+            existing_job.schema_data = seo
+            existing_job.status = "done"
+            await db.flush()
+            saved_job_id = str(existing_job.id)
+        else:
+            new_job = TranscriptJob(
+                user_id=user.id,
+                video_url=req.video_url.strip(),
+                status="done",
+                schema_data=seo,
+            )
+            db.add(new_job)
+            await db.flush()
+            saved_job_id = str(new_job.id)
+    except Exception as job_exc:
+        logger.warning("[/v1/plugin/inject-data] Could not save TranscriptJob for %s: %s", video_id, job_exc)
 
     await log_usage(
         user_id=user.id,
@@ -549,20 +811,121 @@ async def inject_plugin_video_seo(
     )
 
     used_after = used + 1
-    remaining_after = -1 if monthly_quota < 0 else max(0, monthly_quota - used_after)
 
-    return InjectDataResponse(
-        status="ok",
+    return _build_inject_response_from_seo(
+        seo=seo,
         video_id=video_id,
-        before_score=28,
-        after_score=96,
-        seo_title=seo_title,
-        meta_description=meta_description,
-        focus_keyword=focus_keyword,
-        chapters=chapters,
-        schema_json=schemas,
-        plan=plan_id,
+        plan_id=plan_id,
         monthly_quota=monthly_quota,
         used_this_month=used_after,
-        remaining_quota=remaining_after,
+        extra_quota_balance=extra_balance,
+        job_id=saved_job_id,
+        target_lang=effective_lang,
+        saas_data=saas_data,
+        upload_date=upload_date,
+    )
+
+
+@router.post("/history", response_model=PluginHistoryResponse)
+async def list_plugin_history(
+    req: PluginHistoryRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PluginHistoryResponse:
+    """Return recent completed VSE generations for the user (Pull from VSE to WP without consuming quota)."""
+    _, user = await _verify_api_key_and_domain(db, req.api_key, req.domain)
+
+    result = await db.execute(
+        select(TranscriptJob)
+        .where(TranscriptJob.user_id == user.id)
+        .where(TranscriptJob.status.in_(["done", "completed"]))
+        .where(TranscriptJob.schema_data.isnot(None))
+        .order_by(desc(TranscriptJob.created_at))
+        .limit(req.limit)
+    )
+    jobs = result.scalars().all()
+
+    items: list[PluginHistoryItemSummary] = []
+    for j in jobs:
+        raw_schema = j.schema_data if isinstance(j.schema_data, dict) else {}
+        seo = raw_schema.get("seo") if isinstance(raw_schema.get("seo"), dict) else raw_schema
+        vid = str(seo.get("video_id") or "")
+        if not vid and j.video_url:
+            try:
+                vid = extract_video_id(j.video_url)
+            except Exception:
+                vid = ""
+        post_title = str(seo.get("post_title") or seo.get("seo_title") or vid or j.video_url)
+        seo_title = str(seo.get("seo_title") or post_title)
+        lang = str(seo.get("target_lang") or raw_schema.get("target_lang") or "pl")[:2]
+
+        items.append(
+            PluginHistoryItemSummary(
+                job_id=str(j.id),
+                video_url=j.video_url,
+                video_id=vid,
+                post_title=post_title,
+                seo_title=seo_title,
+                created_at=j.created_at.isoformat() if j.created_at else "",
+                lang=lang,
+            )
+        )
+
+    return PluginHistoryResponse(
+        status="ok",
+        items=items,
+        total=len(items),
+    )
+
+
+@router.post("/history-item", response_model=InjectDataResponse)
+async def get_plugin_history_item(
+    req: PluginHistoryItemRequest,
+    db: AsyncSession = Depends(get_db),
+) -> InjectDataResponse:
+    """Fetch a specific completed VSE generation by job_id and return full InjectDataResponse (0 quota consumed)."""
+    _, user = await _verify_api_key_and_domain(db, req.api_key, req.domain)
+
+    try:
+        job_uuid = uuid.UUID(req.job_id.strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nieprawidłowy format job_id.",
+        ) from exc
+
+    result = await db.execute(
+        select(TranscriptJob)
+        .where(TranscriptJob.id == job_uuid)
+        .where(TranscriptJob.user_id == user.id)
+    )
+    job = result.scalar_one_or_none()
+    if not job or not isinstance(job.schema_data, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nie znaleziono wygenerowanego materiału w historii VSE.",
+        )
+
+    raw_schema = job.schema_data
+    seo = raw_schema.get("seo") if isinstance(raw_schema.get("seo"), dict) else raw_schema
+    video_id = str(seo.get("video_id") or "")
+    if not video_id and job.video_url:
+        try:
+            video_id = extract_video_id(job.video_url)
+        except Exception:
+            video_id = "unknown"
+
+    target_lang = str(seo.get("target_lang") or raw_schema.get("target_lang") or "pl")[:2]
+    plan_id, monthly_quota = _resolve_quota_for_user(user)
+    used = await _get_monthly_usage(db, user.id)
+    extra_balance = int(getattr(user, "extra_quota_balance", 0) or 0)
+
+    return _build_inject_response_from_seo(
+        seo=seo,
+        video_id=video_id,
+        plan_id=plan_id,
+        monthly_quota=monthly_quota,
+        used_this_month=used,
+        extra_quota_balance=extra_balance,
+        job_id=str(job.id),
+        target_lang=target_lang,
     )
