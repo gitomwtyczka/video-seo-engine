@@ -6,23 +6,23 @@ export function WpQuickPanel() {
     <ErrorBoundary>
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-base">🚀</div>
+          <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-base">🔌</div>
           <div>
-            <p className="text-sm font-medium text-white">Integracja WordPress</p>
-            <p className="text-xs text-gray-500">Skonfiguruj portal do automatycznej publikacji</p>
+            <p className="text-sm font-medium text-white">Integracja WordPress &amp; Wtyczka VSE v3.0</p>
+            <p className="text-xs text-gray-500">Auto-parowanie portali przez Klucz API (Zero App Passwords!) lub ręczna publikacja</p>
           </div>
           <Link
             href="/ustawienia"
             className="ml-auto text-xs text-violet-400 hover:text-violet-300 transition-colors"
           >
-            Konfiguruj →
+            Klucz API / Portale →
           </Link>
         </div>
         <div className="grid grid-cols-3 gap-3">
           {[
-            { icon: '\uD83D\uDCCB', label: 'Kopiuj HTML', desc: 'Schemat gotowy do wklejenia' },
-            { icon: '\uD83D\uDE80', label: 'Auto-publish', desc: 'Plan Pro/Agency' },
-            { icon: '\uD83D\uDCCA', label: 'SEO Schema', desc: 'VideoObject + Clip + FAQ' },
+            { icon: '🔌', label: 'Wtyczka VSE v3.0', desc: 'Auto-parowanie z klucza API' },
+            { icon: '🚀', label: '1-Click Publish', desc: 'Publikacja z Dashboardu i WP' },
+            { icon: '📊', label: 'SEO Schema', desc: 'VideoObject + Clip + FAQ' },
           ].map((item) => (
             <div key={item.label} className="bg-gray-800/50 rounded-lg p-3 text-center">
               <div className="text-xl mb-1">{item.icon}</div>
