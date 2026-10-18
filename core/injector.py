@@ -1,6 +1,6 @@
 """WordPress REST API Injector — write JSON-LD schema + rich content to WP posts.
 
-Migrated from: inject_rest_v5.py (shadow-perihelion / D:\\Biblioteki\\prawy.pl)
+Migrated from: inject_rest_v5.py (shadow-perihelion / D:\Biblioteki\prawy.pl)
 Migration by: vse-architect-01 | DISPATCH-VSE-ARCHITECT-02 | 2026-05-13
 
 Responsibilities:
@@ -745,6 +745,7 @@ def build_schema_jsonld(
     yt_id: str,
     upload_date: str,
     yt_api_key: Optional[str] = None,
+    target_lang: Optional[str] = None,
 ) -> list[dict]:
     """Build the full JSON-LD schema list for a video post.
 
@@ -762,6 +763,7 @@ def build_schema_jsonld(
         yt_id: YouTube video ID.
         upload_date: ISO 8601 datetime string with timezone.
         yt_api_key: Optional YouTube Data API key for live view count fetch.
+        target_lang: Optional explicit 2-letter target language override.
 
     Returns:
         List of schema dicts (each is a separate JSON-LD block).
@@ -794,10 +796,10 @@ def build_schema_jsonld(
     if "T" in upload_date and "+" not in upload_date and "Z" not in upload_date:
         upload_date = upload_date + "+00:00"
 
-    target_lang = (seo.get("target_lang") or "pl").lower()[:2]
+    resolved_lang = (target_lang or seo.get("target_lang") or "pl").lower()[:2]
     try:
         from core.generator import SUPPORTED_LANGUAGES
-        watch_label = SUPPORTED_LANGUAGES.get(target_lang, SUPPORTED_LANGUAGES["pl"])["WatchAction"]
+        watch_label = SUPPORTED_LANGUAGES.get(resolved_lang, SUPPORTED_LANGUAGES["pl"])["WatchAction"]
     except Exception:
         watch_label = "Obejrzyj wideo"
 
@@ -811,7 +813,7 @@ def build_schema_jsonld(
         "contentUrl": yt_url,
         "embedUrl": f"https://www.youtube.com/embed/{yt_id}",
         "duration": iso_dur,
-        "inLanguage": target_lang,
+        "inLanguage": resolved_lang,
         "potentialAction": {
             "@type": "WatchAction",
             "name": watch_label,
@@ -862,7 +864,7 @@ def build_schema_jsonld(
         schemas.append({
             "@context": "https://schema.org",
             "@type": "FAQPage",
-            "inLanguage": target_lang,
+            "inLanguage": resolved_lang,
             "mainEntity": faq_items,
         })
 
@@ -1381,3 +1383,204 @@ def inject_video(
         "images_uploaded": len(uploaded_images),
         "ok": status == 200 or dry_run,
     }
+
+
+# ============================================================
+# VSE WP PLUGIN v3.0 — ARTICLE & SECTION HTML BUILDERS
+# ============================================================
+
+def build_wp_article_sections(
+    seo: dict,
+    yt_id: str,
+    schemas: Optional[list[dict]] = None,
+    include_embed: bool = True,
+) -> dict:
+    """Build modular HTML sections and full article HTML for VSE WP Plugin v3.0.
+
+    Returns dict with keys:
+      - post_title: str
+      - full_article_html: str
+      - article_body_html: str
+      - tldr_html: str
+      - chapters_html: str
+      - faq_html: str
+      - summary_bullets: list[str]
+      - faq: list[dict]
+      - quotes: list[dict]
+    """
+    post_title = (seo.get("post_title") or seo.get("seo_title") or "").strip()
+    lead_html = (seo.get("lead") or "").strip()
+    raw_body = (seo.get("article_body") or "").strip()
+    cleaned_body = re.sub(r"^\s*<h2[^>]*>.*?</h2>\s*", "", raw_body, count=1, flags=re.I | re.S).strip()
+
+    chapters = seo.get("chapters") or []
+    faq = seo.get("faq") or []
+    quotes = seo.get("quotes") or []
+    yt_url = seo.get("yt_url") or f"https://www.youtube.com/watch?v={yt_id}"
+
+    # Extract or synthesize summary bullets (TL;DR)
+    raw_bullets = seo.get("summary_bullets") or seo.get("tldr_bullets") or seo.get("key_takeaways") or []
+    summary_bullets: list[str] = []
+    if isinstance(raw_bullets, list):
+        summary_bullets = [str(b).strip() for b in raw_bullets if str(b).strip()]
+    if not summary_bullets and quotes:
+        for q in quotes[:4]:
+            qt = str(q.get("text") or "").strip()
+            if qt:
+                summary_bullets.append(qt)
+    if not summary_bullets and chapters:
+        for ch in chapters[:5]:
+            lbl = str(ch.get("label") or ch.get("title") or "").strip()
+            if lbl:
+                summary_bullets.append(lbl)
+
+    # TL;DR HTML
+    tldr_parts: list[str] = []
+    if lead_html:
+        tldr_parts.append(f"<!-- wp:paragraph -->\n<p><strong>{lead_html}</strong></p>\n<!-- /wp:paragraph -->")
+    if summary_bullets:
+        li_html = "\n".join(f"<li>{b}</li>" for b in summary_bullets)
+        tldr_parts.append(
+            "<!-- wp:group {\"className\":\"vse-tldr-box\"} -->\n"
+            "<div class=\"wp-block-group vse-tldr-box\">"
+            "<h3>Najważniejsze wnioski (TL;DR)</h3>\n"
+            f"<ul>\n{li_html}\n</ul>"
+            "</div>\n<!-- /wp:group -->"
+        )
+    tldr_html = "\n\n".join(tldr_parts)
+
+    # Chapters HTML
+    ch_items: list[str] = []
+    for ch in chapters:
+        t = int(ch.get("time", 0) or 0)
+        m, s = divmod(t, 60)
+        label = str(ch.get("label") or ch.get("title") or "").strip()
+        if label:
+            ch_items.append(
+                f'<li><a href="{yt_url}&t={t}s" class="vse-chapter" data-time="{t}">'
+                f"<strong>{m:02d}:{s:02d}</strong> — {label}</a></li>"
+            )
+    chapters_html = ""
+    if ch_items:
+        chapters_html = (
+            '<!-- wp:heading -->\n<h2 class="wp-block-heading">Rozdziały nagrania</h2>\n<!-- /wp:heading -->\n\n'
+            '<!-- wp:list -->\n<ul class="vse-chapters-list">\n'
+            + "\n".join(ch_items)
+            + "\n</ul>\n<!-- /wp:list -->"
+        )
+
+    # Quotes HTML
+    quotes_blocks: list[str] = []
+    for q in quotes:
+        t = int(q.get("time", 0) or 0)
+        m, s = divmod(t, 60)
+        q_text = str(q.get("text") or "").strip()
+        q_speaker = str(q.get("speaker") or "Wypowiedź").strip()
+        if q_text:
+            quotes_blocks.append(
+                "<!-- wp:quote -->\n"
+                f'<blockquote class="wp-block-quote"><p>{q_text}</p>'
+                f'<cite>— {q_speaker} (<a href="{yt_url}&t={t}s" class="vse-chapter" data-time="{t}">{m:02d}:{s:02d}</a>)</cite>'
+                "</blockquote>\n<!-- /wp:quote -->"
+            )
+    quotes_html = ""
+    if quotes_blocks:
+        quotes_html = (
+            '<!-- wp:heading -->\n<h2 class="wp-block-heading">Kluczowe wypowiedzi i podsumowanie</h2>\n<!-- /wp:heading -->\n\n'
+            + "\n".join(quotes_blocks)
+        )
+
+    # FAQ HTML
+    faq_blocks: list[str] = []
+    for item in faq:
+        q_str = str(item.get("question") or "").strip()
+        a_str = str(item.get("answer") or "").strip()
+        if q_str and a_str:
+            faq_blocks.append(
+                f"<details><summary><strong>{q_str}</strong></summary>"
+                f"<p>{a_str}</p></details>"
+            )
+    faq_html = ""
+    if faq_blocks:
+        faq_html = (
+            '<!-- wp:heading -->\n<h2 class="wp-block-heading">Najczęściej zadawane pytania (FAQ)</h2>\n<!-- /wp:heading -->\n\n'
+            "<!-- wp:html -->\n" + "\n".join(faq_blocks) + "\n<!-- /wp:html -->"
+        )
+
+    # Article body HTML (standalone body with lead)
+    article_body_parts: list[str] = []
+    if lead_html:
+        article_body_parts.append(f"<!-- wp:paragraph -->\n<p>{lead_html}</p>\n<!-- /wp:paragraph -->")
+    if cleaned_body:
+        article_body_parts.append(f"<!-- wp:html -->\n{cleaned_body}\n<!-- /wp:html -->")
+    article_body_html = "\n\n".join(article_body_parts)
+
+    # Full Article HTML (Lead -> First P -> YT Embed -> Chapters -> Rest of Body -> Quotes -> FAQ -> Player JS)
+    first_p, rest_body = _split_first_paragraph(cleaned_body)
+    full_parts: list[str] = []
+    if lead_html:
+        full_parts.append(
+            f"<!-- wp:paragraph -->\n<p>{lead_html}</p>\n<!-- /wp:paragraph -->\n\n"
+            "<!-- wp:more -->\n<!--more-->\n<!-- /wp:more -->"
+        )
+    if first_p:
+        full_parts.append(f"<!-- wp:html -->\n{first_p}\n<!-- /wp:html -->")
+    if include_embed and yt_id and not str(yt_id).startswith("audio"):
+        embed_json = json.dumps({
+            "url": yt_url,
+            "type": "video",
+            "providerNameSlug": "youtube",
+            "responsive": True,
+            "className": "wp-embed-aspect-16-9 wp-has-aspect-ratio",
+        })
+        full_parts.append(
+            f"<!-- wp:embed {embed_json} -->\n"
+            '<figure class="wp-block-embed is-type-video is-provider-youtube '
+            'wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">'
+            f'<div class="wp-block-embed__wrapper">\n{yt_url}\n</div></figure>\n'
+            "<!-- /wp:embed -->"
+        )
+    if chapters_html:
+        full_parts.append(chapters_html)
+    if rest_body:
+        full_parts.append(f"<!-- wp:html -->\n{rest_body}\n<!-- /wp:html -->")
+    if quotes_html:
+        full_parts.append(quotes_html)
+    if faq_html:
+        full_parts.append(faq_html)
+
+    player_js = _build_player_js(seek_fn="vseSeek", chapter_class="vse-chapter")
+    full_parts.append(f"<!-- wp:html -->\n{player_js}\n<!-- /wp:html -->")
+
+    full_article_html = "\n\n".join(p for p in full_parts if p)
+
+    return {
+        "post_title": post_title,
+        "full_article_html": full_article_html,
+        "article_body_html": article_body_html,
+        "tldr_html": tldr_html,
+        "chapters_html": chapters_html,
+        "faq_html": faq_html,
+        "summary_bullets": summary_bullets,
+        "faq": faq,
+        "quotes": quotes,
+    }
+
+
+def build_wp_post_html(
+    seo: dict,
+    yt_id: str,
+    schemas: Optional[list[dict]] = None,
+    include_embed: bool = True,
+    post_format: str = "full_article",
+) -> str:
+    """Build complete WordPress post HTML for VSE WP Plugin v3.0 (push/pull)."""
+    sections = build_wp_article_sections(
+        seo=seo,
+        yt_id=yt_id,
+        schemas=schemas,
+        include_embed=include_embed,
+    )
+    if post_format == "article_only":
+        return sections["article_body_html"]
+    return sections["full_article_html"]
