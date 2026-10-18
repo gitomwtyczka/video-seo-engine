@@ -14,6 +14,7 @@ export function AddPortalModal({
   const { createPortal } = usePortals()
   const { profiles, loading: profilesLoading, createProfile } = useProfiles()
 
+  const [authMode, setAuthMode] = useState<'plugin_token' | 'app_password'>('plugin_token')
   const [name, setName] = useState('')
   const [url, setUrl] = useState('https://')
   const [wpUser, setWpUser] = useState('')
@@ -73,8 +74,12 @@ export function AddPortalModal({
   }
 
   const handleSave = async () => {
-    if (!name || !url || !wpUser || !wpPassword) {
-      setError('Uzupełnij wszystkie pola.')
+    if (!name || !url) {
+      setError('Podaj nazwę i URL portalu.')
+      return
+    }
+    if (authMode === 'app_password' && (!wpUser || !wpPassword)) {
+      setError('Uzupełnij użytkownika WP oraz Application Password (lub wybierz tryb Wtyczki VSE v3.0).')
       return
     }
 
@@ -124,8 +129,9 @@ export function AddPortalModal({
       const created = await createPortal({
         name,
         url,
-        wp_username: wpUser,
-        wp_app_password: wpPassword,
+        wp_username: authMode === 'app_password' ? wpUser : '',
+        wp_app_password: authMode === 'app_password' ? wpPassword : '',
+        auth_mode: authMode,
         profile_id: finalProfileId,
       })
 
@@ -156,7 +162,7 @@ export function AddPortalModal({
         style={{ animation: 'fadeInUp 0.25s ease-out', maxHeight: '90vh', overflowY: 'auto' }}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gradient-to-r from-violet-950/50 to-fuchsia-950/30">
-          <h3 className="font-semibold text-white">Dodaj nowy portal</h3>
+          <h3 className="font-semibold text-white">Dodaj portal WordPress</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-1">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -165,6 +171,41 @@ export function AddPortalModal({
         </div>
 
         <div className="px-6 py-5 space-y-4">
+          {/* Mode selector: Wtyczka VSE v3.0 vs App Password */}
+          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-800/80 rounded-xl border border-gray-700">
+            <button
+              type="button"
+              onClick={() => setAuthMode('plugin_token')}
+              className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
+                authMode === 'plugin_token'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              🔌 Wtyczka VSE v3.0 (Zalecane)
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode('app_password')}
+              className={`py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
+                authMode === 'app_password'
+                  ? 'bg-violet-600 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              🔑 App Password (WP REST)
+            </button>
+          </div>
+
+          {authMode === 'plugin_token' && (
+            <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-200 space-y-1">
+              <p className="font-semibold text-emerald-300">⚡ Auto-parowanie przez Wtyczkę VSE v3.0 (Zero App Passwords!)</p>
+              <p className="text-gray-300 leading-relaxed">
+                Gdy wkleisz swój klucz API <code className="text-emerald-300">vse_live_...</code> w ustawieniach wtyczki VSE w WordPressie, portal sparuje się automatycznie. Możesz też dodać go poniżej.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Nazwa portalu</label>
             <input
@@ -187,28 +228,30 @@ export function AddPortalModal({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
-              <input
-                type="text"
-                value={wpUser}
-                onChange={(e) => setWpUser(e.target.value)}
-                placeholder="admin"
-                className={inputClass}
-              />
+          {authMode === 'app_password' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+                <input
+                  type="text"
+                  value={wpUser}
+                  onChange={(e) => setWpUser(e.target.value)}
+                  placeholder="admin"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">App Password</label>
+                <input
+                  type="password"
+                  value={wpPassword}
+                  onChange={(e) => setWpPassword(e.target.value)}
+                  placeholder="xxxx xxxx xxxx xxxx"
+                  className={inputClass}
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">App Password</label>
-              <input
-                type="password"
-                value={wpPassword}
-                onChange={(e) => setWpPassword(e.target.value)}
-                placeholder="xxxx xxxx xxxx xxxx"
-                className={inputClass}
-              />
-            </div>
-          </div>
+          )}
 
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Profil treści</label>
