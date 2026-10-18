@@ -12,8 +12,8 @@ const plans = [
     price: "49",
     description: "Dla twórców i małych portali",
     features: [
-      "30 filmów / miesiąc",
-      "3 portale WordPress",
+      "50 filmów / miesiąc",
+      "Do 3 portali WordPress",
       "VideoObject Schema",
       "Chapters + FAQ AI",
       "Cross-Language: wideo z dowolnego języka → SEO w języku panelu",
@@ -30,8 +30,8 @@ const plans = [
     price: "149",
     description: "Dla profesjonalnych twórców treści",
     features: [
-      "150 filmów / miesiąc",
-      "10 portali WordPress",
+      "250 filmów / miesiąc",
+      "Do 10 portali WordPress",
       "🌐 Pakiet Wielojęzyczny (8 języków) W CENIE",
       "Tłumaczenie poszczególnych zakładek 1 kliknięciem",
       "Pakiet VSE Desktop Runner (.zip)",
@@ -50,8 +50,8 @@ const plans = [
     price: "499",
     description: "Dla agencji i dużych wydawców",
     features: [
-      "500 filmów / miesiąc",
-      "50 portali WordPress",
+      "1000 filmów / miesiąc",
+      "Do 50 portali WordPress",
       "🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji",
       "Pakiet VSE Desktop Runner (.zip)",
       "Priorytetowe AI & wsparcie",
@@ -63,6 +63,39 @@ const plans = [
       "White-label API",
     ],
     highlight: false,
+  },
+];
+
+const topupPacks = [
+  {
+    id: "topup_50",
+    name: "Pakiet +50 filmów",
+    credits: 50,
+    price: "39",
+    unitPrice: "0,78 zł / film",
+    badge: null,
+    highlight: false,
+    description: "Idealny zapas w gorącym tygodniu wydawniczym",
+  },
+  {
+    id: "topup_150",
+    name: "Pakiet +150 filmów",
+    credits: 150,
+    price: "99",
+    unitPrice: "0,66 zł / film",
+    badge: "Najpopularniejszy",
+    highlight: true,
+    description: "Najlepszy stosunek ceny do elastyczności dla redakcji",
+  },
+  {
+    id: "topup_500",
+    name: "Pakiet +500 filmów",
+    credits: 500,
+    price: "279",
+    unitPrice: "0,56 zł / film",
+    badge: "Dla wydawców",
+    highlight: false,
+    description: "Hurtowy pakiet na masową indeksację archiwum YouTube",
   },
 ];
 
@@ -91,6 +124,34 @@ export default function CennikPage() {
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.detail || "Błąd podczas tworzenia sesji płatności");
+      }
+      const { session_url } = await res.json();
+      window.location.href = session_url;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Nieznany błąd");
+      setLoading(null);
+    }
+  };
+
+  const handleTopupCheckout = async (packId: string) => {
+    if (!session) {
+      router.push("/login?redirect=/cennik#topup");
+      return;
+    }
+    setLoading(packId);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/v1/payments/checkout-topup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${(session as { accessToken?: string }).accessToken || ""}`,
+        },
+        body: JSON.stringify({ pack_id: packId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || "Błąd podczas tworzenia sesji płatności Top-Up");
       }
       const { session_url } = await res.json();
       window.location.href = session_url;
@@ -226,6 +287,103 @@ export default function CennikPage() {
             </button>
             <span className="text-xs text-gray-400 text-center sm:text-right">
               Aktywacja natychmiast po płatności Stripe
+            </span>
+          </div>
+        </div>
+
+        {/* Section #topup: Pakiety Top-Up */}
+        <section id="topup" className="mt-16 scroll-mt-12">
+          <div className="text-center mb-10">
+            <span className="inline-block px-3.5 py-1 rounded-full text-xs font-bold bg-emerald-900/40 text-emerald-300 border border-emerald-600/40 mb-3 uppercase tracking-wider">
+              ⚡ Bezterminowy Rollover
+            </span>
+            <h2 className="text-2xl md:text-3xl font-extrabold text-white mb-3">
+              Pakiety Top-Up (Dokup filmy w dowolnym momencie — bez zmiany abonamentu)
+            </h2>
+            <p className="text-sm md:text-base text-gray-300 max-w-2xl mx-auto leading-relaxed">
+              Kredyty Top-Up <strong className="text-emerald-400">nie przepadają z końcem miesiąca (bezterminowy rollover)</strong> i uruchamiają się automatycznie dopiero po wykorzystaniu puli miesięcznej z Twojego planu. Idealne rozwiązanie, gdy przekroczysz 50 lub 250 filmów w gorącym miesiącu!
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {topupPacks.map((pack) => (
+              <div
+                key={pack.id}
+                className={`relative rounded-2xl border p-6 flex flex-col justify-between transition-all duration-300 ${
+                  pack.highlight
+                    ? "bg-emerald-950/30 border-emerald-500/60 shadow-[0_0_30px_rgba(16,185,129,0.12)]"
+                    : "bg-gray-900/60 border-gray-700/50 hover:border-gray-600/70"
+                }`}
+              >
+                {pack.badge && (
+                  <div className="absolute -top-3.5 right-6">
+                    <span className={`px-3 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider shadow ${
+                      pack.highlight
+                        ? "bg-emerald-600 text-white"
+                        : "bg-gray-800 text-emerald-300 border border-emerald-500/40"
+                    }`}>
+                      {pack.badge}
+                    </span>
+                  </div>
+                )}
+
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1">{pack.name}</h3>
+                  <p className="text-xs text-gray-400 mb-5">{pack.description}</p>
+
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="text-4xl font-extrabold text-white">{pack.price} zł</span>
+                    <span className="text-xs text-gray-400">jednorazowo</span>
+                  </div>
+                  <div className="flex items-center gap-2 mb-6">
+                    <span className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                      {pack.unitPrice}
+                    </span>
+                    <span className="text-xs text-gray-400">• bezterminowe</span>
+                  </div>
+                </div>
+
+                <button
+                  id={`btn-topup-${pack.id}`}
+                  onClick={() => handleTopupCheckout(pack.id)}
+                  disabled={loading !== null}
+                  className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 ${
+                    pack.highlight
+                      ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40"
+                      : "bg-gray-800 hover:bg-gray-700 text-emerald-300 border border-emerald-500/30"
+                  } disabled:opacity-60 disabled:cursor-not-allowed`}
+                >
+                  {loading === pack.id ? "Przekierowanie..." : `Dokup +${pack.credits} filmów (${pack.price} zł)`}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Enterprise / Custom Banner */}
+        <div className="mt-14 rounded-2xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-gray-900/80 to-gray-900/90 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-[0_0_30px_rgba(245,158,11,0.08)]">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase tracking-wider">
+                Dla dużych redakcji i grup mediowych
+              </span>
+            </div>
+            <h3 className="text-xl md:text-2xl font-bold text-white">
+              🏢 Plan Enterprise / Custom (&gt;1000 filmów / mies. lub rozliczenie fakturą B2B)
+            </h3>
+            <p className="text-sm text-gray-300 leading-relaxed">
+              Potrzebujesz indywidualnego limitu miesięcznego (<code className="text-amber-300">custom_monthly_quota</code> lub planu nielimitowanego), dedykowanej puli modeli AI (<strong className="text-white">Claude Sonnet + Gemini Pro</strong>), priorytetowego wsparcia wdrożenia wtyczki <strong className="text-white">WordPress v3.0</strong> lub aktywacji planu bezpośrednio przez opiekuna konta na podstawie faktury VAT?
+            </p>
+          </div>
+          <div className="flex flex-col items-stretch sm:items-end gap-2 w-full md:w-auto flex-shrink-0">
+            <a
+              href="mailto:kontakt@impresjapr.pl?subject=PressAI%20VSE%20Enterprise%20%2F%20Plan%20Custom%20B2B"
+              className="px-6 py-3 rounded-xl font-semibold text-sm bg-amber-500 hover:bg-amber-400 text-gray-950 text-center shadow-lg shadow-amber-900/30 transition-all duration-200 whitespace-nowrap"
+            >
+              ✉️ Napisz: kontakt@impresjapr.pl
+            </a>
+            <span className="text-xs text-gray-400 text-center sm:text-right">
+              Aktywacja planu VIP przez opiekuna konta w 15 minut
             </span>
           </div>
         </div>
