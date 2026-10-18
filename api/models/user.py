@@ -10,7 +10,7 @@ from sqlalchemy import (
     ForeignKey, Enum, Text, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from api.db import Base
@@ -54,12 +54,14 @@ class User(Base):
     # OAuth
     google_id = Column(String(255), nullable=True, unique=True)
 
-    # Subscription
+    # Subscription & Quota
     plan_id = Column(String(50), ForeignKey("plans.id"), default="free")
     plan = relationship("Plan", back_populates="users")
     stripe_customer_id = Column(String(255), nullable=True)
     stripe_subscription_id = Column(String(255), nullable=True)
     has_multilang_addon = Column(Boolean, default=False, nullable=False, server_default="false")
+    extra_quota_balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    custom_monthly_quota: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     # Verification
     verification_token = Column(String(255), nullable=True)
@@ -126,4 +128,3 @@ class ApiKey(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="api_keys")
-
