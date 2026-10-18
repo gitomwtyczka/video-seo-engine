@@ -1,12 +1,14 @@
 {
   "callsign": "vse-architect-01",
-  "status": "working",
-  "current_task": "Analiza i projekt architektury wtyczki WordPress v3.0 + model rozliczeń >250 filmów",
-  "timestamp": "2026-10-18T19:37:00+02:00",
+  "status": "done",
+  "current_task": "Wdrożenie wtyczki WordPress v3.0 (vse-video-seo) + pakiety Top-Up (+50/+150/+500) + rozbudowa /admin — zakończone i zweryfikowane E2E",
+  "timestamp": "2026-10-18T23:33:00+02:00",
   "last_completed": [
-    "93cef05d35c798fead3e9e96c387eab8f9582353: feat(multilang): Cross-Language & Per-Material Translation Engine (8 langs, Dual-Language Anchor, +29 PLN add-on) [vse-dev-01]",
-    "035b9f6cb3027605f7b019ae94a39a8aa8ed560b: docs(tasks): mark Multi-Language Engine v2.1 complete in current.md [vse-dev-01]",
-    "3af1611a654fa58140ff4e2ca0df6483e55a120d: report: vse-dev-01 Multi-Language Engine v2.1 complete [vse-dev-01]"
+    "42de7c413aeb70e16f781ca5cbc2be82b0b760b8: report: vse-architect-01 WP Plugin v3.0 + Top-Up + Admin Quota E2E complete [vse-architect-01]",
+    "06a721e7395ea656114455e952f9d7ec5b2111ce: docs(tasks): mark WP Plugin v3.0, Top-Up packs, and Admin quota management complete in current.md [vse-architect-01]",
+    "3cb5a15ce3071d0665090722f8ec83af4aea9db8: fix(plugin): support both GET and HEAD on /v1/plugin/download and align PLAN_LIMITS [vse-architect-01]",
+    "46f79aca902874dd59b7001a22348c77c0f70694: feat(payments): unify Top-Up packs (+50/+150/+500) credits/videos metadata in payments.py [vse-architect-01]",
+    "571f237e74183fadd6611193c141dd26b2d59299: feat(dashboard): display Top-Up extra_quota_balance, VIP custom quota, and VSE v3.0 auto-paired portals [vse-dev-01]"
   ],
   "pending": []
 }
