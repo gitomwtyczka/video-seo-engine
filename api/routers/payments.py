@@ -1,10 +1,12 @@
 """Stripe payment endpoints.
 
 CO: Router FastAPI obsługujący płatności Stripe dla VSE.
-PO CO: Umożliwia userowi zakup planu (Starter/Pro/Agency) przez Stripe Checkout
-       i zarządzanie subskrypcją przez Customer Portal.
-JAK: Trzy endpointy:
-  POST /v1/payments/create-checkout-session  — tworzy sesję Stripe Checkout
+PO CO: Umożliwia userowi zakup planu (Starter/Pro/Agency) oraz pakietów Top-Up
+       (+50 / +150 / +500 filmów) przez Stripe Checkout i zarządzanie subskrypcją
+       przez Customer Portal.
+JAK: Endpointy:
+  POST /v1/payments/create-checkout-session  — tworzy sesję Stripe Checkout (subskrypcja)
+  POST /v1/payments/checkout-topup           — tworzy sesję Stripe Checkout dla pakietów Top-Up (jednorazowa)
   POST /v1/payments/webhook                  — obsługuje eventy Stripe (sygnatura HMAC)
   GET  /v1/payments/portal-session           — tworzy link Customer Portal
 """
@@ -21,7 +23,7 @@ from sqlalchemy.orm import selectinload
 
 from api.auth import get_current_user
 from api.db import get_db
-from api.models.user import Plan, User, Subscription
+from api.models.user import Plan, User, Subscription, UsageLog
 from api.quota import check_multilang_access
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,27 @@ stripe.api_key = STRIPE_SECRET_KEY
 
 router = APIRouter(prefix="/v1/payments", tags=["payments"])
 
+TOPUP_PACKS: dict[str, dict[str, Any]] = {
+    "topup_50": {
+        "credits": 50,
+        "amount_gr": 3900,
+        "name": "VSE Pakiet Top-Up +50 filmów",
+        "description": "Dodatkowe 50 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
+    },
+    "topup_150": {
+        "credits": 150,
+        "amount_gr": 9900,
+        "name": "VSE Pakiet Top-Up +150 filmów",
+        "description": "Dodatkowe 150 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
+    },
+    "topup_500": {
+        "credits": 500,
+        "amount_gr": 27900,
+        "name": "VSE Pakiet Top-Up +500 filmów",
+        "description": "Dodatkowe 500 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
+    },
+}
+
 
 class CheckoutRequest(BaseModel):
     plan_id: Optional[str] = None  # 'starter' | 'pro' | 'agency' | 'multilang_addon' | 'starter_multilang'
@@ -42,6 +65,10 @@ class CheckoutRequest(BaseModel):
 
 class AddonCheckoutRequest(BaseModel):
     addon: str = "multilang"
+
+
+class TopupCheckoutRequest(BaseModel):
+    pack_id: str  # 'topup_50' | 'topup_150' | 'topup_500'
 
 
 class VerifySessionRequest(BaseModel):
@@ -77,8 +104,75 @@ async def get_subscription_info(
     return {
         "plan_id": current_user.plan_id or "free",
         "has_multilang_addon": bool(multilang.get("has_multilang_addon", False)),
+        "extra_quota_balance": int(getattr(current_user, "extra_quota_balance", 0) or 0),
+        "custom_monthly_quota": getattr(current_user, "custom_monthly_quota", None),
         "multilang": multilang,
     }
+
+
+@router.post("/checkout-topup")
+async def create_topup_checkout_session(
+    body: TopupCheckoutRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Tworzy jednorazową sesję Stripe Checkout dla pakietów Top-Up (+50 / +150 / +500 filmów)."""
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Stripe not configured",
+        )
+
+    pack_id = (body.pack_id or "").strip()
+    if pack_id not in TOPUP_PACKS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Nieprawidłowy pakiet Top-Up: '{pack_id}'. Dostępne: {', '.join(TOPUP_PACKS.keys())}",
+        )
+
+    pack = TOPUP_PACKS[pack_id]
+
+    try:
+        session_kwargs: dict[str, Any] = {
+            "mode": "payment",
+            "allow_promotion_codes": True,
+            "line_items": [
+                {
+                    "price_data": {
+                        "currency": "pln",
+                        "unit_amount": pack["amount_gr"],
+                        "product_data": {
+                            "name": pack["name"],
+                            "description": pack["description"],
+                        },
+                    },
+                    "quantity": 1,
+                }
+            ],
+            "success_url": f"{FRONTEND_URL}/dashboard?payment=topup_success&session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{FRONTEND_URL}/cennik?payment=cancelled",
+            "metadata": {
+                "user_id": str(current_user.id),
+                "type": "topup",
+                "pack_id": pack_id,
+                "credits": str(pack["credits"]),
+            },
+            "customer_email": current_user.email
+            if not current_user.stripe_customer_id
+            else None,
+        }
+
+        if current_user.stripe_customer_id:
+            session_kwargs["customer"] = current_user.stripe_customer_id
+            session_kwargs.pop("customer_email", None)
+
+        session = stripe.checkout.Session.create(**session_kwargs)
+        return {"session_url": session.url, "checkout_url": session.url}
+    except stripe.StripeError as e:
+        logger.error("Stripe error creating topup checkout session: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Stripe error: {e.user_message or str(e)}",
+        )
 
 
 @router.post("/checkout-addon")
@@ -249,7 +343,7 @@ async def stripe_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Stripe webhook handler — obsługuje eventy subskrypcji."""
+    """Stripe webhook handler — obsługuje eventy subskrypcji oraz Top-Up."""
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
 
@@ -338,17 +432,75 @@ def _cancel_old_subscriptions(
 async def _handle_checkout_completed(
     session: Any, db: AsyncSession
 ) -> None:
-    """Po udanym checkout - ustaw plan lub add-on i zapisz stripe IDs."""
+    """Po udanym checkout - ustaw plan, add-on lub doładuj kredyty Top-Up."""
     metadata = session["metadata"] if "metadata" in session else getattr(session, "metadata", None)
     if not metadata:
         logger.error("checkout.session.completed: no metadata in session")
         return
 
+    session_id = session["id"] if "id" in session else getattr(session, "id", None)
     user_id = metadata["user_id"] if "user_id" in metadata else getattr(metadata, "user_id", None)
+    meta_type = metadata["type"] if "type" in metadata else getattr(metadata, "type", None)
+    pack_id = metadata["pack_id"] if "pack_id" in metadata else getattr(metadata, "pack_id", None)
+    credits_raw = metadata["credits"] if "credits" in metadata else getattr(metadata, "credits", None)
     plan_id = metadata["plan_id"] if "plan_id" in metadata else getattr(metadata, "plan_id", None)
     addon = metadata["addon"] if "addon" in metadata else getattr(metadata, "addon", None)
     customer_id = session["customer"] if "customer" in session else getattr(session, "customer", None)
     subscription_id = session["subscription"] if "subscription" in session else getattr(session, "subscription", None)
+
+    # Obsługa jednorazowych pakietów Top-Up (idempotentna po session_id)
+    if meta_type == "topup":
+        if not user_id or not session_id:
+            logger.error("checkout.session.completed topup missing user_id or session_id")
+            return
+
+        payment_status = session["payment_status"] if "payment_status" in session else getattr(session, "payment_status", None)
+        if payment_status and payment_status not in ("paid", "no_payment_required"):
+            logger.info("Ignoring unpaid topup checkout session %s (payment_status=%s)", session_id, payment_status)
+            return
+
+        marker_endpoint = f"topup:{session_id}"
+        existing_log = await db.execute(
+            select(UsageLog).where(UsageLog.endpoint == marker_endpoint).limit(1)
+        )
+        if existing_log.scalar_one_or_none() is not None:
+            logger.info("Top-Up session %s already processed (idempotent skip)", session_id)
+            return
+
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            logger.error("checkout.session.completed topup: user not found: %s", user_id)
+            return
+
+        try:
+            credits_to_add = int(credits_raw) if credits_raw else int(TOPUP_PACKS.get(pack_id or "", {}).get("credits", 0))
+        except (ValueError, TypeError):
+            credits_to_add = int(TOPUP_PACKS.get(pack_id or "", {}).get("credits", 0))
+
+        if credits_to_add <= 0:
+            logger.error("checkout.session.completed topup: invalid credits=%r for pack_id=%r", credits_raw, pack_id)
+            return
+
+        current_extra = int(getattr(user, "extra_quota_balance", 0) or 0)
+        user.extra_quota_balance = current_extra + credits_to_add
+        if customer_id and not user.stripe_customer_id:
+            user.stripe_customer_id = customer_id
+
+        db.add(
+            UsageLog(
+                user_id=user.id,
+                endpoint=marker_endpoint,
+                youtube_id=pack_id or "topup",
+                success=True,
+            )
+        )
+        await db.commit()
+        logger.info(
+            "User %s credited +%d Top-Up videos (pack=%s, new_balance=%d, session=%s)",
+            user.email, credits_to_add, pack_id, user.extra_quota_balance, session_id,
+        )
+        return
 
     # Guard: ignoruj checkout sessions z canceled/incomplete subscription
     if subscription_id:
@@ -594,12 +746,14 @@ async def verify_checkout_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Weryfikuje i synchronizuje sesję Stripe Checkout oraz aktywne subskrypcje użytkownika."""
+    """Weryfikuje i synchronizuje sesję Stripe Checkout (subskrypcja lub Top-Up) oraz aktywne subskrypcje użytkownika."""
     if not STRIPE_SECRET_KEY:
         return {
             "status": "ok",
             "plan_id": current_user.plan_id or "free",
             "has_multilang_addon": bool(current_user.has_multilang_addon),
+            "extra_quota_balance": int(getattr(current_user, "extra_quota_balance", 0) or 0),
+            "custom_monthly_quota": getattr(current_user, "custom_monthly_quota", None),
         }
 
     try:
@@ -610,7 +764,7 @@ async def verify_checkout_session(
                 await _handle_checkout_completed(sess, db)
                 await db.refresh(current_user)
 
-        # Додатkowa synchronizacja z aktywnymi subskrypcjami w Stripe
+        # Dodatkowa synchronizacja z aktywnymi subskrypcjami w Stripe
         customer_ids: list[str] = []
         if current_user.stripe_customer_id:
             customer_ids.append(current_user.stripe_customer_id)
@@ -696,6 +850,8 @@ async def verify_checkout_session(
         "status": "ok",
         "plan_id": current_user.plan_id or "free",
         "has_multilang_addon": bool(current_user.has_multilang_addon),
+        "extra_quota_balance": int(getattr(current_user, "extra_quota_balance", 0) or 0),
+        "custom_monthly_quota": getattr(current_user, "custom_monthly_quota", None),
     }
 
 
@@ -727,4 +883,3 @@ async def create_portal_session(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Stripe error: {e.user_message or str(e)}",
         )
-
