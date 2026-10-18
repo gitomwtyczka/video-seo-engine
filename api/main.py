@@ -33,7 +33,8 @@ Endpoints:
   GET  /v1/admin/debug-mode   — [ADMIN] get debug mode state
   POST /v1/admin/debug-mode   — [ADMIN] set debug mode on/off
   POST /v1/payments/create-checkout-session — create Stripe Checkout Session
-  POST /v1/payments/webhook   — Stripe webhook (subscription lifecycle)
+  POST /v1/payments/checkout-topup — create Stripe Top-Up Checkout Session
+  POST /v1/payments/webhook   — Stripe webhook (subscription lifecycle & top-up)
   GET  /v1/payments/portal-session — Stripe Customer Portal URL
   GET  /v1/youtube/oauth/login — Redirect to Google OAuth for YT
   GET  /v1/youtube/oauth/callback — Callback from Google OAuth for YT
@@ -42,9 +43,11 @@ Endpoints:
   POST /v1/podcast/link-mp3   — link MP3 to WordPress post
   POST /v1/plugin/keys        — generate WP plugin API key
   GET  /v1/plugin/keys        — list WP plugin API keys
-  POST /v1/plugin/validate    — validate WP plugin API key & domain
+  POST /v1/plugin/validate    — validate WP plugin API key & domain (auto-pair portal)
   POST /v1/plugin/preview     — preview Video SEO Score & Rich Result
-  POST /v1/plugin/inject-data — generate Schema JSON-LD & Meta SEO for WP plugin
+  POST /v1/plugin/inject-data — generate Schema JSON-LD, Article & Meta SEO for WP plugin
+  POST /v1/plugin/history     — list recent VSE generations for WP plugin
+  POST /v1/plugin/history-item — fetch specific VSE generation for WP plugin (0 quota)
   GET  /docs                  — Swagger UI
 """
 import logging
@@ -247,6 +250,8 @@ async def startup_event() -> None:
             await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(50);"))
             await conn.execute(text("ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS estimated_cost_usd DOUBLE PRECISION;"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS has_multilang_addon BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS extra_quota_balance INTEGER NOT NULL DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_monthly_quota INTEGER NULL;"))
             await conn.execute(text("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS has_multilang_addon BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text(
                 "CREATE TABLE IF NOT EXISTS api_keys ("
@@ -265,7 +270,11 @@ async def startup_event() -> None:
             await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS allowed_domain VARCHAR(255);"))
             await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT 'Default';"))
             await conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;"))
-        logger.info("Database tables verified/created and usage_logs + api_keys + subscriptions columns migrated.")
+            await conn.execute(text("ALTER TABLE wp_portals ALTER COLUMN wp_username DROP NOT NULL;"))
+            await conn.execute(text("ALTER TABLE wp_portals ALTER COLUMN wp_app_password DROP NOT NULL;"))
+            await conn.execute(text("ALTER TABLE wp_portals ADD COLUMN IF NOT EXISTS auth_mode VARCHAR(32) NOT NULL DEFAULT 'app_password';"))
+            await conn.execute(text("ALTER TABLE wp_portals ADD COLUMN IF NOT EXISTS api_key_id UUID NULL REFERENCES api_keys(id) ON DELETE SET NULL;"))
+        logger.info("Database tables verified/created and usage_logs + api_keys + subscriptions + wp_portals columns migrated.")
         
         from sqlalchemy import delete
         from datetime import datetime, timezone
