@@ -219,10 +219,29 @@ def fetch_transcript(video_url: str) -> str:
     return "\\n".join(lines)
 
 
+def cut_short_9_16(video_url: str, start_sec: float, end_sec: float, output_path: str = "short_9_16.mp4") -> str:
+    """Lokalny wycinacz klipów 9:16 (ShortMachine) przy użyciu yt-dlp + FFmpeg."""
+    import subprocess
+    duration = max(5.0, float(end_sec) - float(start_sec))
+    cmd = [
+        "yt-dlp",
+        "-f", "bestvideo[height<=1080]+bestaudio/best",
+        "--download-sections", f"*{start_sec}-{end_sec}",
+        "--force-keyframes-at-cuts",
+        "--merge-output-format", "mp4",
+        "--postprocessor-args", f"ffmpeg:-vf crop=ih*9/16:ih,scale=1080:1920 -t {duration}",
+        "-o", output_path,
+        video_url,
+    ]
+    subprocess.run(cmd, check=True)
+    return output_path
+
+
 def main():
     print("============================================================")
     print(" PressAI VSE Desktop Runner — Aktywny")
     print(" Konto: {current_user.email}")
+    print(" Tryby: YouTube VTT Fast-Fetch + ShortMachine Local FFmpeg")
     print("============================================================")
     while True:
         try:
@@ -278,7 +297,7 @@ PL:
 1. Wypakuj wszystkie pliki z archiwum vse-desktop-runner.zip do dowolnego folderu.
 2. Kliknij dwukrotnie plik "Uruchom_VSE_Runner.bat" (na Windows) lub uruchom "python3 vse_runner.py" (na macOS/Linux).
 3. Twój pakiet jest już automatycznie skonfigurowany z Twoim indywidualnym kluczem API ({raw_key[:14]}...).
-4. Gdy okno VSE Desktop Runnera jest otwarte, wszystkie generowania w panelu https://vse.impresjapr.pl korzystają z Twojego domowego łączą w ułamku sekundy!
+4. Gdy okno VSE Desktop Runnera jest otwarte, wszystkie generowania w panelu https://vse.impresjapr.pl korzystają z Twojego domowego łącza w ułamku sekundy oraz wspierają lokalne wycinanie klipów 9:16 (ShortMachine FFmpeg).
 
 EN:
 1. Extract all files from vse-desktop-runner.zip into any folder.
