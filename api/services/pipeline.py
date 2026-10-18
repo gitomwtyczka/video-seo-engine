@@ -94,9 +94,9 @@ from api.models.portal import WpPortal
 
 logger = logging.getLogger(__name__)
 
-# Timeout pollowania na transkrypt od Local Runner'a
-LOCAL_RUNNER_POLL_INTERVAL = 2    # sekund między check'ami
-LOCAL_RUNNER_POLL_TIMEOUT = 120  # max sekund czekania
+# Timeout pollowania na transkrypt od Local Runner'a (domyślnie 8s przed szybkim fallbackiem chmurowym)
+LOCAL_RUNNER_POLL_INTERVAL = 1    # sekunda między check'ami
+LOCAL_RUNNER_POLL_TIMEOUT = int(os.environ.get("LOCAL_RUNNER_POLL_TIMEOUT", "8"))  # max sekund czekania przed fallbackiem do chmury
 
 
 def _extract_video_id(url: str) -> str:
@@ -224,9 +224,19 @@ async def _wait_for_transcript(job_id: str) -> str:
 
         await asyncio.sleep(LOCAL_RUNNER_POLL_INTERVAL)
 
+    # Po 8s brak odpowiedzi od Local Runnera — oznacz job jako cloud_fallback, aby nie wisiał w pending
+    try:
+        async with AsyncSessionLocal() as db:
+            job = await db.get(TranscriptJob, job_uuid)
+            if job and job.status == "pending":
+                job.status = "cloud_fallback"
+                await db.commit()
+    except Exception:
+        pass
+
     raise RuntimeError(
         f"Local Runner timeout: job {job_id} not fetched within "
-        f"{LOCAL_RUNNER_POLL_TIMEOUT}s. Check if VSELocalRunner service is running."
+        f"{LOCAL_RUNNER_POLL_TIMEOUT}s — switching to Cloud Fetch."
     )
 
 
@@ -817,7 +827,6 @@ async def run_generate(
 
                     except RuntimeError as e:
                         exc_str = str(e)
-                        # FIX A: Graceful degradation — no transcript → continue without
                         if "No transcript available" in exc_str:
                             logger.warning(
                                 "[generate] FIX A: No transcript available for %s — "
@@ -830,8 +839,29 @@ async def run_generate(
                                 metadata_lang=meta.get("default_audio_language"),
                             )
                         else:
-                            # Other errors (timeout, DB failure) — re-raise
-                            raise RuntimeError(f"Local Runner transcript failed: {e}") from e
+                            logger.info(
+                                "[generate] Local Runner offline/timeout (%s) — falling back to Cloud Fetch on VPS for %s",
+                                exc_str, video_id,
+                            )
+                            cloud_meta = await asyncio.to_thread(
+                                fetch_video, video_url, tmp_dir, resolved_target_lang, yt_api_key, yt_access_token
+                            )
+                            if cloud_meta and not cloud_meta.get("error"):
+                                meta = cloud_meta
+                                vtt_path = meta.get("vtt_path")
+                                if not vtt_path:
+                                    logger.warning(
+                                        "[generate] Cloud Fetch fallback: no transcript (vtt_path) for %s — continuing with metadata (partial_result=True)",
+                                        video_id,
+                                    )
+                                    has_transcript = False
+                            else:
+                                vtt_path = None
+                                has_transcript = False
+                                meta["source_lang"] = detect_transcript_language(
+                                    meta.get("description") or meta.get("title") or "",
+                                    metadata_lang=meta.get("default_audio_language"),
+                                )
             else:
                 meta = await asyncio.to_thread(
                     fetch_video, video_url, tmp_dir, resolved_target_lang, yt_api_key, yt_access_token

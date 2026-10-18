@@ -1,15 +1,55 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { useEffect, useRef, useState } from "react";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function PlatnosCiSukces() {
+  const { data: session, update } = useSession();
   const [show, setShow] = useState(false);
+  const [verifiedPlan, setVerifiedPlan] = useState<string | null>(null);
+  const verifiedRef = useRef(false);
 
   useEffect(() => {
-    // Animate in after mount
     const t = setTimeout(() => setShow(true), 100);
     return () => clearTimeout(t);
   }, []);
+
+  useEffect(() => {
+    if (verifiedRef.current) return;
+    const accessToken = (session as { accessToken?: string } | null)?.accessToken;
+    if (!accessToken) return;
+    verifiedRef.current = true;
+
+    const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    const sessionId = params?.get("session_id") || undefined;
+
+    fetch(`${API_URL}/v1/payments/verify-session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(async (data) => {
+        if (data?.plan_id) {
+          setVerifiedPlan(
+            data.plan_id === "starter" && data.has_multilang_addon
+              ? "Starter + 🌐 Pakiet 8 Języków"
+              : data.plan_id.toUpperCase()
+          );
+        }
+        try {
+          await update();
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {});
+  }, [session, update]);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center px-4">
@@ -39,8 +79,14 @@ export default function PlatnosCiSukces() {
           Płatność potwierdzona!
         </h1>
         <p className="text-gray-400 mb-2">
-          Dziękujemy za subskrypcję. Twój plan zostanie aktywowany w ciągu kilku
-          sekund.
+          Dziękujemy za subskrypcję.{" "}
+          {verifiedPlan ? (
+            <span className="text-emerald-400 font-semibold">
+              Aktywowano plan: {verifiedPlan}.
+            </span>
+          ) : (
+            "Twój plan został aktywowany na koncie."
+          )}
         </p>
         <p className="text-gray-500 text-sm mb-10">
           Otrzymasz potwierdzenie na adres email powiązany z kontem.
@@ -49,7 +95,7 @@ export default function PlatnosCiSukces() {
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             id="btn-go-dashboard"
-            href="/dashboard"
+            href="/dashboard?upgraded=1"
             className="px-6 py-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-violet-900/40"
           >
             Przejdź do dashboardu

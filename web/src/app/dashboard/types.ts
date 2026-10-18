@@ -103,6 +103,8 @@ export interface UserProfile {
   is_admin?: boolean
   has_multilang_addon?: boolean
   multilang?: MultilangEntitlements
+  plan_badge?: string
+  desktop_runner_active?: boolean
   plan: UserPlan
   usage: { used_this_month: number; quota: number; percent: number }
 }

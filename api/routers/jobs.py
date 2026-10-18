@@ -30,6 +30,7 @@ Sanitize_transcript wykrywa ten prefix i zachowuje strukturę wieloliniową
 zamiast normalizować whitespace. Pipeline.py konwertuje __VTT__ do
 prawdziwego WebVTT dla generatora.
 """
+import hashlib
 import logging
 import os
 import re
@@ -48,7 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.db import AsyncSessionLocal
 from api.models.job import TranscriptJob
 from api.auth import get_current_user
-from api.models.user import User
+from api.models.user import User, ApiKey
 
 logger = logging.getLogger(__name__)
 
@@ -162,34 +163,47 @@ def _get_local_runner_token() -> str:
 
 
 def _verify_runner_token(authorization: str = Header(None)) -> str:
-    """Weryfikuje Bearer token runnera.
+    """Weryfikuje Bearer token runnera (globalny LOCAL_RUNNER_TOKEN lub indywidualny klucz vse_live_*)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Missing or invalid Authorization header")
 
-    PO CO: Endpointy /pending i /{id}/result są dostępne tylko dla
-    autoryzowanego Local Runner'a. Chronione przez Bearer token
-    z minimalną entropią 256 bitów.
+    token = authorization[7:].strip()  # strip 'Bearer '
+    if not token:
+        raise HTTPException(401, "Empty token")
 
-    Raises:
-        HTTPException 401: Brak lub nieprawidłowy token.
-        HTTPException 503: Token nie skonfigurowany na serwerze.
-    """
+    # Rate limit check
+    if not _check_rate_limit(token[:12]):
+        raise HTTPException(429, "Rate limit exceeded: max 30 req/min")
+
+    if token.startswith("vse_"):
+        return token
+
     expected = _get_local_runner_token()
     if not expected:
         logger.error("LOCAL_RUNNER_TOKEN not configured in env")
         raise HTTPException(503, "Local runner not configured on server")
 
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Missing or invalid Authorization header")
-
-    token = authorization[7:]  # strip 'Bearer '
     if token != expected:
         logger.warning("Runner auth: invalid token attempt")
         raise HTTPException(401, "Invalid LOCAL_RUNNER_TOKEN")
 
-    # Rate limit check
-    if not _check_rate_limit(token[:8]):  # tylko pierwsze 8 znaków do klucza
-        raise HTTPException(429, "Rate limit exceeded: max 30 req/min")
-
     return token
+
+
+async def _resolve_runner_user_id(token: str, db: AsyncSession) -> Optional[uuid.UUID]:
+    """Jeśli token to indywidualny klucz API (vse_*), weryfikuje go w bazie, aktualizuje last_used_at i zwraca user_id."""
+    if not token.startswith("vse_"):
+        return None
+    key_hash = hashlib.sha256(token.encode()).hexdigest()
+    res = await db.execute(
+        select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)  # noqa: E712
+    )
+    api_key = res.scalar_one_or_none()
+    if api_key is None:
+        raise HTTPException(401, "Invalid or inactive VSE Desktop Runner API key")
+    api_key.last_used_at = datetime.now(timezone.utc)
+    await db.commit()
+    return api_key.user_id
 
 
 async def _get_db():
@@ -308,22 +322,21 @@ async def get_pending_jobs(
 ) -> List[JobResponse]:
     """Zwraca listę jobów ze statusem 'pending' dla Local Runner'a.
 
-    CO: Polling endpoint dla Windows Service.
+    CO: Polling endpoint dla Windows Service lub VSE Desktop Runner.
     PO CO: Runner odpytuje ten endpoint co POLL_INTERVAL sekund,
     pobiera zadania i zaczyna fetch transkryptów lokalnie.
-    Auth: Bearer LOCAL_RUNNER_TOKEN (rate limit: 30/min).
-
-    Returns:
-        Lista JobResponse ze statusem 'pending'.
+    Auth: Bearer LOCAL_RUNNER_TOKEN lub indywidualny klucz vse_live_* (rate limit: 30/min).
     """
+    runner_user_id = await _resolve_runner_user_id(token, db)
+    query = select(TranscriptJob).where(TranscriptJob.status == "pending")
+    if runner_user_id is not None:
+        query = query.where(TranscriptJob.user_id == runner_user_id)
+
     result = await db.execute(
-        select(TranscriptJob)
-        .where(TranscriptJob.status == "pending")
-        .order_by(TranscriptJob.created_at.asc())
-        .limit(10)  # max 10 na raz, unika floodow
+        query.order_by(TranscriptJob.created_at.asc()).limit(10)
     )
     jobs = result.scalars().all()
-    logger.info("[jobs] /pending: %d jobs returned for runner", len(jobs))
+    logger.info("[jobs] /pending: %d jobs returned for runner (user_id=%s)", len(jobs), runner_user_id)
     return [_job_to_response(j) for j in jobs]
 
 
@@ -334,24 +347,7 @@ async def get_job_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(_get_db),
 ) -> List[HistoryJobResponse]:
-    """Zwraca historię jobów transkrypcji (wszystkie statusy).
-
-    CO: Endpoint dla strony /historia — lista przetworzonych filmów.
-
-    PO CO: Użytkownik widzi co już przetworzył: jakie filmy, kiedy,
-    z jakim wynikiem. Historia jest z PostgreSQL — nie localStorage.
-    To nienaruszalna zasada architektoniczna (patrz ROADMAP.md).
-
-    JAK: SELECT z transcript_jobs ORDER BY created_at DESC, paginacja.
-    Filtruje po user_id (chyba że admin).
-
-    Args:
-        limit: Maks. liczba wyników (domyślnie 50, max 200).
-        offset: Przesunięcie dla paginacji.
-
-    Returns:
-        Lista HistoryJobResponse posortowana od najnowszych.
-    """
+    """Zwraca historię jobów transkrypcji (wszystkie statusy)."""
     query = select(TranscriptJob)
     if not current_user.is_admin:
         query = query.where(TranscriptJob.user_id == current_user.id)
@@ -373,22 +369,14 @@ async def complete_job(
     token: str = Depends(_verify_runner_token),
     db: AsyncSession = Depends(_get_db),
 ) -> dict:
-    """Runner przesyła wynik transkrypcji (lub błąd).
-
-    CO: Endpoint do którego Local Runner POST-uje po pobraniu transkryptu.
-    PO CO: Transkrypt trafia do DB, pipeline może kontynuować generowanie.
-    Auth: Bearer LOCAL_RUNNER_TOKEN.
-
-    Security:
-    - Idempotent: jeśli job już 'fetched', zwraca 200 bez zmiany danych.
-    - Sanitizacja: strip HTML, limit 100k znaków, VTT-aware (zachowuje newlines).
-
-    Returns:
-        {"status": "fetched"} lub {"status": "already_processed"}.
-    """
+    """Runner przesyła wynik transkrypcji (lub błąd)."""
+    runner_user_id = await _resolve_runner_user_id(token, db)
     job = await db.get(TranscriptJob, job_id)
     if not job:
         raise HTTPException(404, f"Job {job_id} not found")
+
+    if runner_user_id is not None and job.user_id is not None and job.user_id != runner_user_id:
+        raise HTTPException(403, "Job belongs to another user")
 
 
 

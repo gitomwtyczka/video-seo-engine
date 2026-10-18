@@ -348,7 +348,16 @@ def fetch_transcript_youtube_api(video_id: str, lang: str = "pl") -> Tuple[Optio
         return None, None
     try:
         vid = extract_video_id(video_id)
-        ytt = YouTubeTranscriptApi()
+        proxy_url = (os.getenv("YT_PROXY_URL") or os.getenv("WEBSHARE_PROXY_URL") or "").strip()
+        ytt = None
+        if proxy_url:
+            try:
+                from youtube_transcript_api.proxies import GenericProxyConfig
+                ytt = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(http_url=proxy_url, https_url=proxy_url))
+            except Exception:
+                ytt = YouTubeTranscriptApi()
+        else:
+            ytt = YouTubeTranscriptApi()
         formatter = WebVTTFormatter()
 
         transcript_list = list(ytt.list(vid))
@@ -427,6 +436,7 @@ def fetch_transcript_ytdlp(
     os.makedirs(output_dir, exist_ok=True)
 
     cookies_file = os.environ.get("YTDLP_COOKIES_FILE", "")
+    proxy_url = (os.getenv("YT_PROXY_URL") or os.getenv("WEBSHARE_PROXY_URL") or "").strip()
     sub_lang_specs = [
         lang,
         "en.*,de.*,es.*,fr.*,it.*,uk.*,pt.*,pl.*,orig",
@@ -441,8 +451,10 @@ def fetch_transcript_ytdlp(
             "--sub-langs", sub_langs,
             "--sub-format", "vtt",
             "--output", os.path.join(output_dir, f"{vid}.%(ext)s"),
-            url,
         ]
+        if proxy_url:
+            cmd_base.extend(["--proxy", proxy_url])
+        cmd_base.append(url)
 
         methods_to_try = []
         if cookies_file and os.path.exists(cookies_file):

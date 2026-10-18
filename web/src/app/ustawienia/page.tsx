@@ -44,6 +44,9 @@ interface UserPlan {
 interface UserProfile {
   email: string
   is_verified?: boolean
+  has_multilang_addon?: boolean
+  plan_badge?: string
+  desktop_runner_active?: boolean
   plan: UserPlan
   usage: { used_this_month: number; quota: number; percent: number }
   subscription?: {
@@ -461,6 +464,8 @@ function UstawieniaContent() {
     setYtChannels((prev) => prev.filter((c) => c.id !== channelId))
   }
 
+  const [downloadingRunner, setDownloadingRunner] = useState(false)
+
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -470,12 +475,42 @@ function UstawieniaContent() {
   }
 
   const planId = userProfile?.plan?.id ?? 'free'
-  const planLabel = PLAN_LABELS[planId] ?? userProfile?.plan?.display_name ?? 'Free'
-  const isPaid = planId !== 'free'
-  const portalLimit = PLAN_PORTAL_LIMITS[planId] ?? 0
+  const planLabel =
+    userProfile?.plan_badge ||
+    (userProfile?.has_multilang_addon && (planId === 'starter' || planId === 'free')
+      ? 'Starter + 🌐 8 Jęz.'
+      : (PLAN_LABELS[planId] ?? userProfile?.plan?.display_name ?? 'Free'))
+  const isPaid = planId !== 'free' || Boolean(userProfile?.has_multilang_addon)
+  const portalLimit = PLAN_PORTAL_LIMITS[planId === 'free' && userProfile?.has_multilang_addon ? 'starter' : planId] ?? 0
   const portalCount = portals.length
   const canAddPortal = portalLimit === 0 ? false : portalCount < portalLimit
   const accessToken = session?.accessToken as string | undefined
+
+  const handleDownloadDesktopRunner = async () => {
+    if (!accessToken) return
+    setDownloadingRunner(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/users/desktop-runner-package`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      if (res.ok) {
+        const blob = await res.blob()
+        const dlUrl = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = dlUrl
+        a.download = 'vse-desktop-runner.zip'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        window.URL.revokeObjectURL(dlUrl)
+      }
+    } catch {
+      // silent
+    } finally {
+      setDownloadingRunner(false)
+    }
+  }
 
   // Renewal date display
   const renewalDate = userProfile?.subscription?.current_period_end
@@ -781,7 +816,7 @@ function UstawieniaContent() {
           </section>
 
           {/* ── Sekcja 3: Plan ───────────────────────────────────────────── */}
-          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
             <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
               <span className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-xs">💳</span>
               Plan subskrypcji
@@ -819,6 +854,47 @@ function UstawieniaContent() {
                   {` ${portalLimit === 999 ? 'Bez limitu' : portalLimit} portali WordPress`}
                 </p>
               </div>
+            )}
+          </section>
+
+          {/* ── Sekcja 4: VSE Desktop Runner ──────────────────────────────── */}
+          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs">💻</span>
+                VSE Desktop Runner — Lokalny Akcelerator (Starter / Pro / Agency)
+              </h2>
+              {userProfile?.desktop_runner_active ? (
+                <span className="px-2.5 py-0.5 text-xs bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold">
+                  ● Połączony (Online)
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 text-xs bg-gray-800 text-gray-400 rounded-full border border-gray-700">
+                  ○ Tryb Chmurowy (Auto-Fallback 8s)
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-400 leading-relaxed mb-4">
+              Konto Free działa w 100% w chmurze i nie wymaga żadnej instalacji. Dla planów <strong className="text-gray-200">Starter, Pro i Agency</strong> udostępniamy gotowy pakiet <strong className="text-gray-200">VSE Desktop Runner</strong> (Windows / macOS) z indywidualnym kluczem API — do lokalnego wycinania rolek ShortMachine 9:16 (FFmpeg) oraz pobierania napisów z domowego IP przy masowym generowaniu.
+            </p>
+
+            {!isPaid ? (
+              <Link
+                href="/cennik"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-xs font-semibold text-violet-300 transition-colors"
+              >
+                🔒 Odblokuj w planie Starter / Pro ↗
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDownloadDesktopRunner}
+                disabled={downloadingRunner}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl text-xs font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all disabled:opacity-50"
+              >
+                {downloadingRunner ? 'Generowanie pakietu (.zip)...' : '⬇️ Pobierz gotowy pakiet instalacyjny (.zip)'}
+              </button>
             )}
           </section>
         </div>

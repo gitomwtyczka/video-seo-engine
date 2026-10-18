@@ -12,12 +12,13 @@ const plans = [
     price: "49",
     description: "Dla twórców i małych portali",
     features: [
-      "50 filmów / miesiąc",
+      "30 filmów / miesiąc",
       "3 portale WordPress",
       "VideoObject Schema",
       "Chapters + FAQ AI",
       "Cross-Language: wideo z dowolnego języka → SEO w języku panelu",
       "Opcjonalny Add-on: Pakiet Wielojęzyczny (+29 zł/mies.)",
+      "Pakiet VSE Desktop Runner (.zip)",
       "Dostęp do API",
       "Email support",
     ],
@@ -29,10 +30,11 @@ const plans = [
     price: "149",
     description: "Dla profesjonalnych twórców treści",
     features: [
-      "250 filmów / miesiąc",
+      "150 filmów / miesiąc",
       "10 portali WordPress",
       "🌐 Pakiet Wielojęzyczny (8 języków) W CENIE",
       "Tłumaczenie poszczególnych zakładek 1 kliknięciem",
+      "Pakiet VSE Desktop Runner (.zip)",
       "Pakiet analiz Premium AI",
       "VideoObject Schema",
       "Chapters + FAQ AI",
@@ -48,9 +50,10 @@ const plans = [
     price: "499",
     description: "Dla agencji i dużych wydawców",
     features: [
-      "1 000 filmów / miesiąc",
+      "500 filmów / miesiąc",
       "50 portali WordPress",
       "🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji",
+      "Pakiet VSE Desktop Runner (.zip)",
       "Priorytetowe AI & wsparcie",
       "VideoObject Schema",
       "Chapters + FAQ AI",
@@ -101,7 +104,7 @@ export default function CennikPage() {
     <main className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-20 px-4">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-10">
           <span className="inline-block px-4 py-1 rounded-full text-xs font-semibold bg-violet-900/40 text-violet-300 border border-violet-700/40 mb-4 uppercase tracking-widest">
             Cennik
           </span>
@@ -110,6 +113,13 @@ export default function CennikPage() {
           </h1>
           <p className="text-gray-400 text-lg max-w-xl mx-auto">
             Automatyzuj SEO wideo. Płać miesięcznie, anuluj kiedy chcesz.
+          </p>
+        </div>
+
+        {/* Promo code banner */}
+        <div className="mb-12 p-4 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-violet-950/60 to-emerald-950/60 border border-emerald-500/30 text-center shadow-lg">
+          <p className="text-sm text-emerald-300 font-medium">
+            🎁 Oferta startowa: wpisz kod <span className="px-2 py-0.5 mx-1 rounded bg-emerald-500/20 border border-emerald-400/40 font-mono font-bold text-white">START20</span> w koszyku Stripe, aby otrzymać <strong className="text-white">-20% na pierwszy miesiąc!</strong>
           </p>
         </div>
 
@@ -204,14 +214,22 @@ export default function CennikPage() {
               Generuj artykuły, streszczenia, posty Social Media i pełne Schema.org w <strong className="text-white">8 językach</strong> (🇵🇱 PL, 🇬🇧 EN, 🇩🇪 DE, 🇪🇸 ES, 🇫🇷 FR, 🇮🇹 IT, 🇺🇦 UK, 🇵🇹 PT) z dowolnego wideo. Tłumacz wybrane zakładki 1 kliknięciem bez ponownego pobierania filmu i bez zużywania limitu wideo.
             </p>
           </div>
-          <div className="flex flex-col items-stretch sm:items-end gap-2 w-full md:w-auto flex-shrink-0">
+          <div className="flex flex-col items-stretch sm:items-end gap-2.5 w-full md:w-auto flex-shrink-0">
+            <button
+              id="btn-subscribe-starter-multilang"
+              onClick={() => handleSubscribe("starter_multilang")}
+              disabled={loading !== null}
+              className="px-6 py-3 rounded-xl font-semibold text-sm bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-indigo-900/50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {loading === "starter_multilang" ? "Przekierowanie..." : "🚀 Kup Starter + 8 Języków (78 zł/mies.)"}
+            </button>
             <button
               id="btn-subscribe-multilang-addon"
               onClick={() => handleSubscribe("multilang_addon")}
               disabled={loading !== null}
-              className="px-6 py-3 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+              className="px-5 py-2.5 rounded-xl font-semibold text-xs bg-gray-800/90 hover:bg-gray-700 text-indigo-200 border border-indigo-500/40 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
             >
-              {loading === "multilang_addon" ? "Przekierowanie..." : "Dokup Add-on (+29 zł/mies.)"}
+              {loading === "multilang_addon" ? "Przekierowanie..." : "Mam już Starter — dokup Add-on (+29 zł/mies.)"}
             </button>
             <span className="text-xs text-gray-400 text-center sm:text-right">
               Aktywacja natychmiast po płatności Stripe

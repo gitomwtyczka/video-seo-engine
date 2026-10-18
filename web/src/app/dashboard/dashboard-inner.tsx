@@ -210,6 +210,13 @@ export default function DashboardInner() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
+        if (typeof window !== 'undefined' && window.location.search.includes('upgraded=1')) {
+          try {
+            await apiPost('/v1/payments/verify-session', {})
+          } catch {
+            // ignore
+          }
+        }
         const data = await apiGet<UserProfile>('/v1/users/me')
         setUserProfile(data)
       } catch {
@@ -218,6 +225,8 @@ export default function DashboardInner() {
     }
     fetchProfile()
   }, [])
+
+  const userPlan = userProfile?.plan?.id ?? 'free'
 
   const isPro =
     (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
@@ -244,12 +253,12 @@ export default function DashboardInner() {
     }
   }
 
-  const handleBuyMultilangAddon = async () => {
+  const handleCheckoutPlan = async (planId: string) => {
     setAddonCheckoutLoading(true)
     try {
       const res = await apiPost<{ session_url?: string; checkout_url?: string }>(
-        '/v1/payments/checkout-addon',
-        { addon: 'multilang' }
+        '/v1/payments/create-checkout-session',
+        { plan_id: planId }
       )
       const redirectUrl = res?.session_url || res?.checkout_url
       if (redirectUrl) {
@@ -260,6 +269,10 @@ export default function DashboardInner() {
     } finally {
       setAddonCheckoutLoading(false)
     }
+  }
+
+  const handleBuyMultilangAddon = async () => {
+    await handleCheckoutPlan(userPlan === 'free' ? 'starter_multilang' : 'multilang_addon')
   }
 
   const getCurrentJobIdParam = () => {
@@ -552,7 +565,11 @@ export default function DashboardInner() {
   const schema = activeSchema
   const chapters = extractChapters(schema)
   const faq = extractFaq(schema)
-  const planLabel = userProfile?.plan?.display_name ?? 'Free'
+  const planLabel =
+    userProfile?.plan_badge ||
+    (userProfile?.has_multilang_addon && (userPlan === 'starter' || userPlan === 'free')
+      ? 'Starter + 🌐 8 Jęz.'
+      : (userProfile?.plan?.display_name ?? 'Free'))
   const usageUsed = userProfile?.usage?.used_this_month ?? 0
   const usageQuota = userProfile?.usage?.quota ?? 5
 
@@ -627,11 +644,19 @@ export default function DashboardInner() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-white truncate">{session?.user?.email}</p>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-xs text-violet-400">{planLabel}</p>
-                  {hasMultilangAddon && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                      {t.navMultilangBadge}
+                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                  <span
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                      userPlan !== 'free' || hasMultilangAddon
+                        ? 'bg-gradient-to-r from-violet-600/30 to-emerald-600/30 text-emerald-300 border-emerald-500/40'
+                        : 'bg-gray-800 text-gray-300 border-gray-700'
+                    }`}
+                  >
+                    Plan {planLabel}
+                  </span>
+                  {userProfile?.desktop_runner_active && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      💻 Runner
                     </span>
                   )}
                 </div>
@@ -655,7 +680,7 @@ export default function DashboardInner() {
                   {t.navBuyAddon}
                 </button>
               )}
-              {userProfile?.plan?.id !== 'free' && (
+              {(userProfile?.plan?.id !== 'free' || hasMultilangAddon) && (
                 <ManageSubscriptionLink accessToken={(session as { accessToken?: string })?.accessToken} />
               )}
             </div>
@@ -712,6 +737,21 @@ export default function DashboardInner() {
               isVerified={userProfile?.is_verified}
               accessToken={(session as { accessToken?: string })?.accessToken}
             />
+
+            {/* START20 Promo Banner for Free users with >= 3 used videos */}
+            {userPlan === 'free' && !hasMultilangAddon && usageUsed >= 3 && (
+              <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-950/60 via-violet-950/70 to-emerald-950/60 border border-amber-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+                <p className="text-xs sm:text-sm text-amber-200 leading-relaxed">
+                  🔥 Wykorzystałeś już <strong className="text-white">{usageUsed}/{usageQuota}</strong> darmowych filmów! Przejdź na Starter lub Pro — wpisz kod <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 font-mono font-bold text-white">START20</span> w koszyku Stripe i odbierz <strong className="text-emerald-300">-20% na pierwszy miesiąc</strong>.
+                </p>
+                <Link
+                  href="/cennik"
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-emerald-600 hover:opacity-90 text-xs font-bold text-white whitespace-nowrap shadow-md"
+                >
+                  Odbierz -20% ↗
+                </Link>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-start justify-between gap-4 mb-1">
               <h1 className="text-2xl font-bold text-white">{t.heading}</h1>
@@ -870,7 +910,7 @@ export default function DashboardInner() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-semibold text-white">{t.upsellTitle}</span>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      +29 PLN / mo
+                      {userPlan === 'free' ? 'Starter 49 zł + Add-on 29 zł' : '+29 PLN / mo'}
                     </span>
                   </div>
                   <p className="text-xs text-gray-300 leading-relaxed">
@@ -878,20 +918,45 @@ export default function DashboardInner() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleBuyMultilangAddon}
-                    disabled={addonCheckoutLoading}
-                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
-                  >
-                    {addonCheckoutLoading ? t.loading : t.upsellBuyAddon}
-                  </button>
-                  <Link
-                    href="/cennik"
-                    className="px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
-                  >
-                    {t.upsellUpgradePro}
-                  </Link>
+                  {userPlan === 'free' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('starter_multilang')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        {addonCheckoutLoading ? t.loading : '🚀 Wybierz Starter + Pakiet 8 Języków (78 zł/mies.)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('pro')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        💎 Wybierz Plan Pro — 8 Języków W CENIE (149 zł/mies.)
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('multilang_addon')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        {addonCheckoutLoading ? t.loading : '🌐 Dokup Pakiet Wielojęzyczny (+29 zł/mies.)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('pro')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        💎 Upgrade do Pro (149 zł/mies.)
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => setShowMultilangUpsell(false)}
