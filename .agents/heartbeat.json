@@ -1,18 +1,12 @@
 {
   "callsign": "vse-dev-01",
-  "status": "working",
-  "current_task": "Faza Multi-Language & Cross-Language Engine: Auto-detect source_lang, Dual-Language Anchor, Per-Material Language Switcher (/v1/adapt-material) & Pricing Add-on (+29 PLN)",
-  "timestamp": "2026-10-17T23:03:00+02:00",
+  "status": "done",
+  "current_task": "DONE — Faza Multi-Language & Cross-Language Engine v2.1 (8 języków, Dual-Language Anchor, /v1/adapt-material, +29 PLN Add-on) wdrożona na produkcję i zweryfikowana E2E",
+  "timestamp": "2026-10-18T10:04:00+02:00",
   "last_completed": [
-    "1020746f997b24b9f334512873c51f2665cda194: chore(heartbeat): vse-dev-01 done VSE Commercial v2.0 [vse-dev-01]",
-    "c00aaf974f3122098caace2d4cb49ddfde056825: report: vse-dev-01 VSE Commercial v2.0 complete [vse-dev-01]"
+    "93cef05d35c798fead3e9e96c387eab8f9582353: feat(multilang): Cross-Language & Per-Material Translation Engine (8 langs, Dual-Language Anchor, +29 PLN add-on) [vse-dev-01]",
+    "035b9f6cb3027605f7b019ae94a39a8aa8ed560b: docs(tasks): mark Multi-Language Engine v2.1 complete in current.md [vse-dev-01]",
+    "3af1611a654fa58140ff4e2ca0df6483e55a120d: report: vse-dev-01 Multi-Language Engine v2.1 complete [vse-dev-01]"
   ],
-  "pending": [
-    "KROK 1: core/fetcher.py auto-detect source_lang & cross-lang VTT fallback",
-    "KROK 2: core/generator.py SUPPORTED_LANGUAGES, Dual-Language Anchor & adapt_material_language",
-    "KROK 3: Backend quota/models/endpoints (/v1/adapt-material, /v1/payments/checkout-addon, has_multilang_addon)",
-    "KROK 4: Frontend Dashboard UI + Cennik + Landing Page",
-    "KROK 5: ROADMAP.md update",
-    "KROK 6: QA, GitHub Push, Sequential VPS Deploy & Live Test (3pZi3uoLLzY)"
-  ]
+  "pending": []
 }
