@@ -210,9 +210,10 @@ export default function DashboardInner() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        if (typeof window !== 'undefined' && window.location.search.includes('upgraded=1')) {
+        if (typeof window !== 'undefined' && (window.location.search.includes('upgraded=1') || window.location.search.includes('payment=topup_success'))) {
           try {
-            await apiPost('/v1/payments/verify-session', {})
+            const sessionId = new URLSearchParams(window.location.search).get('session_id') || undefined
+            await apiPost('/v1/payments/verify-session', { session_id: sessionId })
           } catch {
             // ignore
           }
@@ -570,8 +571,11 @@ export default function DashboardInner() {
     (userProfile?.has_multilang_addon && (userPlan === 'starter' || userPlan === 'free')
       ? 'Starter + 🌐 8 Jęz.'
       : (userProfile?.plan?.display_name ?? 'Free'))
-  const usageUsed = userProfile?.usage?.used_this_month ?? 0
-  const usageQuota = userProfile?.usage?.quota ?? 5
+  const usageUsed = userProfile?.usage?.used_this_month ?? userProfile?.used_this_month ?? 0
+  const usageQuota = userProfile?.usage?.quota ?? userProfile?.monthly_quota ?? 5
+  const extraQuotaBalance = userProfile?.extra_quota_balance ?? userProfile?.usage?.extra_quota_balance ?? 0
+  const customMonthlyQuota = userProfile?.custom_monthly_quota ?? userProfile?.usage?.custom_monthly_quota ?? null
+  const usagePercent = usageQuota === -1 ? 15 : usageQuota > 0 ? Math.min(100, (usageUsed / usageQuota) * 100) : 0
 
   const sourceLangMeta = VSE_LANGUAGES.find((l) => l.code === (result?.sourceLang || result?.raw?.source_lang || 'pl'))
   const targetLangMeta = VSE_LANGUAGES.find((l) => l.code === currentTabLang) || VSE_LANGUAGES[0]
@@ -606,15 +610,35 @@ export default function DashboardInner() {
           {/* User info + plan + UI language */}
           <div className="p-4 border-t border-gray-800">
             <div className="mb-3">
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <div className="flex justify-between items-center text-xs text-gray-400 mb-1">
                 <span>{t.navUsed}</span>
-                <span>{usageUsed}/{usageQuota}</span>
+                <span className="font-mono text-gray-200">
+                  {usageUsed}/{usageQuota === -1 ? '∞' : usageQuota}
+                  {customMonthlyQuota !== null && (
+                    <span className="ml-1 text-[10px] text-amber-400 font-semibold">(VIP)</span>
+                  )}
+                </span>
               </div>
               <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (usageUsed / usageQuota) * 100)}%` }}
+                  style={{ width: `${usagePercent}%` }}
                 />
+              </div>
+              <div className="flex items-center justify-between mt-1.5">
+                {extraQuotaBalance > 0 ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    ⚡ +{extraQuotaBalance} Top-Up
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-500">Top-Up: 0 filmów</span>
+                )}
+                <a
+                  href="/cennik#topup"
+                  className="text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                >
+                  + Dokup pakiet Top-Up
+                </a>
               </div>
             </div>
 
@@ -783,7 +807,7 @@ export default function DashboardInner() {
                   >
                     {portals.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {p.is_plugin_connected || p.auth_mode === 'plugin_token' ? `🔌 ${p.name} (Wtyczka v3.0)` : p.name}
                       </option>
                     ))}
                     <option value="__add__">{t.addPortal}</option>
@@ -1040,7 +1064,11 @@ export default function DashboardInner() {
               <>
                 <div className="grid grid-cols-3 gap-4 mb-8">
                   {[
-                    { label: t.statMonthly, value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
+                    {
+                      label: t.statMonthly,
+                      value: `${usageUsed}/${usageQuota === -1 ? '∞' : usageQuota}`,
+                      sub: extraQuotaBalance > 0 ? `Plan ${planLabel} • ⚡ +${extraQuotaBalance} Top-Up` : `Plan ${planLabel}`,
+                    },
                     { label: t.statBenchmark, value: '8/10', sub: t.statBenchmarkSub },
                     { label: t.statSchema, value: 'v5.3', sub: 'Google 2026' },
                   ].map((stat) => (
