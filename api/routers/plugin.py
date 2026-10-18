@@ -1,6 +1,7 @@
 """Router: /v1/plugin/* — WordPress Plugin v3.0 (vse-video-seo) Backend API.
 
 CO: Obsługuje generowanie i walidację kluczy API dla wtyczki WordPress `vse-video-seo` (v3.0),
+    pobieranie paczki `.zip` wtyczki (`GET /v1/plugin/download`),
     auto-parowanie portalu WordPress (`POST /v1/plugin/validate`),
     darmowy podgląd Video SEO Score + Google Rich Result (`POST /v1/plugin/preview`),
     generowanie pełnego pakietu VSE: Artykuł + TL;DR + Rozdziały + FAQ + Schema JSON-LD + Meta SEO
@@ -13,15 +14,19 @@ PO CO: Wtyczka `vse-video-seo` v3.0 łączy funkcję Lead Magnetu PLG z pełnym 
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+import io
 import logging
 import os
+from pathlib import Path
 import re
 import secrets
 from typing import Any, Optional
 from urllib.parse import urlparse
 import uuid
+import zipfile
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 import requests
 from sqlalchemy import desc, func, select
@@ -54,9 +59,9 @@ logger = logging.getLogger(__name__)
 
 PLAN_LIMITS: dict[str, int] = {
     "free": 5,
-    "starter": 50,
-    "pro": 250,
-    "agency": 1000,
+    "starter": 30,
+    "pro": 110,
+    "agency": 250,
 }
 
 
@@ -366,7 +371,7 @@ class ValidateKeyResponse(BaseModel):
     portal_id: Optional[str] = None
     portal_name: Optional[str] = None
     multilang_enabled: bool = False
-    upgrade_url: str = "https://vse.impresjapr.pl/#pricing"
+    upgrade_url: str = "https://vse.impresjapr.pl/cennik?utm_source=wp_plugin&utm_medium=settings"
 
 
 class PreviewRequest(BaseModel):
@@ -421,7 +426,7 @@ class InjectDataResponse(BaseModel):
     used_this_month: int
     remaining_quota: int
     extra_quota_balance: int = 0
-    upgrade_url: str = "https://vse.impresjapr.pl/register?utm_source=wp_plugin"
+    upgrade_url: str = "https://vse.impresjapr.pl/cennik?utm_source=wp_plugin&utm_medium=gutenberg"
 
 
 class PluginHistoryRequest(BaseModel):
@@ -455,6 +460,35 @@ class PluginHistoryItemRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@router.get("/download")
+async def download_wp_plugin_zip() -> Response:
+    """Serve the official WordPress plugin `vse-video-seo.zip` package ready for 1-click WP Admin upload."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    plugin_dir = repo_root / "plugins" / "vse-video-seo"
+    if not plugin_dir.exists() or not plugin_dir.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Katalog wtyczki plugins/vse-video-seo nie został znaleziony na serwerze.",
+        )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path in sorted(plugin_dir.rglob("*")):
+            if file_path.is_file():
+                rel_path = file_path.relative_to(plugin_dir).as_posix()
+                arcname = f"vse-video-seo/{rel_path}"
+                zf.write(file_path, arcname=arcname)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="vse-video-seo.zip"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
 
 @router.post("/keys", response_model=CreateKeyResponse, status_code=status.HTTP_201_CREATED)
 async def create_plugin_api_key(
