@@ -15,7 +15,7 @@ from sqlalchemy import select, func, update
 from api.db import get_db
 from api.auth import get_current_user
 from api.models.user import User, UsageLog, ApiKey
-from api.quota import check_multilang_access
+from api.quota import check_multilang_access, get_effective_monthly_quota
 
 router = APIRouter(prefix="/v1/users", tags=["users"])
 
@@ -30,8 +30,10 @@ class PlanInfo(BaseModel):
 
 class UsageInfo(BaseModel):
     used_this_month: int
-    quota: int  # -1 = unlimited
+    quota: int  # -1 = unlimited (effective monthly quota)
     percent: float
+    extra_quota_balance: int = 0
+    custom_monthly_quota: int | None = None
 
 
 class UserProfile(BaseModel):
@@ -44,6 +46,10 @@ class UserProfile(BaseModel):
     multilang: dict = {}
     plan_badge: str = "Free"
     desktop_runner_active: bool = False
+    extra_quota_balance: int = 0
+    custom_monthly_quota: int | None = None
+    monthly_quota: int = 5
+    used_this_month: int = 0
     plan: PlanInfo
     usage: UsageInfo
     created_at: str
@@ -54,7 +60,7 @@ async def get_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Return current user profile with plan, multilang entitlements, and monthly usage."""
+    """Return current user profile with plan, multilang entitlements, top-up balance, and monthly usage."""
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -63,10 +69,13 @@ async def get_me(
         .where(UsageLog.user_id == current_user.id)
         .where(UsageLog.success == True)  # noqa: E712
         .where(UsageLog.endpoint != "adapt_material")
+        .where(~UsageLog.endpoint.like("topup:%"))
         .where(UsageLog.created_at >= month_start)
     )
-    used = result.scalar_one()
-    quota = current_user.plan.monthly_quota if current_user.plan else 5
+    used = int(result.scalar_one() or 0)
+    quota = get_effective_monthly_quota(current_user)
+    extra_balance = int(getattr(current_user, "extra_quota_balance", 0) or 0)
+    custom_quota = getattr(current_user, "custom_monthly_quota", None)
     percent = 0.0 if quota == -1 else round(used / quota * 100, 1) if quota > 0 else 0.0
 
     multilang = await check_multilang_access(current_user.id, db, user=current_user)
@@ -107,17 +116,23 @@ async def get_me(
         multilang=multilang,
         plan_badge=plan_badge,
         desktop_runner_active=desktop_runner_active,
+        extra_quota_balance=extra_balance,
+        custom_monthly_quota=custom_quota,
+        monthly_quota=quota,
+        used_this_month=used,
         plan=PlanInfo(
             id=plan.id,
             display_name=plan.display_name,
-            monthly_quota=plan.monthly_quota,
+            monthly_quota=quota,
             wp_sites_limit=plan.wp_sites_limit,
             api_access=plan.api_access
-        ) if plan else PlanInfo(id="free", display_name="Free", monthly_quota=5, wp_sites_limit=0, api_access=False),
+        ) if plan else PlanInfo(id="free", display_name="Free", monthly_quota=quota, wp_sites_limit=0, api_access=False),
         usage=UsageInfo(
             used_this_month=used,
             quota=quota,
-            percent=percent
+            percent=percent,
+            extra_quota_balance=extra_balance,
+            custom_monthly_quota=custom_quota,
         ),
         created_at=current_user.created_at.isoformat() if current_user.created_at else ""
     )
@@ -282,5 +297,3 @@ EN:
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="vse-desktop-runner.zip"'},
     )
-
-
