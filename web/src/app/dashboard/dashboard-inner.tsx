@@ -582,7 +582,7 @@ export default function DashboardInner() {
       <div className="min-h-screen bg-gray-950 text-white">
         {/* Sidebar */}
         <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-20">
-          <div className="p-5 border-b border-gray-800 space-y-3">
+          <div className="p-5 border-b border-gray-800">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -594,26 +594,6 @@ export default function DashboardInner() {
                 <span className="text-xs text-gray-500">Video SEO Engine</span>
               </div>
             </div>
-
-            {/* Prominent Sidebar Top Language Switcher */}
-            <div className="bg-gray-950/80 border border-violet-500/40 rounded-xl p-2.5">
-              <label htmlFor="sidebar-ui-lang" className="block text-[11px] font-semibold text-violet-300 mb-1.5">
-                🌐 {t.uiLangLabel}:
-              </label>
-              <select
-                id="sidebar-ui-lang"
-                aria-label={t.uiLangLabel}
-                value={uiLang}
-                onChange={(e) => handleUiLangChange(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 hover:border-violet-500 text-xs font-semibold text-white rounded-lg px-2.5 py-2 cursor-pointer focus:outline-none focus:border-violet-500"
-              >
-                {VSE_LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.flag} {l.label} ({l.short})
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
 
           <nav className="flex-1 p-4 space-y-1">
@@ -623,7 +603,7 @@ export default function DashboardInner() {
             <NavItem icon="grid" label={t.navPricing} href="/cennik" />
           </nav>
 
-          {/* User info + plan */}
+          {/* User info + plan + UI language */}
           <div className="p-4 border-t border-gray-800">
             <div className="mb-3">
               <div className="flex justify-between text-xs text-gray-500 mb-1">
@@ -685,6 +665,26 @@ export default function DashboardInner() {
               )}
             </div>
 
+            {/* Compact UI Language Switcher at the bottom of Sidebar */}
+            <div className="mb-3 pt-2 border-t border-gray-800/80 flex items-center justify-between gap-2">
+              <label htmlFor="sidebar-ui-lang" className="text-[11px] text-gray-400 flex items-center gap-1 whitespace-nowrap">
+                🌐 {t.uiLangLabel}:
+              </label>
+              <select
+                id="sidebar-ui-lang"
+                aria-label={t.uiLangLabel}
+                value={uiLang}
+                onChange={(e) => handleUiLangChange(e.target.value)}
+                className="bg-gray-950 border border-gray-800 hover:border-gray-600 text-xs text-gray-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-violet-500"
+              >
+                {VSE_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.flag} {l.short} — {l.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               onClick={() => signOut({ callbackUrl: '/login' })}
               className="w-full text-left text-sm text-gray-400 hover:text-white transition-colors py-1"
@@ -697,41 +697,6 @@ export default function DashboardInner() {
         {/* Main content */}
         <main className="ml-64 p-8">
           <div className="max-w-4xl">
-            {/* Prominent Topbar UI Language Switcher (always visible at the very top of the screen) */}
-            <div
-              id="topbar-ui-lang-switcher"
-              className="mb-6 p-3.5 bg-gray-900/90 border border-violet-500/30 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg shadow-violet-950/20"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-violet-300 uppercase tracking-wider">
-                  🌐 {t.uiLangLabel}:
-                </span>
-                <span className="text-xs text-gray-400 hidden sm:inline">
-                  ({t.uiLangHint})
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {VSE_LANGUAGES.map((l) => {
-                  const active = uiLang === l.code
-                  return (
-                    <button
-                      key={l.code}
-                      type="button"
-                      onClick={() => handleUiLangChange(l.code)}
-                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                        active
-                          ? 'bg-violet-600 text-white border-violet-400 shadow-md shadow-violet-900/40 scale-105'
-                          : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:border-violet-500/60 hover:text-white'
-                      }`}
-                      title={`${l.label} (${l.short})`}
-                    >
-                      <span>{l.flag}</span>
-                      <span>{l.short}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
 
             <EmailVerificationBanner
               isVerified={userProfile?.is_verified}
