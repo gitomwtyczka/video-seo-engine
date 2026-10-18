@@ -235,13 +235,96 @@ async def generate_endpoint(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+async def _save_translation_to_job(
+    db: AsyncSession,
+    user_id,
+    job_id: Optional[str],
+    youtube_id: str,
+    target_lang: str,
+    material_type: str,
+    adapted_data: dict,
+) -> None:
+    """Persist adapted translation inside TranscriptJob.schema_data['translations'][target_lang]."""
+    try:
+        import uuid
+        from sqlalchemy.orm.attributes import flag_modified
+
+        job = None
+        if job_id:
+            try:
+                job_uuid = uuid.UUID(str(job_id))
+                res = await db.execute(select(TranscriptJob).where(TranscriptJob.id == job_uuid))
+                job = res.scalar_one_or_none()
+            except ValueError:
+                job = None
+
+        if not job and youtube_id:
+            clean_yt = youtube_id.split("v=")[-1][:11] if "v=" in youtube_id else youtube_id[:20]
+            stmt = (
+                select(TranscriptJob)
+                .where(TranscriptJob.video_url.contains(clean_yt))
+                .where(TranscriptJob.schema_data.isnot(None))
+            )
+            if user_id:
+                stmt = stmt.where(TranscriptJob.user_id == user_id)
+            stmt = stmt.order_by(desc(TranscriptJob.created_at)).limit(1)
+            res = await db.execute(stmt)
+            job = res.scalar_one_or_none()
+
+            if not job:
+                # Fallback without user_id filter if job was created with user_id=None
+                stmt2 = (
+                    select(TranscriptJob)
+                    .where(TranscriptJob.video_url.contains(clean_yt))
+                    .where(TranscriptJob.schema_data.isnot(None))
+                    .order_by(desc(TranscriptJob.created_at))
+                    .limit(1)
+                )
+                res2 = await db.execute(stmt2)
+                job = res2.scalar_one_or_none()
+
+        if not job or not isinstance(job.schema_data, dict):
+            return
+
+        new_schema = dict(job.schema_data)
+        translations = dict(new_schema.get("translations") or {})
+        lang_dict = dict(translations.get(target_lang) or {})
+
+        m_type = (material_type or "article").lower().strip()
+        if m_type == "all":
+            for tab_key in ("article", "youtube", "chapters", "schema", "all"):
+                existing_tab = dict(lang_dict.get(tab_key) or {})
+                existing_tab.update(adapted_data)
+                lang_dict[tab_key] = existing_tab
+        else:
+            existing_tab = dict(lang_dict.get(m_type) or {})
+            existing_tab.update(adapted_data)
+            lang_dict[m_type] = existing_tab
+            if m_type == "youtube":
+                existing_ch = dict(lang_dict.get("chapters") or {})
+                existing_ch.update(adapted_data)
+                lang_dict["chapters"] = existing_ch
+
+        translations[target_lang] = lang_dict
+        new_schema["translations"] = translations
+        job.schema_data = new_schema
+        flag_modified(job, "schema_data")
+        await db.commit()
+        logger.info(
+            "[/v1/adapt-material] Persisted translation lang=%s type=%s to job %s",
+            target_lang, m_type, job.id,
+        )
+    except Exception as exc:
+        logger.warning("[/v1/adapt-material] Could not persist translation to job: %s", exc)
+
+
 @router.post("/adapt-material")
 async def adapt_material_endpoint(
     req: AdaptMaterialRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """On-demand per-material language adaptation (Article, YouTube, Meta, Quotes, Schema).
+    """On-demand per-material language adaptation (Article, YouTube, Meta, Quotes, Schema, All).
 
     Does NOT consume monthly video quota (logged with endpoint='adapt_material').
     Requires allow_per_material_adapt == True (Pro, Agency, or +29 PLN/mo Add-on).
@@ -290,6 +373,15 @@ async def adapt_material_endpoint(
         cost_usd = calculate_cost_usd(used_prov, in_tok, out_tok)
 
         yt_id = req.youtube_id or req.source_data.get("youtube_id") or ""
+        await _save_translation_to_job(
+            db=db,
+            user_id=current_user.id,
+            job_id=req.job_id,
+            youtube_id=yt_id,
+            target_lang=target_lang,
+            material_type=req.material_type,
+            adapted_data=adapted_data,
+        )
         await log_usage(
             user_id=current_user.id,
             db=db,

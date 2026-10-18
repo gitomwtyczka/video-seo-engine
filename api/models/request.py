@@ -89,10 +89,11 @@ class GenerateRequest(BaseModel):
 class AdaptMaterialRequest(BaseModel):
     """On-demand per-material language adaptation request (POST /v1/adapt-material)."""
 
-    material_type: str  # "article" | "youtube" | "meta" | "quotes" | "schema"
+    material_type: str  # "article" | "youtube" | "meta" | "quotes" | "schema" | "all"
     target_lang: str  # "pl" | "en" | "de" | "es" | "fr" | "it" | "uk" | "pt"
     source_data: dict
     youtube_id: Optional[str] = None
+    job_id: Optional[str] = None
     llm_provider: Optional[str] = None
 
 

@@ -115,11 +115,33 @@ export function extractVideoId(url: string): string {
 export function buildYtDescription(schema: SchemaData | null | undefined, wpUrl?: string): string {
   if (!schema) return ''
   const parts: string[] = []
+  const lang = ((schema?.target_lang as string) || 'pl').toLowerCase().slice(0, 2)
+
+  const articleLabelMap: Record<string, string> = {
+    pl: '🔗 Artykuł:',
+    en: '🔗 Article:',
+    de: '🔗 Artikel:',
+    es: '🔗 Artículo:',
+    fr: '🔗 Article :',
+    it: '🔗 Articolo:',
+    uk: '🔗 Стаття:',
+    pt: '🔗 Artigo:',
+  }
+  const chaptersHeaderMap: Record<string, string> = {
+    pl: 'ROZDZIAŁY:',
+    en: 'CHAPTERS:',
+    de: 'KAPITEL:',
+    es: 'CAPÍTULOS:',
+    fr: 'CHAPITRES:',
+    it: 'CAPITOLI:',
+    uk: 'РОЗДІЛИ:',
+    pt: 'CAPÍTULOS:',
+  }
 
   const body = schema?.youtube_description_body ?? schema?.youtube_description_hook ?? schema?.video_description ?? ''
   if (body) parts.push(body as string)
 
-  if (wpUrl) parts.push(`🔗 Artykuł: ${wpUrl}`)
+  if (wpUrl) parts.push(`${articleLabelMap[lang] || articleLabelMap.pl} ${wpUrl}`)
 
   if (schema.youtube_mid_cta) parts.push(schema.youtube_mid_cta as string)
 
@@ -132,7 +154,7 @@ export function buildYtDescription(schema: SchemaData | null | undefined, wpUrl?
       const title = c.label ?? c.name ?? ''
       return `${m}:${s} ${title}`.trim()
     })
-    parts.push('ROZDZIAŁY:\n' + lines.join('\n'))
+    parts.push(`${chaptersHeaderMap[lang] || chaptersHeaderMap.pl}\n` + lines.join('\n'))
   }
 
   if (schema.youtube_credits) parts.push(schema.youtube_credits as string)

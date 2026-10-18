@@ -243,6 +243,10 @@ def parse_vtt_full(vtt_path: str) -> tuple[str, list[tuple[float, str]], float]:
 def find_anchor_in_vtt(anchor_text: str, segments: list[tuple[float, str]]) -> int:
     """Find the VTT timestamp where anchor_text first appears."""
     anchor_clean = anchor_text.lower().strip()
+    if not anchor_clean or not segments:
+        return -1
+
+    anchor_words = [w for w in re.findall(r"\w+", anchor_clean) if len(w) >= 4]
     best_score = 0.0
     best_time = -1
 
@@ -253,10 +257,17 @@ def find_anchor_in_vtt(anchor_text: str, segments: list[tuple[float, str]]) -> i
             if anchor_clean in window_text:
                 return int(segments[i][0])
 
+            # Fast pre-filter: skip expensive SequenceMatcher if no significant word overlaps
+            if anchor_words and not any(w in window_text for w in anchor_words):
+                continue
+
             score = SequenceMatcher(None, anchor_clean, window_text[: len(anchor_clean) * 2]).ratio()
             if score > best_score:
                 best_score = score
                 best_time = int(segments[i][0])
+
+        if best_score > 0.72:
+            return best_time
 
     if best_score > 0.5:
         return best_time
@@ -1072,6 +1083,52 @@ def adapt_material_language(
 
     material_type = (material_type or "article").lower().strip()
 
+    if material_type == "all":
+        import concurrent.futures
+
+        def _run_sub(m_type: str) -> tuple[dict, dict]:
+            sub_tok = current_llm_usage.set({
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "last_provider": provider,
+            })
+            try:
+                res = adapt_material_language(m_type, target_lang, source_data, provider, api_key)
+                u = current_llm_usage.get() or {}
+                return res, u
+            finally:
+                current_llm_usage.reset(sub_tok)
+
+        sub_types = ["article", "youtube", "meta"]
+        if source_data.get("quotes"):
+            sub_types.append("quotes")
+
+        combined: dict = {}
+        parent_tracker = current_llm_usage.get()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+            future_map = {m_t: ex.submit(_run_sub, m_t) for m_t in sub_types}
+            for m_t in ["meta", "youtube", "article", "quotes"]:
+                if m_t not in future_map:
+                    continue
+                try:
+                    sub_res, sub_usage = future_map[m_t].result()
+                    combined.update(sub_res)
+                    if parent_tracker is not None:
+                        parent_tracker["input_tokens"] += int(sub_usage.get("input_tokens", 0))
+                        parent_tracker["output_tokens"] += int(sub_usage.get("output_tokens", 0))
+                        if sub_usage.get("last_provider"):
+                            parent_tracker["last_provider"] = sub_usage["last_provider"]
+                except Exception as sub_exc:
+                    logger.warning("adapt_material_language(all) sub-task %s failed: %s", m_t, sub_exc)
+
+        merged_for_schema = dict(source_data)
+        merged_for_schema.update(combined)
+        merged_for_schema["target_lang"] = target_lang
+        combined["json_ld"] = build_jsonld_schemas(merged_for_schema, target_lang=target_lang)
+        combined["target_lang"] = target_lang
+        combined["material_type"] = "all"
+        return combined
+
     if material_type == "article":
         payload = {
             "post_title": source_data.get("post_title", ""),
@@ -1099,9 +1156,17 @@ Odpowiedz TYLKO poprawnym JSON (bez markdown):"""
             {"time": c.get("time", 0), "label": c.get("label", "")}
             for c in source_data.get("chapters", [])
         ]
+        yt_body_in = (
+            source_data.get("youtube_description_body")
+            or source_data.get("youtube_description_hook")
+            or source_data.get("video_description", "")
+        )
+        yt_hook_in = source_data.get("youtube_description_hook") or yt_body_in
         payload = {
             "yt_title": source_data.get("yt_title") or source_data.get("post_title", ""),
-            "youtube_description_hook": source_data.get("youtube_description_hook", ""),
+            "youtube_description_body": yt_body_in,
+            "youtube_description_hook": yt_hook_in,
+            "youtube_mid_cta": source_data.get("youtube_mid_cta", ""),
             "video_description": source_data.get("video_description", ""),
             "chapters": chapters_in,
             "youtube_hashtags": source_data.get("youtube_hashtags", []),
@@ -1112,10 +1177,11 @@ Przetłumacz i zoptymalizuj pod kątem algorytmu YouTube poniższy pakiet metada
 
 ZASADY KRYTYCZNE:
 1. `yt_title`: angażujący tytuł YouTube w języku {target_lang_name} (40-70 znaków).
-2. `youtube_description_hook` oraz `video_description`: naturalny, angażujący opis w języku {target_lang_name}.
-3. `chapters`: przetłumacz każde pole `label` na język {target_lang_name}, ale ZACHOWAJ DOKŁADNIE oryginalną wartość liczbową `time` (sekundy)!
-4. `youtube_hashtags` (3 hashtagi) i `tags` (5-8 tagów): zaadaptuj do popularnych fraz w języku {target_lang_name}.
-5. Zwróć WYŁĄCZNIE poprawny JSON z kluczami: `yt_title`, `youtube_description_hook`, `video_description`, `chapters`, `youtube_hashtags`, `tags`.
+2. `youtube_description_body`, `youtube_description_hook` oraz `video_description`: przetłumacz CAŁY tekst opisu na naturalny, angażujący język {target_lang_name} (nie zostawiaj żadnych zdań w języku źródłowym!).
+3. `youtube_mid_cta`: przetłumacz wezwanie do subskrypcji (CTA) na naturalny język {target_lang_name} (zachowaj emotikonę 🔔 jeśli występuje).
+4. `chapters`: przetłumacz każde pole `label` na język {target_lang_name}, ale ZACHOWAJ DOKŁADNIE oryginalną wartość liczbową `time` (sekundy)!
+5. `youtube_hashtags` (3 hashtagi) i `tags` (5-8 tagów): zaadaptuj do popularnych fraz w języku {target_lang_name}.
+6. Zwróć WYŁĄCZNIE poprawny JSON z kluczami: `yt_title`, `youtube_description_body`, `youtube_description_hook`, `youtube_mid_cta`, `video_description`, `chapters`, `youtube_hashtags`, `tags`.
 
 Dane wejściowe JSON:
 {json.dumps(payload, ensure_ascii=False)}
@@ -1194,6 +1260,19 @@ Zwróć WYŁĄCZNIE poprawny JSON z kluczami: `seo_title`, `video_description`, 
     cleaned = re.sub(r"\s*```$", "", cleaned)
     cleaned = _sanitize_llm_json(cleaned)
     adapted = json.loads(cleaned)
+
+    if material_type == "youtube":
+        body_val = (
+            adapted.get("youtube_description_body")
+            or adapted.get("youtube_description_hook")
+            or adapted.get("video_description")
+            or ""
+        )
+        hook_val = adapted.get("youtube_description_hook") or body_val
+        if body_val:
+            adapted["youtube_description_body"] = body_val
+        if hook_val:
+            adapted["youtube_description_hook"] = hook_val
 
     if material_type == "meta" and "focus_keyphrases" in adapted:
         kps = adapted.get("focus_keyphrases") or []

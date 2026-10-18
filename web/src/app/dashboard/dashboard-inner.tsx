@@ -20,6 +20,7 @@ import { useProfiles, type Profile } from './use-profiles'
 import EmailVerificationBanner from './email-verification-banner'
 import { ErrorBoundary } from './error-boundary'
 import { YouTubePublishModal } from './YouTubePublishModal'
+import { getTranslations } from '../i18n'
 
 import {
   VSE_LANGUAGES,
@@ -95,6 +96,7 @@ export default function DashboardInner() {
   const [materialTranslations, setMaterialTranslations] = useState<Record<string, Record<string, SchemaData>>>({})
   const [activeTabLang, setActiveTabLang] = useState<Record<string, string>>({})
   const [adaptingLang, setAdaptingLang] = useState<string | null>(null)
+  const [adaptingAllLang, setAdaptingAllLang] = useState<string | null>(null)
   const [adaptError, setAdaptError] = useState<string>('')
   const [showMultilangUpsell, setShowMultilangUpsell] = useState<boolean>(false)
   const [addonCheckoutLoading, setAddonCheckoutLoading] = useState<boolean>(false)
@@ -103,6 +105,35 @@ export default function DashboardInner() {
   const [ytModalOpen, setYtModalOpen] = useState(false)
   const [ytChannels, setYtChannels] = useState<any[]>([])
   const [ytDescription, setYtDescription] = useState<string>('')
+
+  const buildTranslationsState = useCallback((sData: SchemaData, baseLang: string) => {
+    const initial: Record<string, Record<string, SchemaData>> = {
+      article: { [baseLang]: sData },
+      youtube: { [baseLang]: sData },
+      chapters: { [baseLang]: sData },
+      schema: { [baseLang]: sData },
+    }
+    const savedTranslations = (sData?.translations as Record<string, Record<string, Record<string, unknown>>>) || {}
+    for (const [langCode, langDict] of Object.entries(savedTranslations)) {
+      if (!langDict || typeof langDict !== 'object') continue
+      for (const tab of ['article', 'youtube', 'chapters', 'schema']) {
+        const mergedTabObj: Record<string, unknown> = {
+          ...(langDict.all || {}),
+          ...(tab === 'chapters' ? (langDict.youtube || {}) : {}),
+          ...(tab === 'youtube' ? (langDict.chapters || {}) : {}),
+          ...(langDict[tab] || {}),
+        }
+        if (Object.keys(mergedTabObj).length > 0) {
+          initial[tab][langCode] = {
+            ...sData,
+            ...mergedTabObj,
+            target_lang: langCode,
+          }
+        }
+      }
+    }
+    return initial
+  }, [])
 
   // Load saved UI language from localStorage
   useEffect(() => {
@@ -160,12 +191,7 @@ export default function DashboardInner() {
         sourceLang: initSource,
         targetLang: initTarget,
       })
-      setMaterialTranslations({
-        article: { [initTarget]: sData },
-        youtube: { [initTarget]: sData },
-        chapters: { [initTarget]: sData },
-        schema: { [initTarget]: sData },
-      })
+      setMaterialTranslations(buildTranslationsState(sData, initTarget))
       setActiveTabLang({
         article: initTarget,
         youtube: initTarget,
@@ -175,7 +201,7 @@ export default function DashboardInner() {
       setUrl(jobData.video_url)
       setActiveTab('article')
     }
-  }, [jobData])
+  }, [jobData, buildTranslationsState])
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login')
@@ -211,11 +237,10 @@ export default function DashboardInner() {
 
   const handleUiLangChange = (newLang: string) => {
     setUiLang(newLang)
+    setTargetLang(newLang)
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('vse_ui_lang', newLang)
-    }
-    if (!canOverrideTargetLang) {
-      setTargetLang(newLang)
+      window.dispatchEvent(new CustomEvent('vse-lang-change', { detail: newLang }))
     }
   }
 
@@ -237,6 +262,14 @@ export default function DashboardInner() {
     }
   }
 
+  const getCurrentJobIdParam = () => {
+    if (jobId) return jobId
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('job_id') || undefined
+    }
+    return undefined
+  }
+
   const handleAdaptMaterial = async (tab: TabKey, langCode: string) => {
     if (!result?.raw) return
     setAdaptError('')
@@ -249,7 +282,11 @@ export default function DashboardInner() {
     // Instant cache hit (0ms)
     const cached = materialTranslations[tab]?.[langCode]
     if (cached) {
-      setActiveTabLang((prev) => ({ ...prev, [tab]: langCode }))
+      setActiveTabLang((prev) => ({
+        ...prev,
+        [tab]: langCode,
+        ...(tab === 'youtube' || tab === 'chapters' ? { youtube: langCode, chapters: langCode } : {}),
+      }))
       return
     }
 
@@ -273,6 +310,7 @@ export default function DashboardInner() {
         target_lang: langCode,
         source_data: result.raw,
         youtube_id: result.videoId,
+        job_id: getCurrentJobIdParam(),
       })
 
       if (resp?.adapted_data) {
@@ -299,6 +337,72 @@ export default function DashboardInner() {
     } catch (err: unknown) {
       setAdaptError(err instanceof Error ? err.message : 'Błąd tłumaczenia materiału')
     } finally {
+      setAdaptingLang(null)
+    }
+  }
+
+  const handleAdaptAllMaterials = async (langCode: string) => {
+    if (!result?.raw) return
+    setAdaptError('')
+
+    if (!canAdaptPerMaterial) {
+      setShowMultilangUpsell(true)
+      return
+    }
+
+    const allTabsCached = ['article', 'youtube', 'chapters', 'schema'].every(
+      (tKey) => Boolean(materialTranslations[tKey]?.[langCode])
+    )
+    if (allTabsCached) {
+      setActiveTabLang({
+        article: langCode,
+        youtube: langCode,
+        chapters: langCode,
+        schema: langCode,
+      })
+      return
+    }
+
+    setAdaptingAllLang(langCode)
+    setAdaptingLang(langCode)
+    try {
+      const resp = await apiPost<{
+        status: string
+        material_type: string
+        target_lang: string
+        adapted_data: Record<string, unknown>
+      }>('/v1/adapt-material', {
+        material_type: 'all',
+        target_lang: langCode,
+        source_data: result.raw,
+        youtube_id: result.videoId,
+        job_id: getCurrentJobIdParam(),
+      })
+
+      if (resp?.adapted_data) {
+        const mergedSchema: SchemaData = {
+          ...result.raw,
+          ...resp.adapted_data,
+          target_lang: langCode,
+        }
+        setMaterialTranslations((prev) => ({
+          ...prev,
+          article: { ...(prev.article || {}), [langCode]: mergedSchema },
+          youtube: { ...(prev.youtube || {}), [langCode]: mergedSchema },
+          chapters: { ...(prev.chapters || {}), [langCode]: mergedSchema },
+          schema: { ...(prev.schema || {}), [langCode]: mergedSchema },
+        }))
+        setActiveTabLang({
+          article: langCode,
+          youtube: langCode,
+          chapters: langCode,
+          schema: langCode,
+        })
+      }
+    } catch (err: unknown) {
+      setAdaptError(err instanceof Error ? err.message : 'Błąd tłumaczenia całego pakietu')
+    } finally {
+      setAdaptingAllLang(null)
       setAdaptingLang(null)
     }
   }
@@ -358,15 +462,50 @@ export default function DashboardInner() {
 
         data = await apiPostForm<GenerateResponse>('/v1/audio/generate', formData)
       } else {
-        data = await apiPost<GenerateResponse>('/v1/generate', {
-          video_url: url.trim(),
-          llm_provider: 'claude',
-          lang: effectiveTargetLang,
-          target_lang: effectiveTargetLang,
-          ui_lang: uiLang,
-          publication_type: publicationType,
-          portal_id: portalIdParam,
-        })
+        try {
+          data = await apiPost<GenerateResponse>('/v1/generate', {
+            video_url: url.trim(),
+            llm_provider: 'claude',
+            lang: effectiveTargetLang,
+            target_lang: effectiveTargetLang,
+            ui_lang: uiLang,
+            publication_type: publicationType,
+            portal_id: portalIdParam,
+          })
+        } catch (genErr: unknown) {
+          const msg = genErr instanceof Error ? genErr.message : String(genErr)
+          if (msg.includes('504') || msg.includes('524') || msg.includes('502') || msg.includes('Gateway')) {
+            const vid = extractVideoId(url.trim())
+            if (vid) {
+              for (let attempt = 0; attempt < 25; attempt++) {
+                await new Promise((r) => setTimeout(r, 4000))
+                try {
+                  const hist = await apiGet<Array<{ id: string; video_id?: string; video_url?: string; status: string; has_schema?: boolean }>>('/v1/jobs/history?limit=10')
+                  const match = Array.isArray(hist)
+                    ? hist.find((j) => (j.video_id === vid || (j.video_url && j.video_url.includes(vid))) && (j.status === 'done' || j.has_schema))
+                    : undefined
+                  if (match?.id) {
+                    const fullJob = await apiGet<{ id: string; video_id?: string; video_url: string; schema_data?: SchemaData }>(`/v1/jobs/${match.id}`)
+                    if (fullJob?.schema_data) {
+                      data = {
+                        status: 'ok',
+                        video_id: fullJob.video_id || vid,
+                        processing_time_s: 0,
+                        schema_data: fullJob.schema_data,
+                        source_lang: (fullJob.schema_data.source_lang as string) || 'pl',
+                        target_lang: (fullJob.schema_data.target_lang as string) || effectiveTargetLang,
+                      }
+                      break
+                    }
+                  }
+                } catch {
+                  // continue polling
+                }
+              }
+            }
+          }
+          if (!data) throw genErr
+        }
       }
 
       if (!data) throw new Error('Pusta odpowiedź serwera')
@@ -387,12 +526,7 @@ export default function DashboardInner() {
         sourceLang: detectedSourceLang,
         targetLang: detectedTargetLang,
       })
-      setMaterialTranslations({
-        article: { [detectedTargetLang]: schema },
-        youtube: { [detectedTargetLang]: schema },
-        chapters: { [detectedTargetLang]: schema },
-        schema: { [detectedTargetLang]: schema },
-      })
+      setMaterialTranslations(buildTranslationsState(schema, detectedTargetLang))
       setActiveTabLang({
         article: detectedTargetLang,
         youtube: detectedTargetLang,
@@ -424,55 +558,59 @@ export default function DashboardInner() {
 
   const sourceLangMeta = VSE_LANGUAGES.find((l) => l.code === (result?.sourceLang || result?.raw?.source_lang || 'pl'))
   const targetLangMeta = VSE_LANGUAGES.find((l) => l.code === currentTabLang) || VSE_LANGUAGES[0]
+  const t = getTranslations(uiLang)
 
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-950 text-white">
         {/* Sidebar */}
         <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-20">
-          <div className="p-6 border-b border-gray-800">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <span className="font-bold text-white block">VSE</span>
-                  <span className="text-xs text-gray-500">Video SEO Engine</span>
-                </div>
+          <div className="p-5 border-b border-gray-800 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
               </div>
+              <div>
+                <span className="font-bold text-white block">PressAI VSE</span>
+                <span className="text-xs text-gray-500">Video SEO Engine</span>
+              </div>
+            </div>
 
-              {/* Compact UI Language Switcher (🌐 PL ▾) */}
-              <div title="Język interfejsu i domyślny język generowania">
-                <select
-                  aria-label="Język panelu"
-                  value={uiLang}
-                  onChange={(e) => handleUiLangChange(e.target.value)}
-                  className="bg-gray-800 border border-gray-700 hover:border-violet-500 text-xs font-semibold text-gray-200 rounded-lg px-2 py-1.5 cursor-pointer focus:outline-none focus:border-violet-500"
-                >
-                  {VSE_LANGUAGES.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {l.flag} {l.short}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Prominent Sidebar Top Language Switcher */}
+            <div className="bg-gray-950/80 border border-violet-500/40 rounded-xl p-2.5">
+              <label htmlFor="sidebar-ui-lang" className="block text-[11px] font-semibold text-violet-300 mb-1.5">
+                🌐 {t.uiLangLabel}:
+              </label>
+              <select
+                id="sidebar-ui-lang"
+                aria-label={t.uiLangLabel}
+                value={uiLang}
+                onChange={(e) => handleUiLangChange(e.target.value)}
+                className="w-full bg-gray-900 border border-gray-700 hover:border-violet-500 text-xs font-semibold text-white rounded-lg px-2.5 py-2 cursor-pointer focus:outline-none focus:border-violet-500"
+              >
+                {VSE_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.flag} {l.label} ({l.short})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
           <nav className="flex-1 p-4 space-y-1">
-            <NavItem icon="grid" label="Dashboard" href="/dashboard" active />
-            <NavItem icon="clock" label="Historia" href="/historia" />
-            <NavItem icon="settings" label="Ustawienia" href="/ustawienia" />
+            <NavItem icon="grid" label={t.navDashboard} href="/dashboard" active />
+            <NavItem icon="clock" label={t.navHistory} href="/historia" />
+            <NavItem icon="settings" label={t.navSettings} href="/ustawienia" />
+            <NavItem icon="grid" label={t.navPricing} href="/cennik" />
           </nav>
 
           {/* User info + plan */}
           <div className="p-4 border-t border-gray-800">
             <div className="mb-3">
               <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Użyto</span>
+                <span>{t.navUsed}</span>
                 <span>{usageUsed}/{usageQuota}</span>
               </div>
               <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
@@ -493,7 +631,7 @@ export default function DashboardInner() {
                   <p className="text-xs text-violet-400">{planLabel}</p>
                   {hasMultilangAddon && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                      🌐 8 języków
+                      {t.navMultilangBadge}
                     </span>
                   )}
                 </div>
@@ -505,7 +643,7 @@ export default function DashboardInner() {
                 href="/cennik"
                 className="text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5"
               >
-                ↑ Zmień plan
+                {t.navChangePlan}
               </a>
               {!hasMultilangAddon && (
                 <button
@@ -514,7 +652,7 @@ export default function DashboardInner() {
                   disabled={addonCheckoutLoading}
                   className="text-left text-xs text-emerald-400 hover:text-emerald-300 transition-colors py-0.5"
                 >
-                  🌐 + Pakiet Wielojęzyczny (29 zł)
+                  {t.navBuyAddon}
                 </button>
               )}
               {userProfile?.plan?.id !== 'free' && (
@@ -526,33 +664,69 @@ export default function DashboardInner() {
               onClick={() => signOut({ callbackUrl: '/login' })}
               className="w-full text-left text-sm text-gray-400 hover:text-white transition-colors py-1"
             >
-              → Wyloguj się
+              → {t.navSignOut}
             </button>
           </div>
         </aside>
 
         {/* Main content */}
         <main className="ml-64 p-8">
-          <div className="max-w-3xl">
+          <div className="max-w-4xl">
+            {/* Prominent Topbar UI Language Switcher (always visible at the very top of the screen) */}
+            <div
+              id="topbar-ui-lang-switcher"
+              className="mb-6 p-3.5 bg-gray-900/90 border border-violet-500/30 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg shadow-violet-950/20"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-violet-300 uppercase tracking-wider">
+                  🌐 {t.uiLangLabel}:
+                </span>
+                <span className="text-xs text-gray-400 hidden sm:inline">
+                  ({t.uiLangHint})
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {VSE_LANGUAGES.map((l) => {
+                  const active = uiLang === l.code
+                  return (
+                    <button
+                      key={l.code}
+                      type="button"
+                      onClick={() => handleUiLangChange(l.code)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                        active
+                          ? 'bg-violet-600 text-white border-violet-400 shadow-md shadow-violet-900/40 scale-105'
+                          : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:border-violet-500/60 hover:text-white'
+                      }`}
+                      title={`${l.label} (${l.short})`}
+                    >
+                      <span>{l.flag}</span>
+                      <span>{l.short}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             <EmailVerificationBanner
               isVerified={userProfile?.is_verified}
               accessToken={(session as { accessToken?: string })?.accessToken}
             />
 
-            <div className="flex items-start justify-between gap-4 mb-1">
-              <h1 className="text-2xl font-bold text-white">Video & Audio SEO Engine</h1>
+            <div className="flex flex-wrap items-start justify-between gap-4 mb-1">
+              <h1 className="text-2xl font-bold text-white">{t.heading}</h1>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300">
-                🌐 Cross-Language Engine (8 języków)
+                {t.crossLangBadge}
               </span>
             </div>
             <p className="text-gray-400 mb-8">
-              Wklej link YouTube (w dowolnym języku!) lub wgraj plik MP3 — AI wygeneruje kompletny pakiet SEO, rozdziały i artykuł w wybranym języku.
+              {t.subheading}
             </p>
 
             {jobLoading && (
               <div className="mb-6 flex items-center gap-3 p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl">
                 <span className="animate-spin inline-block w-4 h-4 border-2 border-violet-300/30 border-t-violet-400 rounded-full" />
-                <span className="text-sm text-violet-300">Ładowanie wyników z historii...</span>
+                <span className="text-sm text-violet-300">{t.historyLoading}</span>
               </div>
             )}
 
@@ -564,9 +738,9 @@ export default function DashboardInner() {
 
             {jobId && result && (
               <div className="mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
-                <span className="text-xs text-blue-400">📋 Wyniki załadowane z historii</span>
+                <span className="text-xs text-blue-400">{t.historyLoaded}</span>
                 <Link href="/historia" className="text-xs text-gray-500 hover:text-white ml-auto transition-colors">
-                  ← Wróć do historii
+                  {t.historyBack}
                 </Link>
               </div>
             )}
@@ -574,11 +748,11 @@ export default function DashboardInner() {
             {/* Portal, Publication Type & Target Language Selector */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Portal docelowy</label>
+                <label className="block text-xs text-gray-400 mb-1.5">{t.targetPortal}</label>
                 {portalsLoading ? (
                   <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
                     <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
-                    Ładowanie...
+                    {t.loading}
                   </div>
                 ) : portals.length === 0 ? (
                   <select
@@ -594,9 +768,9 @@ export default function DashboardInner() {
                     className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
                     style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                   >
-                    <option value="" disabled>Brak portali — dodaj pierwszy portal</option>
-                    <option value="__add__">+ Dodaj nowy portal...</option>
-                    <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                    <option value="" disabled>{t.noPortals}</option>
+                    <option value="__add__">{t.addPortal}</option>
+                    <option value="__manual__">{t.manualPortal}</option>
                   </select>
                 ) : (
                   <select
@@ -620,14 +794,14 @@ export default function DashboardInner() {
                         {p.name}
                       </option>
                     ))}
-                    <option value="__add__">+ Dodaj nowy portal...</option>
-                    <option value="__manual__">✏️ Wpisz ręcznie...</option>
+                    <option value="__add__">{t.addPortal}</option>
+                    <option value="__manual__">{t.manualPortal}</option>
                   </select>
                 )}
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Typ publikacji</label>
+                <label className="block text-xs text-gray-400 mb-1.5">{t.publicationType}</label>
                 <select
                   id="publication-type-selector"
                   value={publicationType}
@@ -635,28 +809,31 @@ export default function DashboardInner() {
                   className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
                   style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
                 >
-                  <option value="full_analysis">📝 Pełna analiza</option>
-                  <option value="news">📰 News</option>
-                  <option value="explainer">💡 Explainer</option>
-                  <option value="wywiad">🎤 Wywiad</option>
-                  <option value="poradnik">📋 Poradnik</option>
-                  <option value="felieton">✍️ Felieton</option>
-                  <option value="reportaz">📸 Reportaż</option>
-                  <option value="watching_page">🎬 Strona z filmem</option>
-                  <option value="discover">🔍 Discover</option>
+                  <option value="full_analysis">{t.pubFullAnalysis}</option>
+                  <option value="news">{t.pubNews}</option>
+                  <option value="explainer">{t.pubExplainer}</option>
+                  <option value="wywiad">{t.pubInterview}</option>
+                  <option value="poradnik">{t.pubGuide}</option>
+                  <option value="felieton">{t.pubColumn}</option>
+                  <option value="reportaz">{t.pubReportage}</option>
+                  <option value="watching_page">{t.pubVideoPage}</option>
+                  <option value="discover">{t.pubDiscover}</option>
                 </select>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs text-gray-400">Język wyniku SEO</label>
+                  <label className="block text-xs text-gray-400">
+                    {t.targetLangLabel}{' '}
+                    <span className="text-[10px] text-violet-400">({t.targetLangDefaultHint})</span>
+                  </label>
                   {!canOverrideTargetLang && (
                     <button
                       type="button"
                       onClick={() => setShowMultilangUpsell(true)}
                       className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium"
                     >
-                      🔒 Odblokuj 8 języków
+                      {t.unlock8Langs}
                     </button>
                   )}
                 </div>
@@ -678,7 +855,7 @@ export default function DashboardInner() {
                     const locked = !canOverrideTargetLang && l.code !== uiLang
                     return (
                       <option key={l.code} value={l.code}>
-                        {l.flag} {l.label} ({l.short}){locked ? ' 🔒 (Pakiet Wielojęzyczny / Pro)' : ''}
+                        {l.flag} {l.label} ({l.short}){locked ? t.lockedSuffix : ''}
                       </option>
                     )
                   })}
@@ -691,14 +868,13 @@ export default function DashboardInner() {
               <div className="mb-5 p-4 bg-gradient-to-r from-violet-950/70 via-gray-900 to-emerald-950/50 border border-violet-500/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold text-white">🌐 Pakiet Wielojęzyczny — publikuj na rynki zagraniczne</span>
+                    <span className="text-sm font-semibold text-white">{t.upsellTitle}</span>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      +29 zł / mies.
+                      +29 PLN / mo
                     </span>
                   </div>
                   <p className="text-xs text-gray-300 leading-relaxed">
-                    W Twoim obecnym planie możesz wklejać filmy w dowolnym języku i generować SEO w języku panelu ({uiLang.toUpperCase()}).
-                    Aby dowolnie zmieniać język docelowy przed generowaniem oraz tłumaczyć pojedyncze zakładki (Artykuł, YouTube, Rozdziały, Schema) 1 kliknięciem na 8 języków:
+                    {t.upsellDesc}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
@@ -708,13 +884,13 @@ export default function DashboardInner() {
                     disabled={addonCheckoutLoading}
                     className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
                   >
-                    {addonCheckoutLoading ? 'Przekierowanie...' : '🌐 Dokup Pakiet (+29 zł/mies.)'}
+                    {addonCheckoutLoading ? t.loading : t.upsellBuyAddon}
                   </button>
                   <Link
                     href="/cennik"
                     className="px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
                   >
-                    🚀 Przejdź na Pro (149 zł — w cenie!)
+                    {t.upsellUpgradePro}
                   </Link>
                   <button
                     type="button"
@@ -738,7 +914,7 @@ export default function DashboardInner() {
                     : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
                 }`}
               >
-                🎬 YouTube URL
+                {t.modeYoutube}
               </button>
               <button
                 type="button"
@@ -749,7 +925,7 @@ export default function DashboardInner() {
                     : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
                 }`}
               >
-                🎤 Plik MP3 / Audio
+                {t.modeAudio}
               </button>
             </div>
 
@@ -762,7 +938,7 @@ export default function DashboardInner() {
                     type="text"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=... (polski lub zagraniczny film)"
+                    placeholder={t.urlPlaceholder}
                     className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
                   />
                 ) : (
@@ -787,15 +963,15 @@ export default function DashboardInner() {
                         <span className="text-xl">🎙️</span>
                         <div className="truncate">
                           <p className="text-sm text-white font-medium truncate">
-                            {audioFile ? audioFile.name : 'Wybierz lub upuść plik audio (MP3, WAV, M4A)...'}
+                            {audioFile ? audioFile.name : t.audioDropTitle}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {audioFile ? `${(audioFile.size / (1024 * 1024)).toFixed(2)} MB` : 'Obsługiwane formaty: MP3, WAV, M4A, OGG, FLAC'}
+                            {audioFile ? `${(audioFile.size / (1024 * 1024)).toFixed(2)} MB` : t.audioDropFormats}
                           </p>
                         </div>
                       </div>
                       <span className="text-xs bg-gray-800 group-hover:bg-violet-600 text-gray-300 group-hover:text-white px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ml-2">
-                        {audioFile ? 'Zmień plik' : 'Wybierz plik'}
+                        {audioFile ? t.changeFile : t.chooseFile}
                       </span>
                       <input
                         type="file"
@@ -816,9 +992,9 @@ export default function DashboardInner() {
                   className="px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
                 >
                   {loading ? (
-                    <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> {inputMode === 'audio' ? 'Transkrypcja i AI...' : 'Generuję...'}</>
+                    <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> {inputMode === 'audio' ? t.generatingAudioBtn : t.generatingBtn}</>
                   ) : (
-                    <>✦ Generuj SEO</>
+                    <>{t.generateBtn}</>
                   )}
                 </button>
               </div>
@@ -827,8 +1003,8 @@ export default function DashboardInner() {
                 <div className="mt-3 flex items-center gap-2 text-sm text-gray-400">
                   <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
                   {inputMode === 'audio'
-                    ? 'Transkrypcja audio (faster-whisper) i generowanie schema... (~30-60s)'
-                    : 'Pobieranie transkryptu i generowanie schema... (~50s)'}
+                    ? t.loadingAudioMsg
+                    : t.loadingVideoMsg}
                 </div>
               )}
 
@@ -836,7 +1012,7 @@ export default function DashboardInner() {
                 <div className="mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2">
                   <span className="flex-shrink-0 mt-0.5">⚠️</span>
                   <div>
-                    <p className="font-medium mb-0.5">Wystąpił błąd</p>
+                    <p className="font-medium mb-0.5">{t.errorTitle}</p>
                     <p className="text-red-300/80">{error}</p>
                   </div>
                 </div>
@@ -847,9 +1023,9 @@ export default function DashboardInner() {
               <>
                 <div className="grid grid-cols-3 gap-4 mb-8">
                   {[
-                    { label: 'Materiały w tym miesiącu', value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
-                    { label: 'Benchmark score', value: '8/10', sub: 'vs 2—3/10 konkurencja' },
-                    { label: 'Schema standard', value: 'v5.3', sub: 'Google 2026' },
+                    { label: t.statMonthly, value: `${usageUsed}/${usageQuota}`, sub: `Plan ${planLabel}` },
+                    { label: t.statBenchmark, value: '8/10', sub: t.statBenchmarkSub },
+                    { label: t.statSchema, value: 'v5.3', sub: 'Google 2026' },
                   ].map((stat) => (
                     <div key={stat.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
                       <p className="text-gray-400 text-sm mb-1">{stat.label}</p>
@@ -868,26 +1044,26 @@ export default function DashboardInner() {
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
                   <div>
                     <div className="flex items-center gap-2.5 flex-wrap">
-                      <h2 className="text-lg font-semibold text-white">Wyniki SEO</h2>
+                      <h2 className="text-lg font-semibold text-white">{t.resultsHeading}</h2>
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-xs text-violet-300">
-                        🌐 Źródło: {sourceLangMeta ? `${sourceLangMeta.flag} ${sourceLangMeta.short}` : (result.sourceLang || 'AUTO').toUpperCase()} → Wynik: {targetLangMeta.flag} {targetLangMeta.label} ({targetLangMeta.short})
+                        🌐 {t.sourceLabel}: {sourceLangMeta ? `${sourceLangMeta.flag} ${sourceLangMeta.short}` : (result.sourceLang || 'AUTO').toUpperCase()} → {t.outputLabel}: {targetLangMeta.flag} {targetLangMeta.label} ({targetLangMeta.short})
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Źródło: <span className="font-mono">{result.videoId}</span>
+                      {t.sourceLabel}: <span className="font-mono">{result.videoId}</span>
                       {result.time && <> • {result.time.toFixed(1)}s</>}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
-                      ✔️ Wygenerowano
+                      {t.generatedBadge}
                     </span>
                     {isPro && (
                       <button
                         onClick={() => setShowInjectModal(true)}
                         className="px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5"
                       >
-                        🚀 Wyślij do portalu
+                        {t.sendToPortalBtn}
                       </button>
                     )}
                     {ytChannels.length > 0 && !result?.inputUrl?.startsWith('audio://') && !result?.videoId?.startsWith('audio_') && (
@@ -895,9 +1071,56 @@ export default function DashboardInner() {
                         onClick={() => setYtModalOpen(true)}
                         className="px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2"
                       >
-                        ▶️ Wyślij na YouTube
+                        {t.sendToYoutubeBtn}
                       </button>
                     )}
+                  </div>
+                </div>
+
+                {/* Global Package Translation Bar (Translate ALL tabs at once) */}
+                <div className="mb-3 p-3 bg-gradient-to-r from-violet-950/50 via-gray-900 to-fuchsia-950/30 border border-violet-500/30 rounded-xl flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-violet-200 flex items-center gap-1.5">
+                      🌐 {uiLang === 'pl' ? 'Przetłumacz cały pakiet (wszystkie zakładki) na:' : 'Translate entire package (all tabs) to:'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {VSE_LANGUAGES.map((l) => {
+                      const allCached = ['article', 'youtube', 'chapters', 'schema'].every(
+                        (tKey) => Boolean(materialTranslations[tKey]?.[l.code])
+                      )
+                      const allActive = ['article', 'youtube', 'chapters', 'schema'].every(
+                        (tKey) => (activeTabLang[tKey] || result?.targetLang || 'pl') === l.code
+                      )
+                      const isLocked = !canAdaptPerMaterial && !allActive
+                      const isAdaptingThisAll = adaptingAllLang === l.code
+                      return (
+                        <button
+                          key={`all-${l.code}`}
+                          type="button"
+                          disabled={Boolean(adaptingLang)}
+                          onClick={() => handleAdaptAllMaterials(l.code)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1 ${
+                            allActive
+                              ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border-violet-400 shadow-sm'
+                              : allCached
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
+                              : 'bg-gray-800/90 text-gray-200 border-gray-700 hover:border-violet-400 hover:text-white'
+                          }`}
+                          title={`${l.label} (${l.short})`}
+                        >
+                          <span>{l.flag}</span>
+                          <span>{l.short}</span>
+                          {isAdaptingThisAll && (
+                            <span className="animate-spin inline-block w-3 h-3 border border-white/40 border-t-white rounded-full ml-0.5" />
+                          )}
+                          {!isAdaptingThisAll && allCached && (
+                            <span className="text-[10px] text-emerald-300">✓</span>
+                          )}
+                          {isLocked && <span className="text-[10px] opacity-80">🔒</span>}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
 
@@ -906,6 +1129,7 @@ export default function DashboardInner() {
                   onChange={setActiveTab}
                   chaptersCount={chapters.length}
                   faqCount={faq.length}
+                  uiLang={uiLang}
                 />
 
                 {/* Per-Material Language Switcher Bar ("Złoty Środek") */}
@@ -913,14 +1137,14 @@ export default function DashboardInner() {
                   <div className="mb-4 p-3 bg-gray-900/90 border border-gray-800 rounded-xl">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-medium text-gray-400 flex items-center gap-1.5">
-                        🌐 Język tego materiału:
+                        🌐 {t.materialLangLabel}
                       </span>
                       <div className="flex flex-wrap items-center gap-1.5">
                         {VSE_LANGUAGES.map((l) => {
                           const isCurrent = currentTabLang === l.code
                           const isCached = Boolean(materialTranslations[activeTab]?.[l.code])
                           const isLocked = !canAdaptPerMaterial && !isCurrent
-                          const isAdaptingThis = adaptingLang === l.code
+                          const isAdaptingThis = adaptingLang === l.code && !adaptingAllLang
                           return (
                             <button
                               key={l.code}
@@ -934,11 +1158,7 @@ export default function DashboardInner() {
                                   ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
                                   : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:border-violet-500/50 hover:text-white'
                               }`}
-                              title={
-                                isLocked
-                                  ? `Odblokuj tłumaczenie na ${l.label} (Pakiet Wielojęzyczny +29 zł lub plan Pro)`
-                                  : `Przełącz / przetłumacz ten materiał na ${l.label}`
-                              }
+                              title={`${l.label} (${l.short})`}
                             >
                               <span>{l.flag}</span>
                               <span>{l.short}</span>
@@ -952,14 +1172,26 @@ export default function DashboardInner() {
                             </button>
                           )
                         })}
+                        {!['article', 'youtube', 'chapters', 'schema'].every((tKey) => Boolean(materialTranslations[tKey]?.[currentTabLang])) && (
+                          <button
+                            type="button"
+                            disabled={Boolean(adaptingLang)}
+                            onClick={() => handleAdaptAllMaterials(currentTabLang)}
+                            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/40 transition-all flex items-center gap-1"
+                          >
+                            ⚡ {uiLang === 'pl' ? `Przetłumacz wszystkie zakładki na ${targetLangMeta.short}` : `Translate all tabs to ${targetLangMeta.short}`}
+                          </button>
+                        )}
                       </div>
                     </div>
 
                     {adaptingLang && (
                       <div className="mt-2.5 flex items-center gap-2 text-xs text-violet-300">
                         <span className="animate-spin inline-block w-3 h-3 border border-violet-400/30 border-t-violet-400 rounded-full" />
-                        Tłumaczenie i adaptacja SEO tej zakładki na język{' '}
-                        <strong>{VSE_LANGUAGES.find((x) => x.code === adaptingLang)?.label}</strong>... (nie zużywa limitu wideo)
+                        {adaptingAllLang
+                          ? (uiLang === 'pl' ? 'Tłumaczenie całego pakietu (wszystkich zakładek) na:' : 'Translating entire package (all tabs) to:')
+                          : t.adaptingMsg}{' '}
+                        <strong>{VSE_LANGUAGES.find((x) => x.code === adaptingLang)?.label}</strong>... {t.adaptingNoQuota}
                       </div>
                     )}
 

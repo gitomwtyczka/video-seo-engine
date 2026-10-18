@@ -1,22 +1,26 @@
 import type { TabKey } from '../types'
+import { getTranslations } from '../../i18n'
 
 export function TabBar({
   active,
   onChange,
   chaptersCount,
   faqCount,
+  uiLang = 'pl',
 }: {
   active: TabKey
   onChange: (tab: TabKey) => void
   chaptersCount: number
   faqCount: number
+  uiLang?: string
 }) {
+  const t = getTranslations(uiLang)
   const tabs: { key: TabKey; label: string; badge?: number }[] = [
-    { key: 'schema', label: 'Schemat' },
-    { key: 'article', label: 'Artyku\u0142', badge: faqCount > 0 ? faqCount : undefined },
-    { key: 'chapters', label: 'Rozdzia\u0142y', badge: chaptersCount > 0 ? chaptersCount : undefined },
-    { key: 'youtube', label: 'Opis YouTube' },
-    { key: 'shorts', label: '\u2702\uFE0F ShortMachine' },
+    { key: 'schema', label: t.tabSchema },
+    { key: 'article', label: t.tabArticle, badge: faqCount > 0 ? faqCount : undefined },
+    { key: 'chapters', label: t.tabChapters, badge: chaptersCount > 0 ? chaptersCount : undefined },
+    { key: 'youtube', label: t.tabYoutube },
+    { key: 'shorts', label: t.tabShorts },
   ]
 
   return (

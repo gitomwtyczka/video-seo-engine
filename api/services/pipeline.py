@@ -713,15 +713,19 @@ async def run_generate(
             with open(vtt_path, "r", encoding="utf-8") as f:
                 vtt_content = f.read()
 
-        pressai_yt = await fetch_yt_description_from_pressai(
-            vtt_content=vtt_content,
-            video_title=seo.get("post_title", ""),
-            video_id=video_id,
-            chapters=seo.get("chapters", []),
-            focus_keyphrases=seo.get("focus_keyphrases", []),
-            wp_url="",
-            portal_name=site_brand or "",
-            portal_topic="",
+        pressai_yt = (
+            await fetch_yt_description_from_pressai(
+                vtt_content=vtt_content,
+                video_title=seo.get("post_title", ""),
+                video_id=video_id,
+                chapters=seo.get("chapters", []),
+                focus_keyphrases=seo.get("focus_keyphrases", []),
+                wp_url="",
+                portal_name=site_brand or "",
+                portal_topic="",
+            )
+            if resolved_target_lang == "pl"
+            else None
         )
 
         if pressai_yt:
@@ -964,15 +968,19 @@ async def run_generate(
                 with open(vtt_path, "r", encoding="utf-8") as f:
                     vtt_content = f.read()
 
-            pressai_yt = await fetch_yt_description_from_pressai(
-                vtt_content=vtt_content,
-                video_title=seo.get("post_title", ""),
-                video_id=video_id,
-                chapters=seo.get("chapters", []),
-                focus_keyphrases=seo.get("focus_keyphrases", []),
-                wp_url="",
-                portal_name=site_brand or "",
-                portal_topic="",
+            pressai_yt = (
+                await fetch_yt_description_from_pressai(
+                    vtt_content=vtt_content,
+                    video_title=seo.get("post_title", ""),
+                    video_id=video_id,
+                    chapters=seo.get("chapters", []),
+                    focus_keyphrases=seo.get("focus_keyphrases", []),
+                    wp_url="",
+                    portal_name=site_brand or "",
+                    portal_topic="",
+                )
+                if resolved_target_lang == "pl"
+                else None
             )
 
             if pressai_yt:
