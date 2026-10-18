@@ -6,14 +6,18 @@ import io
 import secrets
 import zipfile
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
+from fastapi.security import HTTPAuthorizationCredentials
+from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
+from sqlalchemy.orm import selectinload
 
 from api.db import get_db
-from api.auth import get_current_user
+from api.auth import get_current_user, bearer_scheme, SECRET_KEY, ALGORITHM
 from api.models.user import User, UsageLog, ApiKey
 from api.quota import check_multilang_access, get_effective_monthly_quota
 
@@ -138,19 +142,62 @@ async def get_me(
     )
 
 
+async def _resolve_user_from_header_or_query(
+    token: Optional[str] = Query(None, description="Optional JWT or API key token for direct browser download"),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Resolve authenticated user from Authorization Bearer header OR ?token= query param."""
+    raw_token = credentials.credentials if credentials and credentials.credentials else token
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if raw_token.startswith("vse_"):
+        key_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        result = await db.execute(
+            select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)  # noqa: E712
+        )
+        api_key = result.scalar_one_or_none()
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        api_key.last_used_at = datetime.now(timezone.utc)
+        await db.commit()
+        user_result = await db.execute(
+            select(User).options(selectinload(User.plan)).where(User.id == api_key.user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="Inactive user")
+        return user
+
+    try:
+        payload = jwt.decode(raw_token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        token_type: str = payload.get("type", "access")
+        if user_id is None or token_type != "access":
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    result = await db.execute(
+        select(User).options(selectinload(User.plan)).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    return user
+
+
 @router.get("/desktop-runner-package")
 async def get_desktop_runner_package(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(_resolve_user_from_header_or_query),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Generuje gotową paczkę .zip z VSE Desktop Runnerem oraz indywidualnym kluczem API dla użytkownika."""
-    user_plan = (current_user.plan_id or "free").lower()
-    if user_plan == "free" and not getattr(current_user, "has_multilang_addon", False) and not current_user.is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Pakiet VSE Desktop Runner jest dostępny od planu Starter.",
-        )
-
     # Dezaktywuj poprzednie klucze Desktop Runner dla tego użytkownika
     await db.execute(
         update(ApiKey)
@@ -226,10 +273,10 @@ def cut_short_9_16(video_url: str, start_sec: float, end_sec: float, output_path
     cmd = [
         "yt-dlp",
         "-f", "bestvideo[height<=1080]+bestaudio/best",
-        "--download-sections", f"*{start_sec}-{end_sec}",
+        "--download-sections", f"*{{start_sec}}-{{end_sec}}",
         "--force-keyframes-at-cuts",
         "--merge-output-format", "mp4",
-        "--postprocessor-args", f"ffmpeg:-vf crop=ih*9/16:ih,scale=1080:1920 -t {duration}",
+        "--postprocessor-args", f"ffmpeg:-vf crop=ih*9/16:ih,scale=1080:1920 -t {{duration}}",
         "-o", output_path,
         video_url,
     ]
@@ -294,13 +341,13 @@ Konto: {current_user.email}
 ============================================================
 
 PL:
-1. Wypakuj wszystkie pliki z archiwum vse-desktop-runner.zip do dowolnego folderu.
+1. Wypakuj wszystkie pliki z archiwum vse-local-runner.zip do dowolnego folderu.
 2. Kliknij dwukrotnie plik "Uruchom_VSE_Runner.bat" (na Windows) lub uruchom "python3 vse_runner.py" (na macOS/Linux).
 3. Twój pakiet jest już automatycznie skonfigurowany z Twoim indywidualnym kluczem API ({raw_key[:14]}...).
 4. Gdy okno VSE Desktop Runnera jest otwarte, wszystkie generowania w panelu https://vse.impresjapr.pl korzystają z Twojego domowego łącza w ułamku sekundy oraz wspierają lokalne wycinanie klipów 9:16 (ShortMachine FFmpeg).
 
 EN:
-1. Extract all files from vse-desktop-runner.zip into any folder.
+1. Extract all files from vse-local-runner.zip into any folder.
 2. Double-click "Uruchom_VSE_Runner.bat" (Windows) or run "python3 vse_runner.py" (macOS/Linux).
 3. Your package is pre-configured for account {current_user.email}.
 """
@@ -314,5 +361,8 @@ EN:
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="vse-desktop-runner.zip"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="vse-local-runner.zip"',
+            "Cache-Control": "no-cache",
+        },
     )
