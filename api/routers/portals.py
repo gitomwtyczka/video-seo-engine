@@ -2,9 +2,8 @@
 Portals router: CRUD for WordPress portals per user.
 
 CO: Endpointy zarządzania portalami WordPress użytkownika.
-PO CO: Użytkownik zapisuje portale WP w bazie (URL + credentials) i wybiera
-       je z dropdown w InjectModal zamiast wpisywać ręcznie za każdym razem.
-       Eliminuje potrzebę hardcode'owania credentials i localStorage.
+PO CO: Użytkownik zapisuje portale WP w bazie (URL + credentials lub sparowana wtyczka VSE v3.0)
+       i wybiera je z dropdown w InjectModal zamiast wpisywać ręcznie za każdym razem.
 JAK: CRUD pod /v1/portals, chroniony przez get_current_user (JWT).
      Każdy user widzi tylko swoje portale. Odpowiedź GET NIE zawiera
      wp_app_password (write-only — bezpieczeństwo).
@@ -35,8 +34,10 @@ class PortalCreate(BaseModel):
     """Request body for creating a new portal."""
     name: str
     url: str
-    wp_username: str
-    wp_app_password: str
+    wp_username: Optional[str] = ""
+    wp_app_password: Optional[str] = ""
+    auth_mode: str = "app_password"  # "app_password" | "plugin_token"
+    api_key_id: Optional[str] = None
     profile_id: Optional[str] = None
     is_default: bool = False
 
@@ -47,6 +48,8 @@ class PortalUpdate(BaseModel):
     url: Optional[str] = None
     wp_username: Optional[str] = None
     wp_app_password: Optional[str] = None
+    auth_mode: Optional[str] = None
+    api_key_id: Optional[str] = None
     profile_id: Optional[str] = None
     is_default: Optional[bool] = None
 
@@ -56,7 +59,10 @@ class PortalResponse(BaseModel):
     id: str
     name: str
     url: str
-    wp_username: str
+    wp_username: str = ""
+    auth_mode: str = "app_password"
+    is_plugin_connected: bool = False
+    api_key_id: Optional[str] = None
     profile_id: Optional[str] = None
     is_default: bool
     created_at: Optional[str] = None
@@ -67,8 +73,11 @@ class PortalFull(BaseModel):
     id: str
     name: str
     url: str
-    wp_username: str
-    wp_app_password: str
+    wp_username: str = ""
+    wp_app_password: str = ""
+    auth_mode: str = "app_password"
+    is_plugin_connected: bool = False
+    api_key_id: Optional[str] = None
     profile_id: Optional[str] = None
     is_default: bool
 
@@ -83,11 +92,16 @@ class PortalListResponse(BaseModel):
 
 def _portal_to_response(portal: WpPortal) -> PortalResponse:
     """Convert ORM WpPortal to PortalResponse (without password)."""
+    auth_mode = getattr(portal, "auth_mode", None) or "app_password"
+    api_key_id = getattr(portal, "api_key_id", None)
     return PortalResponse(
         id=str(portal.id),
         name=portal.name,
         url=portal.url,
-        wp_username=portal.wp_username,
+        wp_username=portal.wp_username or "",
+        auth_mode=auth_mode,
+        is_plugin_connected=(auth_mode == "plugin_token"),
+        api_key_id=str(api_key_id) if api_key_id else None,
         profile_id=portal.profile_id,
         is_default=portal.is_default or False,
         created_at=portal.created_at.isoformat() if portal.created_at else None,
@@ -110,14 +124,7 @@ def _auto_create_profile(
     wp_user: str,
     wp_password: str,
 ) -> None:
-    """Auto-create a profile YAML when creating a portal without existing profile.
-
-    CO: Generuje YAML profilu automatycznie z danych portalu.
-    PO CO: Użytkownik dodając portal w AddPortalModal nie musi osobno
-           tworzyć profilu — system generuje go z rozsądnymi defaults.
-    JAK: Buduje CreateProfileRequest z danych portalu, wywołuje
-         _generate_profile_yaml() z profiles.py, zapisuje plik.
-    """
+    """Auto-create a profile YAML when creating a portal without existing profile."""
     profiles_dir = os.path.join(os.getcwd(), "profiles")
     os.makedirs(profiles_dir, exist_ok=True)
 
@@ -158,11 +165,7 @@ async def list_portals(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    CO: Zwraca listę portali WP zalogowanego użytkownika.
-    PO CO: Frontend InjectModal wyświetla dropdown z zapisanymi portalami.
-    JAK: SELECT wp_portals WHERE user_id = current_user.id ORDER BY is_default DESC.
-    """
+    """Zwraca listę portali WP zalogowanego użytkownika."""
     result = await db.execute(
         select(WpPortal)
         .where(WpPortal.user_id == current_user.id)
@@ -181,12 +184,7 @@ async def create_portal(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    CO: Dodaje nowy portal WP do konta użytkownika.
-    PO CO: Użytkownik zapisuje credentials portalu raz — potem wybiera z listy.
-    JAK: INSERT wp_portals. Jeśli is_default=True, resetuje poprzedni default.
-         Jeśli profile_id podany i YAML nie istnieje — auto-create profilu.
-    """
+    """Dodaje nowy portal WP do konta użytkownika (app_password lub plugin_token)."""
     if payload.profile_id:
         yaml_path = f"profiles/{payload.profile_id}.yaml"
         if not os.path.exists(yaml_path):
@@ -194,11 +192,10 @@ async def create_portal(
                 portal_id=payload.profile_id,
                 site_name=payload.name,
                 wp_url=payload.url,
-                wp_user=payload.wp_username,
-                wp_password=payload.wp_app_password,
+                wp_user=payload.wp_username or "",
+                wp_password=payload.wp_app_password or "",
             )
 
-    # If setting as default, unset other defaults
     if payload.is_default:
         existing = await db.execute(
             select(WpPortal)
@@ -208,12 +205,23 @@ async def create_portal(
         for portal in existing.scalars().all():
             portal.is_default = False
 
+    api_key_uuid = None
+    if payload.api_key_id:
+        try:
+            api_key_uuid = uuid.UUID(payload.api_key_id)
+        except ValueError:
+            pass
+
+    auth_mode = payload.auth_mode if payload.auth_mode in ("app_password", "plugin_token") else "app_password"
+
     portal = WpPortal(
         user_id=current_user.id,
         name=payload.name,
-        url=payload.url.rstrip("/"),  # Normalize URL
-        wp_username=payload.wp_username,
-        wp_app_password=payload.wp_app_password,
+        url=payload.url.rstrip("/"),
+        wp_username=payload.wp_username or "",
+        wp_app_password=payload.wp_app_password or "",
+        auth_mode=auth_mode,
+        api_key_id=api_key_uuid,
         profile_id=payload.profile_id,
         is_default=payload.is_default,
     )
@@ -222,8 +230,8 @@ async def create_portal(
     await db.refresh(portal)
 
     logger.info(
-        "Portal created: %s (%s) for user %s",
-        portal.name, portal.url, current_user.email,
+        "Portal created: %s (%s, auth_mode=%s) for user %s",
+        portal.name, portal.url, auth_mode, current_user.email,
     )
     return _portal_to_response(portal)
 
@@ -234,11 +242,7 @@ async def get_portal_full(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    CO: Zwraca pełne dane portalu WŁĄCZNIE z hasłem.
-    PO CO: Do użytku wewnętrznego, żeby pipeline mógł uzyskać hasło.
-    JAK: SELECT wp_portals WHERE id AND user_id (security: user widzi tylko swoje).
-    """
+    """Zwraca pełne dane portalu WŁĄCZNIE z hasłem."""
     try:
         uid = uuid.UUID(portal_id)
     except ValueError:
@@ -253,12 +257,17 @@ async def get_portal_full(
     if not portal:
         raise HTTPException(status_code=404, detail="Portal not found")
 
+    auth_mode = getattr(portal, "auth_mode", None) or "app_password"
+    api_key_id = getattr(portal, "api_key_id", None)
     return PortalFull(
         id=str(portal.id),
         name=portal.name,
         url=portal.url,
-        wp_username=portal.wp_username,
-        wp_app_password=portal.wp_app_password,
+        wp_username=portal.wp_username or "",
+        wp_app_password=portal.wp_app_password or "",
+        auth_mode=auth_mode,
+        is_plugin_connected=(auth_mode == "plugin_token"),
+        api_key_id=str(api_key_id) if api_key_id else None,
         profile_id=portal.profile_id,
         is_default=portal.is_default or False,
     )
@@ -271,11 +280,7 @@ async def update_portal(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    CO: Aktualizuje dane istniejącego portalu.
-    PO CO: Użytkownik może zmienić nazwę, URL lub credentials bez usuwania portalu.
-    JAK: PATCH wp_portals SET ... WHERE id AND user_id.
-    """
+    """Aktualizuje dane istniejącego portalu."""
     try:
         uid = uuid.UUID(portal_id)
     except ValueError:
@@ -301,11 +306,17 @@ async def update_portal(
         portal.wp_username = payload.wp_username
     if payload.wp_app_password is not None:
         portal.wp_app_password = payload.wp_app_password
+    if payload.auth_mode is not None and payload.auth_mode in ("app_password", "plugin_token"):
+        portal.auth_mode = payload.auth_mode
+    if payload.api_key_id is not None:
+        try:
+            portal.api_key_id = uuid.UUID(payload.api_key_id) if payload.api_key_id else None
+        except ValueError:
+            pass
     if payload.profile_id is not None:
         portal.profile_id = payload.profile_id
     if payload.is_default is not None:
         if payload.is_default:
-            # Unset other defaults
             others = await db.execute(
                 select(WpPortal)
                 .where(WpPortal.user_id == current_user.id)
@@ -329,11 +340,7 @@ async def delete_portal(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    CO: Usuwa portal WP z konta użytkownika.
-    PO CO: Użytkownik może usunąć nieaktualny portal (np. zmienił hosting).
-    JAK: DELETE wp_portals WHERE id AND user_id.
-    """
+    """Usuwa portal WP z konta użytkownika."""
     try:
         uid = uuid.UUID(portal_id)
     except ValueError:
