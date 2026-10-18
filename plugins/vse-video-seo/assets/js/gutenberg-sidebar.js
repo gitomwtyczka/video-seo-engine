@@ -1,5 +1,5 @@
 /**
- * VSE Video SEO — Gutenberg Sidebar & Document Setting Panel
+ * VSE Video SEO v3.0.0 — Gutenberg Sidebar & Document Setting Panel
  *
  * Uses native WordPress global packages (wp.plugins, wp.editPost, wp.element,
  * wp.components, wp.data, wp.apiFetch) — zero external build step required.
@@ -25,12 +25,24 @@
 
     var PanelBody = wp.components.PanelBody;
     var TextControl = wp.components.TextControl;
+    var SelectControl = wp.components.SelectControl;
+    var CheckboxControl = wp.components.CheckboxControl;
     var Button = wp.components.Button;
     var Notice = wp.components.Notice;
-    var Spinner = wp.components.Spinner;
     var ExternalLink = wp.components.ExternalLink;
 
     var cfg = window.vseEditorConfig || {};
+
+    var LANGUAGE_OPTIONS = [
+        { label: '🇵🇱 Polski (pl)', value: 'pl' },
+        { label: '🇬🇧 English (en)', value: 'en' },
+        { label: '🇩🇪 Deutsch (de)', value: 'de' },
+        { label: '🇪🇸 Español (es)', value: 'es' },
+        { label: '🇫🇷 Français (fr)', value: 'fr' },
+        { label: '🇮🇹 Italiano (it)', value: 'it' },
+        { label: '🇺🇦 Українська (uk)', value: 'uk' },
+        { label: '🇵🇹 Português (pt)', value: 'pt' }
+    ];
 
     function getScoreColor(score) {
         if (score >= 80) return '#16a34a';
@@ -69,6 +81,14 @@
         var videoUrl = _urlState[0];
         var setVideoUrl = _urlState[1];
 
+        var _langState = useState('pl');
+        var targetLang = _langState[0];
+        var setTargetLang = _langState[1];
+
+        var _autoInsertArticle = useState(true);
+        var autoInsertArticle = _autoInsertArticle[0];
+        var setAutoInsertArticle = _autoInsertArticle[1];
+
         var _loadingPreview = useState(false);
         var isPreviewLoading = _loadingPreview[0];
         var setPreviewLoading = _loadingPreview[1];
@@ -85,6 +105,26 @@
         var injectResult = _injectResult[0];
         var setInjectResult = _injectResult[1];
 
+        var _historyItems = useState([]);
+        var historyItems = _historyItems[0];
+        var setHistoryItems = _historyItems[1];
+
+        var _selectedHistoryId = useState('');
+        var selectedHistoryId = _selectedHistoryId[0];
+        var setSelectedHistoryId = _selectedHistoryId[1];
+
+        var _loadingHistory = useState(false);
+        var isHistoryLoading = _loadingHistory[0];
+        var setHistoryLoading = _loadingHistory[1];
+
+        var _importingHistory = useState(false);
+        var isImportingHistory = _importingHistory[0];
+        var setImportingHistory = _importingHistory[1];
+
+        var _quotaInfo = useState(cfg.cachedStatus || {});
+        var quotaInfo = _quotaInfo[0];
+        var setQuotaInfo = _quotaInfo[1];
+
         var _errorMsg = useState('');
         var errorMsg = _errorMsg[0];
         var setErrorMsg = _errorMsg[1];
@@ -98,6 +138,47 @@
                 setVideoUrl(initialUrl);
             }
         }, [initialUrl]);
+
+        function applyPackageToGutenberg(res, insertFullHtml) {
+            var schemaStr = typeof res.schema_json === 'string'
+                ? res.schema_json
+                : JSON.stringify(res.schema_json || []);
+            var chaptersStr = JSON.stringify(res.chapters || []);
+            var newScore = res.after_score || res.seo_score || 96;
+            var newTitle = res.post_title || res.seo_title || '';
+
+            if (editPost) {
+                var edits = {
+                    meta: {
+                        _vse_video_url: res.video_url || videoUrl.trim(),
+                        _vse_schema_json: schemaStr,
+                        _vse_chapters_json: chaptersStr,
+                        _vse_seo_score: newScore
+                    }
+                };
+                if (newTitle && (!postData.postTitle || !postData.postTitle.trim())) {
+                    edits.title = newTitle;
+                }
+                editPost(edits);
+            }
+
+            if (insertFullHtml && res.assembled_html && wp.blocks && wp.data.dispatch('core/block-editor')) {
+                var block = wp.blocks.createBlock('core/html', { content: res.assembled_html });
+                wp.data.dispatch('core/block-editor').insertBlocks(block);
+            }
+
+            if (res.remaining_quota !== undefined || res.extra_quota_balance !== undefined) {
+                setQuotaInfo(function (prev) {
+                    return Object.assign({}, prev, {
+                        plan: res.plan || prev.plan,
+                        monthly_quota: res.monthly_quota !== undefined ? res.monthly_quota : prev.monthly_quota,
+                        used_this_month: res.used_this_month !== undefined ? res.used_this_month : prev.used_this_month,
+                        remaining_quota: res.remaining_quota !== undefined ? res.remaining_quota : prev.remaining_quota,
+                        extra_quota_balance: res.extra_quota_balance !== undefined ? res.extra_quota_balance : prev.extra_quota_balance
+                    });
+                });
+            }
+        }
 
         function handleAnalyzePreview() {
             if (!videoUrl || !videoUrl.trim()) {
@@ -125,7 +206,7 @@
                             meta: {
                                 _vse_video_url: videoUrl.trim(),
                                 _vse_seo_score: hasSavedSchema
-                                    ? (res.after_score || 94)
+                                    ? (res.after_score || 96)
                                     : (res.before_score || 28)
                             }
                         });
@@ -138,7 +219,7 @@
                 });
         }
 
-        function handleInjectSchema() {
+        function handleInjectFullPackage() {
             if (!videoUrl || !videoUrl.trim()) {
                 setErrorMsg('Najpierw wklej link do filmu YouTube.');
                 return;
@@ -154,40 +235,39 @@
                 data: {
                     video_url: videoUrl.trim(),
                     post_id: postData.postId,
-                    post_title: postData.postTitle
+                    post_title: postData.postTitle,
+                    target_lang: targetLang,
+                    lang: targetLang,
+                    include_schema: true
                 }
             })
                 .then(function (res) {
                     setInjectLoading(false);
                     setInjectResult(res);
-
-                    var schemaStr = typeof res.schema_json === 'string'
-                        ? res.schema_json
-                        : JSON.stringify(res.schema_json || []);
-                    var chaptersStr = JSON.stringify(res.chapters || []);
-                    var newScore = res.after_score || 94;
-
-                    if (editPost) {
-                        editPost({
-                            meta: {
-                                _vse_video_url: videoUrl.trim(),
-                                _vse_schema_json: schemaStr,
-                                _vse_chapters_json: chaptersStr,
-                                _vse_seo_score: newScore
-                            }
-                        });
-                    }
+                    applyPackageToGutenberg(res, autoInsertArticle);
                 })
                 .catch(function (err) {
                     setInjectLoading(false);
-                    var detail = (err && (err.detail || err.message)) || 'Błąd podczas generowania Schema JSON-LD.';
+                    var detail = (err && (err.detail || err.message)) || 'Błąd podczas generowania pakietu Video SEO.';
                     setErrorMsg(detail);
                     if (err && err.upgrade_url) {
                         setUpgradeUrl(err.upgrade_url);
                     } else if (detail.indexOf('limit') !== -1 || detail.indexOf('plan') !== -1) {
-                        setUpgradeUrl(cfg.dashboardUrl || 'https://vse.impresjapr.pl/dashboard');
+                        setUpgradeUrl(cfg.topupUrl || cfg.dashboardUrl || 'https://vse.impresjapr.pl/cennik#topup');
                     }
                 });
+        }
+
+        function insertFullPackageToEditor() {
+            if (!injectResult || !injectResult.assembled_html || !wp.blocks || !wp.data.dispatch('core/block-editor')) {
+                return;
+            }
+            var newTitle = injectResult.post_title || injectResult.seo_title || '';
+            if (editPost && newTitle && (!postData.postTitle || !postData.postTitle.trim())) {
+                editPost({ title: newTitle });
+            }
+            var block = wp.blocks.createBlock('core/html', { content: injectResult.assembled_html });
+            wp.data.dispatch('core/block-editor').insertBlocks(block);
         }
 
         function insertChaptersBlockToEditor() {
@@ -198,7 +278,7 @@
             }
             var itemsHtml = chapters.map(function (ch) {
                 var sec = ch.time || ch.start_seconds || 0;
-                var timeLabel = formatDuration(sec);
+                var timeLabel = ch.timestamp || formatDuration(sec);
                 var label = ch.label || ch.title || 'Rozdział';
                 return '<li><a href="#vse-player" class="vse-chapter" data-vse-seek="' + sec + '" data-time="' + sec + '">' +
                     '<span class="vse-chapter-time">' + timeLabel + '</span> ' +
@@ -213,17 +293,110 @@
             wp.data.dispatch('core/block-editor').insertBlocks(block);
         }
 
+        function handleLoadHistory() {
+            setHistoryLoading(true);
+            setErrorMsg('');
+            apiFetch({
+                url: cfg.restUrl + 'history?limit=25',
+                method: 'GET',
+                headers: { 'X-WP-Nonce': cfg.nonce }
+            })
+                .then(function (res) {
+                    setHistoryLoading(false);
+                    var items = (res && res.items) || (Array.isArray(res) ? res : []);
+                    setHistoryItems(items);
+                    if (items.length > 0 && !selectedHistoryId) {
+                        setSelectedHistoryId(String(items[0].job_id || items[0].id));
+                    }
+                })
+                .catch(function (err) {
+                    setHistoryLoading(false);
+                    setErrorMsg((err && (err.detail || err.message)) || 'Nie udało się pobrać historii z VSE.');
+                });
+        }
+
+        function handleImportHistoryItem() {
+            if (!selectedHistoryId) {
+                setErrorMsg('Wybierz materiał z listy historii VSE.');
+                return;
+            }
+            setErrorMsg('');
+            setImportingHistory(true);
+
+            apiFetch({
+                url: cfg.restUrl + 'import-history-item',
+                method: 'POST',
+                headers: { 'X-WP-Nonce': cfg.nonce },
+                data: {
+                    job_id: selectedHistoryId,
+                    post_id: postData.postId,
+                    create_new: false,
+                    mode: 'editor_only',
+                    include_schema: true
+                }
+            })
+                .then(function (res) {
+                    setImportingHistory(false);
+                    setInjectResult(res);
+                    if (res.video_url) {
+                        setVideoUrl(res.video_url);
+                    }
+                    applyPackageToGutenberg(res, true);
+                })
+                .catch(function (err) {
+                    setImportingHistory(false);
+                    setErrorMsg((err && (err.detail || err.message)) || 'Nie udało się zaimportować materiału z historii.');
+                });
+        }
+
         var currentScore = injectResult
-            ? (injectResult.after_score || 94)
+            ? (injectResult.after_score || 96)
             : previewData
-                ? (hasSavedSchema ? (previewData.after_score || 94) : (previewData.before_score || 28))
+                ? (hasSavedSchema ? (previewData.after_score || 96) : (previewData.before_score || 28))
                 : initialScore;
 
-        var targetScore = (previewData && previewData.after_score) || 94;
+        var targetScore = (previewData && previewData.after_score) || 96;
+        var planLabel = ((quotaInfo && quotaInfo.plan) || 'free').toUpperCase();
+        var usedCount = (quotaInfo && quotaInfo.used_this_month) || 0;
+        var monthlyMax = (quotaInfo && quotaInfo.monthly_quota !== undefined) ? quotaInfo.monthly_quota : 5;
+        var extraBalance = (quotaInfo && quotaInfo.extra_quota_balance) || 0;
+
+        var historySelectOptions = [{ label: '— Wybierz materiał z chmury VSE —', value: '' }].concat(
+            historyItems.map(function (item) {
+                var idVal = String(item.job_id || item.id);
+                var dateStr = (item.created_at || '').slice(0, 10);
+                var titleStr = item.post_title || item.seo_title || item.video_title || ('Materiał #' + idVal);
+                return {
+                    label: '[' + dateStr + ' | ' + (item.lang || 'pl').toUpperCase() + '] ' + titleStr,
+                    value: idVal
+                };
+            })
+        );
 
         return el(
             Fragment,
             null,
+            // Quota & Top-Up Summary Strip
+            el(
+                'div',
+                {
+                    style: {
+                        background: '#f8fafc',
+                        borderBottom: '1px solid #e2e8f0',
+                        padding: '10px 14px',
+                        fontSize: '11px',
+                        color: '#334155',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '6px'
+                    }
+                },
+                el('span', null, 'Plan: ', el('strong', null, planLabel), ' • Limit: ', el('strong', null, usedCount + '/' + (monthlyMax < 0 ? '∞' : monthlyMax))),
+                el('span', { style: { color: '#2563eb', fontWeight: 700 } }, 'Top-Up: +' + extraBalance + ' filmów')
+            ),
+
             // API Key Warning if not configured
             !cfg.hasApiKey && el(
                 PanelBody,
@@ -231,7 +404,7 @@
                 el(
                     'p',
                     { style: { fontSize: '12px', color: '#475569', margin: '0 0 8px 0' } },
-                    'Aby wstrzykiwać pełne Schema JSON-LD + Meta SEO (5 filmów/mies. za darmo), połącz darmowy klucz API.'
+                    'Połącz darmowy klucz vse_live_... (5 filmów/mies. za darmo + auto-parowanie bez App Passwords).'
                 ),
                 el(
                     Button,
@@ -240,19 +413,25 @@
                         href: cfg.settingsUrl,
                         style: { width: '100%', justifyContent: 'center' }
                     },
-                    'Ustaw klucz VSE API →'
+                    'Połącz klucz VSE API →'
                 )
             ),
 
-            // Step 1: Analyze Video URL
+            // Step 1: Analyze Video URL & Target Language
             el(
                 PanelBody,
-                { title: '🎬 1. Analiza Video SEO', initialOpen: true },
+                { title: '🎬 1. Analiza Wideo & Język', initialOpen: true },
                 el(TextControl, {
                     label: 'Link do filmu YouTube',
                     placeholder: 'https://www.youtube.com/watch?v=...',
                     value: videoUrl,
                     onChange: function (val) { setVideoUrl(val); }
+                }),
+                el(SelectControl, {
+                    label: 'Język docelowy (Artykuł + Schema)',
+                    value: targetLang,
+                    options: LANGUAGE_OPTIONS,
+                    onChange: function (val) { setTargetLang(val); }
                 }),
                 el(
                     Button,
@@ -269,7 +448,7 @@
                             marginBottom: '8px'
                         }
                     },
-                    isPreviewLoading ? 'Analizowanie filmu...' : 'Analizuj Video SEO (Score + Rich Result)'
+                    isPreviewLoading ? 'Analizowanie filmu...' : '🔍 Analizuj Video SEO (Score + Preview)'
                 ),
 
                 errorMsg && el(
@@ -282,7 +461,7 @@
                         el(
                             ExternalLink,
                             { href: upgradeUrl },
-                            'Zwiększ limit w panelu VSE →'
+                            'Dokup pakiet Top-Up / Zmień plan →'
                         )
                     )
                 ),
@@ -324,114 +503,34 @@
                     !hasSavedSchema && !injectResult && el(
                         'p',
                         { style: { fontSize: '11px', color: '#475569', margin: '8px 0 0 0' } },
-                        '🚀 Po wstrzyknięciu VSE Schema (VideoObject + Clip + FAQPage) Twój wpis osiągnie ',
+                        '🚀 Po wstrzyknięciu VSE v3.0 Twój wpis osiągnie ',
                         el('strong', { style: { color: '#16a34a' } }, targetScore + '/100 pkt'),
                         '!'
                     ),
                     (hasSavedSchema || injectResult) && el(
                         'p',
                         { style: { fontSize: '11px', color: '#16a34a', margin: '8px 0 0 0', fontWeight: 600 } },
-                        '✓ Czyste Schema JSON-LD aktywne w <head> (ominięto wp_kses_post)'
-                    )
-                ),
-
-                // Google Video Rich Result Preview Card
-                previewData && previewData.rich_result && el(
-                    'div',
-                    {
-                        style: {
-                            marginTop: '12px',
-                            border: '1px solid #cbd5e1',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            background: '#ffffff'
-                        }
-                    },
-                    el(
-                        'div',
-                        { style: { fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' } },
-                        'Podgląd Google Video Rich Result'
-                    ),
-                    el(
-                        'div',
-                        { style: { position: 'relative', borderRadius: '6px', overflow: 'hidden', marginBottom: '8px', background: '#000' } },
-                        previewData.rich_result.thumbnail_url && el('img', {
-                            src: previewData.rich_result.thumbnail_url,
-                            alt: previewData.rich_result.title || '',
-                            style: { width: '100%', height: 'auto', display: 'block' }
-                        }),
-                        el(
-                            'span',
-                            {
-                                style: {
-                                    position: 'absolute',
-                                    bottom: '6px',
-                                    right: '6px',
-                                    background: 'rgba(0,0,0,0.82)',
-                                    color: '#fff',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    padding: '2px 6px',
-                                    borderRadius: '4px'
-                                }
-                            },
-                            '▶ ' + formatDuration(previewData.rich_result.duration_seconds || 0)
-                        ),
-                        el(
-                            'span',
-                            {
-                                style: {
-                                    position: 'absolute',
-                                    top: '6px',
-                                    left: '6px',
-                                    background: '#2563eb',
-                                    color: '#fff',
-                                    fontSize: '10px',
-                                    fontWeight: 700,
-                                    padding: '2px 6px',
-                                    borderRadius: '4px'
-                                }
-                            },
-                            'KEY MOMENTS (Clip Schema)'
-                        )
-                    ),
-                    el(
-                        'div',
-                        { style: { fontSize: '13px', fontWeight: 600, color: '#1a0dab', lineHeight: 1.3, marginBottom: '4px' } },
-                        previewData.rich_result.title || postData.postTitle
-                    ),
-                    el(
-                        'div',
-                        { style: { fontSize: '11px', color: '#475569' } },
-                        'Kanał: ' + (previewData.rich_result.channel_title || 'YouTube') +
-                        ' • Est. rozdziałów AI: ' + (previewData.rich_result.estimated_clips || 5)
-                    ),
-                    previewData.rich_result.recommendation && el(
-                        'div',
-                        { style: { fontSize: '11px', color: '#0f172a', background: '#fef3c7', padding: '6px 8px', borderRadius: '4px', marginTop: '8px' } },
-                        '💡 ' + previewData.rich_result.recommendation
+                        '✓ Czyste Schema JSON-LD aktywne w <head>'
                     )
                 )
             ),
 
-            // Step 2: Inject JSON-LD Schema + SEO Meta
+            // Step 2: Generate & Inject Full Package (Article + TL;DR + Chapters + FAQ + Schema)
             el(
                 PanelBody,
-                { title: '⚡ 2. Wstrzyknij Schema + Meta SEO', initialOpen: true },
-                el(
-                    'p',
-                    { style: { fontSize: '12px', color: '#475569', marginTop: 0 } },
-                    'Generuje VideoObject + Clip (Key Moments) + FAQPage JSON-LD do <head> oraz ustawia Title, Description i Focus Keyword w ',
-                    el('strong', null, cfg.activeAdapter || 'RankMath / Yoast / SEOPress'),
-                    '.'
-                ),
+                { title: '⚡ 2. Pełny Artykuł AI + Schema + Meta', initialOpen: true },
+                el(CheckboxControl, {
+                    label: 'Wstaw pełny artykuł HTML + TL;DR + Rozdziały + FAQ do edytora oraz zaktualizuj tytuł wpisu',
+                    checked: autoInsertArticle,
+                    onChange: function (val) { setAutoInsertArticle(val); }
+                }),
                 el(
                     Button,
                     {
                         isPrimary: true,
                         isBusy: isInjectLoading,
                         disabled: isInjectLoading || isPreviewLoading,
-                        onClick: handleInjectSchema,
+                        onClick: handleInjectFullPackage,
                         style: {
                             width: '100%',
                             justifyContent: 'center',
@@ -441,13 +540,8 @@
                         }
                     },
                     isInjectLoading
-                        ? 'Generowanie AI Schema (ok. 15-30s)...'
-                        : 'Wstrzyknij Schema JSON-LD + Meta SEO'
-                ),
-                el(
-                    'p',
-                    { style: { fontSize: '11px', color: '#64748b', textAlign: 'center', margin: '6px 0 0 0' } },
-                    'Darmowy limit: 5 filmów / mies. w planie Free.'
+                        ? 'Generowanie pakietu AI (20-45s)...'
+                        : '🚀 Wygeneruj Artykuł + Schema + Meta'
                 ),
 
                 injectResult && el(
@@ -464,7 +558,7 @@
                     el(
                         'div',
                         { style: { fontWeight: 700, color: '#166534', fontSize: '12px', marginBottom: '6px' } },
-                        '✓ Wstrzyknięto Schema JSON-LD i zaktualizowano Meta SEO!'
+                        '✓ Zapisano Schema JSON-LD w <head> i Meta SEO!'
                     ),
                     injectResult.seo_title && el(
                         'div',
@@ -472,11 +566,14 @@
                         el('strong', null, 'SEO Title: '),
                         injectResult.seo_title
                     ),
-                    injectResult.focus_keyword && el(
-                        'div',
-                        { style: { fontSize: '11px', color: '#1e293b', marginBottom: '4px' } },
-                        el('strong', null, 'Focus Keyword: '),
-                        injectResult.focus_keyword
+                    injectResult.assembled_html && el(
+                        Button,
+                        {
+                            isSecondary: true,
+                            onClick: insertFullPackageToEditor,
+                            style: { width: '100%', justifyContent: 'center', marginTop: '6px' }
+                        },
+                        '+ Wstaw pełny artykuł HTML (TL;DR + Rozdziały + FAQ)'
                     ),
                     injectResult.chapters && injectResult.chapters.length > 0 && el(
                         Button,
@@ -485,72 +582,55 @@
                             onClick: insertChaptersBlockToEditor,
                             style: { width: '100%', justifyContent: 'center', marginTop: '6px' }
                         },
-                        '+ Wstaw interaktywny blok rozdziałów do treści'
+                        '+ Wstaw same rozdziały Key Moments'
                     )
                 )
             ),
 
-            // Step 3: Upsell Banner for VSE Pro / Agency
+            // Step 3: Pull from VSE Cloud History (0 credits)
             el(
                 PanelBody,
-                { title: '🚀 Pełny Artykuł AI z Wideo (VSE Pro)', initialOpen: true },
+                { title: '📥 3. Pobierz z historii VSE (0 kredytów)', initialOpen: true },
                 el(
-                    'div',
+                    'p',
+                    { style: { fontSize: '11px', color: '#475569', marginTop: 0 } },
+                    'Wstaw gotowy artykuł, rozdziały i Schema wygenerowane wcześniej w chmurze VSE — bez zużycia limitu filmów.'
+                ),
+                el(
+                    Button,
                     {
-                        style: {
-                            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                            color: '#ffffff',
-                            borderRadius: '8px',
-                            padding: '14px'
-                        }
+                        isSecondary: true,
+                        isBusy: isHistoryLoading,
+                        onClick: handleLoadHistory,
+                        style: { width: '100%', justifyContent: 'center', marginBottom: '8px' }
                     },
+                    isHistoryLoading ? 'Pobieranie listy...' : '🔄 Załaduj ostatnie generacje z VSE'
+                ),
+                historyItems.length > 0 && el(
+                    Fragment,
+                    null,
+                    el(SelectControl, {
+                        label: 'Wybierz materiał z chmury VSE',
+                        value: selectedHistoryId,
+                        options: historySelectOptions,
+                        onChange: function (val) { setSelectedHistoryId(val); }
+                    }),
                     el(
-                        'span',
+                        Button,
                         {
+                            isPrimary: true,
+                            isBusy: isImportingHistory,
+                            disabled: isImportingHistory || !selectedHistoryId,
+                            onClick: handleImportHistoryItem,
                             style: {
-                                background: '#e11d48',
-                                color: '#fff',
-                                fontSize: '10px',
-                                fontWeight: 700,
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                textTransform: 'uppercase'
+                                width: '100%',
+                                justifyContent: 'center',
+                                background: '#2563eb',
+                                borderColor: '#2563eb',
+                                fontWeight: 600
                             }
                         },
-                        'VSE PRO / AGENCY'
-                    ),
-                    el(
-                        'h4',
-                        { style: { color: '#fff', margin: '8px 0 6px 0', fontSize: '14px' } },
-                        'Chcesz wygenerować cały artykuł z tego filmu w 30 sekund?'
-                    ),
-                    el(
-                        'ul',
-                        { style: { margin: '0 0 12px 16px', padding: 0, fontSize: '11px', color: '#cbd5e1', lineHeight: 1.5 } },
-                        el('li', null, 'Pełne artykuły eksperckie z transkrypcji AI'),
-                        el('li', null, 'Automatyczne streszczenie TL;DR, cytaty i sekcja FAQ'),
-                        el('li', null, 'Screenshoty z wideo (ImageObject) + integracja GSC'),
-                        el('li', null, 'Auto-publikacja 1-klikiem na wiele portali WordPress')
-                    ),
-                    el(
-                        'a',
-                        {
-                            href: cfg.registerUrl || 'https://vse.impresjapr.pl/register?utm_source=wp_plugin',
-                            target: '_blank',
-                            rel: 'noopener noreferrer',
-                            style: {
-                                display: 'block',
-                                textAlign: 'center',
-                                background: '#e11d48',
-                                color: '#ffffff',
-                                fontWeight: 700,
-                                fontSize: '12px',
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                textDecoration: 'none'
-                            }
-                        },
-                        'Wypróbuj VSE Pro / Załóż konto →'
+                        isImportingHistory ? 'Importowanie do edytora...' : '📥 Wstaw wybrany materiał (0 kredytów)'
                     )
                 )
             )
@@ -564,13 +644,13 @@
             el(
                 PluginSidebarMoreMenuItem,
                 { target: 'vse-video-seo-sidebar', icon: 'video-alt3' },
-                'VSE Video SEO'
+                'VSE Video SEO v3.0'
             ),
             el(
                 PluginSidebar,
                 {
                     name: 'vse-video-seo-sidebar',
-                    title: 'VSE Video SEO — AI Schema',
+                    title: 'VSE Video SEO v3.0 — AI Hub',
                     icon: 'video-alt3'
                 },
                 el(VseSidebarContent, null)
@@ -579,7 +659,7 @@
                 PluginDocumentSettingPanel,
                 {
                     name: 'vse-video-seo-doc-panel',
-                    title: 'VSE Video SEO (Score & Schema)',
+                    title: 'VSE Video SEO v3.0 (Artykuł & Schema)',
                     icon: 'video-alt3'
                 },
                 el(VseSidebarContent, null)
