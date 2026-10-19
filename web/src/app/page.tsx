@@ -29,7 +29,7 @@ const plans = [
     name: 'Free',
     price: '0',
     quota: '5 filmów / mies.',
-    features: ['Schema VideoObject', 'Rozdziały AI', 'FAQ generation', 'Cross-Language → język panelu', '1 portal WP'],
+    features: ['Schema VideoObject + Clip + FAQ', 'Wtyczka WordPress v3.0 w cenie', 'Cross-Language → język panelu', '1 portal WP'],
     cta: 'Zacznij za darmo',
     href: '/register',
     highlighted: false,
@@ -38,7 +38,7 @@ const plans = [
     name: 'Starter',
     price: '49',
     quota: '50 filmów / mies.',
-    features: ['Wszystko z Free', 'WordPress inject', '3 portale WP', 'Cross-Language: wideo → SEO w języku panelu', 'Opcjonalny Add-on: Pakiet Wielojęzyczny (+29 zł/mies.)', 'Email support'],
+    features: ['Wszystko z Free', 'WordPress Auto-Publish (3 portale)', 'Cross-Language: wideo → SEO w języku panelu', 'Opcjonalny Add-on: Pakiet Wielojęzyczny (+29 zł/mies.)', 'VSE Local Runner (.zip)'],
     cta: 'Wybierz Starter',
     href: '/register?plan=starter',
     highlighted: false,
@@ -56,7 +56,7 @@ const plans = [
     name: 'Agency',
     price: '499',
     quota: '1 000 filmów / mies.',
-    features: ['Wszystko z Pro', '50 portali WP', '🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji', 'Priorytetowe AI & wsparcie', 'White-label', 'SLA 99.9%'],
+    features: ['Wszystko z Pro', '50 portali WP', '🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji', 'Moduł ShortMachine (AI Shorts 9:16 + NLE)', 'White-label & SLA 99.9%'],
     cta: 'Wybierz Agency',
     href: '/register?plan=agency',
     highlighted: false,
@@ -152,6 +152,40 @@ export default function Home() {
                 <p className="text-dark-300 leading-relaxed">{f.desc}</p>
               </div>
             ))}
+          </div>
+
+          {/* Dedicated WordPress Plugin Lead-Magnet Banner */}
+          <div className="mt-12 glass rounded-2xl border border-brand-500/30 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2 max-w-2xl">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-brand-500/20 text-brand-300 border border-brand-500/30 uppercase tracking-wider">
+                  🔌 Oficjalna Wtyczka WordPress v3.0
+                </span>
+                <span className="text-xs text-green-400 font-semibold">
+                  ✓ Gutenberg + RankMath / Yoast / SEOPress + Auto-Parowanie
+                </span>
+              </div>
+              <h3 className="text-xl font-bold text-white">
+                VSE Video SEO v3.0 dla WordPress — 1-klikowa publikacja i Schema JSON-LD
+              </h3>
+              <p className="text-sm text-dark-300 leading-relaxed">
+                Pobierz darmową wtyczkę <code className="text-brand-300">vse-video-seo.zip</code>, wklej klucz API <code className="text-brand-300">vse_live_...</code> aby automatycznie sparować portal bez Application Passwords i wstrzykuj czyste znaczniki <strong className="text-white">VideoObject + Clip (Key Moments) + FAQPage</strong> do sekcji <code className="text-brand-300">&lt;head&gt;</code> (5 filmów / mies. za darmo).
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href="/v1/plugin/download"
+                className="px-6 py-3 rounded-xl font-semibold text-sm bg-brand-500 hover:bg-brand-400 text-white transition-smooth glow-sm whitespace-nowrap"
+              >
+                ⬇️ Pobierz wtyczkę (.zip)
+              </a>
+              <Link
+                href="/register?utm_source=landing&utm_medium=wp_plugin_banner"
+                className="px-5 py-3 rounded-xl font-medium text-sm glass hover:bg-white/10 text-white transition-smooth whitespace-nowrap"
+              >
+                Odbierz darmowy klucz API →
+              </Link>
+            </div>
           </div>
         </div>
       </section>
