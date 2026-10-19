@@ -44,6 +44,7 @@ interface UserPlan {
 interface UserProfile {
   email: string
   is_verified?: boolean
+  is_admin?: boolean
   has_multilang_addon?: boolean
   plan_badge?: string
   desktop_runner_active?: boolean
@@ -465,6 +466,82 @@ function UstawieniaContent() {
   }
 
   const [downloadingRunner, setDownloadingRunner] = useState(false)
+  const [runnerDownloadError, setRunnerDownloadError] = useState('')
+  const [pluginKeys, setPluginKeys] = useState<Array<{
+    id: string
+    key_prefix: string
+    name: string
+    allowed_domain?: string | null
+    is_active: boolean
+    created_at?: string | null
+    last_used_at?: string | null
+  }>>([])
+  const [pluginKeysLoading, setPluginKeysLoading] = useState(false)
+  const [creatingPluginKey, setCreatingPluginKey] = useState(false)
+  const [pluginDomainInput, setPluginDomainInput] = useState('')
+  const [newPluginKeyRaw, setNewPluginKeyRaw] = useState<string | null>(null)
+  const [copiedPluginKey, setCopiedPluginKey] = useState(false)
+
+  const fetchPluginKeys = useCallback(async () => {
+    if (!session?.accessToken) return
+    setPluginKeysLoading(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/plugin/keys`, {
+        headers: { Authorization: `Bearer ${session.accessToken as string}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPluginKeys(Array.isArray(data) ? data : [])
+      }
+    } catch {
+      // silent
+    } finally {
+      setPluginKeysLoading(false)
+    }
+  }, [session?.accessToken])
+
+  useEffect(() => { fetchPluginKeys() }, [fetchPluginKeys])
+
+  const handleCreatePluginKey = async () => {
+    if (!session?.accessToken) return
+    setCreatingPluginKey(true)
+    setCopiedPluginKey(false)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+      const res = await fetch(`${apiUrl}/v1/plugin/keys`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.accessToken as string}`,
+        },
+        body: JSON.stringify({
+          name: 'WordPress Plugin (VSE Video SEO v3.0)',
+          allowed_domain: pluginDomainInput.trim() || undefined,
+        }),
+      })
+      if (res.ok) {
+        const created = await res.json()
+        setNewPluginKeyRaw(created.api_key)
+        setPluginDomainInput('')
+        fetchPluginKeys()
+      }
+    } catch {
+      // silent
+    } finally {
+      setCreatingPluginKey(false)
+    }
+  }
+
+  const handleCopyPluginKey = async (keyStr: string) => {
+    try {
+      await navigator.clipboard.writeText(keyStr)
+      setCopiedPluginKey(true)
+      setTimeout(() => setCopiedPluginKey(false), 2500)
+    } catch {
+      // silent
+    }
+  }
 
   if (status === 'loading') {
     return (
@@ -480,7 +557,7 @@ function UstawieniaContent() {
     (userProfile?.has_multilang_addon && (planId === 'starter' || planId === 'free')
       ? 'Starter + 🌐 8 Jęz.'
       : (PLAN_LABELS[planId] ?? userProfile?.plan?.display_name ?? 'Free'))
-  const isPaid = planId !== 'free' || Boolean(userProfile?.has_multilang_addon)
+  const isPaid = planId !== 'free' || Boolean(userProfile?.has_multilang_addon) || Boolean(userProfile?.is_admin)
   const portalLimit = PLAN_PORTAL_LIMITS[planId === 'free' && userProfile?.has_multilang_addon ? 'starter' : planId] ?? 0
   const portalCount = portals.length
   const canAddPortal = portalLimit === 0 ? false : portalCount < portalLimit
@@ -489,24 +566,27 @@ function UstawieniaContent() {
   const handleDownloadDesktopRunner = async () => {
     if (!accessToken) return
     setDownloadingRunner(true)
+    setRunnerDownloadError('')
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
       const res = await fetch(`${apiUrl}/v1/users/desktop-runner-package`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
-      if (res.ok) {
-        const blob = await res.blob()
-        const dlUrl = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = dlUrl
-        a.download = 'vse-desktop-runner.zip'
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        window.URL.revokeObjectURL(dlUrl)
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error((errData as { detail?: string }).detail || `Błąd pobierania (${res.status})`)
       }
-    } catch {
-      // silent
+      const blob = await res.blob()
+      const dlUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = dlUrl
+      a.download = 'vse-local-runner.zip'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(dlUrl)
+    } catch (err: unknown) {
+      setRunnerDownloadError(err instanceof Error ? err.message : 'Nie udało się pobrać pakietu Local Runner')
     } finally {
       setDownloadingRunner(false)
     }
@@ -573,7 +653,7 @@ function UstawieniaContent() {
       <main className="ml-64 p-8">
         <div className="max-w-2xl">
           <h1 className="text-2xl font-bold text-white mb-1">Ustawienia</h1>
-          <p className="text-gray-400 mb-8">Zarządzaj kontem, portalami i subskrypcją.</p>
+          <p className="text-gray-400 mb-8">Zarządzaj kontem, wtyczką WordPress, portalami i subskrypcją.</p>
 
           {/* ── Sekcja 1: Konto ───────────────────────────────────────────── */}
           <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
@@ -635,12 +715,102 @@ function UstawieniaContent() {
             </div>
           </section>
 
+          {/* ── Sekcja 1B: Wtyczka WordPress (VSE Video SEO v3.0) ─────────────── */}
+          <section id="wp-plugin" className="bg-gray-900 border border-violet-500/30 rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-xs">🔌</span>
+                Wtyczka WordPress VSE v3.0 + Klucze API (vse_live_...)
+              </h2>
+              <span className="px-2.5 py-0.5 text-xs bg-violet-500/15 text-violet-300 rounded-full border border-violet-500/30 font-semibold">
+                v3.0.0 · Dostępna również w planie Free
+              </span>
+            </div>
+
+            <p className="text-xs text-gray-400 leading-relaxed mb-4">
+              Zainstaluj oficjalną wtyczkę <strong className="text-gray-200">VSE Video SEO v3.0</strong> w swoim WordPressie, aby automatycznie sparować portal po kluczu API (bez Application Passwords), publikować pełne artykuły SEO z Dashboardu i Gutenberga oraz wstrzykiwać znaczniki <code className="text-violet-300">VideoObject + Clip + FAQPage</code> do sekcji <code className="text-violet-300">&lt;head&gt;</code>.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 mb-5">
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/plugin/download`}
+                download="vse-video-seo.zip"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-90 rounded-xl text-xs font-semibold text-white shadow-lg shadow-violet-950/50 transition-all"
+              >
+                📥 Pobierz wtyczkę WordPress v3.0 (.zip)
+              </a>
+              <input
+                type="text"
+                value={pluginDomainInput}
+                onChange={(e) => setPluginDomainInput(e.target.value)}
+                placeholder="Opcjonalnie: domena WP (np. mojportal.pl)"
+                className="flex-1 min-w-[180px] bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-violet-500"
+              />
+              <button
+                type="button"
+                onClick={handleCreatePluginKey}
+                disabled={creatingPluginKey}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-violet-500/50 rounded-xl text-xs font-semibold text-violet-300 transition-all disabled:opacity-50"
+              >
+                {creatingPluginKey ? 'Generowanie klucza...' : '🔑 Wygeneruj klucz API do wtyczki'}
+              </button>
+            </div>
+
+            {newPluginKeyRaw && (
+              <div className="mb-4 p-4 bg-emerald-950/30 border border-emerald-500/40 rounded-xl">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="text-xs font-semibold text-emerald-300">
+                    ✓ Twój nowy klucz API do wtyczki WordPress (skopiuj go teraz):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyPluginKey(newPluginKeyRaw)}
+                    className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors"
+                  >
+                    {copiedPluginKey ? '✓ Skopiowano!' : '📋 Kopiuj klucz'}
+                  </button>
+                </div>
+                <code className="block w-full p-2.5 bg-gray-950 border border-gray-800 rounded-lg text-xs text-emerald-200 font-mono break-all select-all">
+                  {newPluginKeyRaw}
+                </code>
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Wklej ten klucz w panelu WordPress: <strong>VSE Video SEO → Ustawienia &amp; Klucz API</strong> i kliknij „Sprawdź i połącz z chmurą VSE”.
+                </p>
+              </div>
+            )}
+
+            {!pluginKeysLoading && pluginKeys.filter((k) => k.name !== 'VSE Desktop Runner').length > 0 && (
+              <div className="border-t border-gray-800 pt-3">
+                <p className="text-xs text-gray-500 mb-2">Aktywne klucze wtyczki WordPress:</p>
+                <div className="space-y-1.5">
+                  {pluginKeys
+                    .filter((k) => k.name !== 'VSE Desktop Runner')
+                    .slice(0, 5)
+                    .map((k) => (
+                      <div
+                        key={k.id}
+                        className="flex items-center justify-between px-3 py-2 bg-gray-800/40 border border-gray-800 rounded-lg text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <code className="text-violet-300 font-mono">{k.key_prefix}</code>
+                          <span className="text-gray-400 truncate">
+                            {k.allowed_domain ? `🌐 ${k.allowed_domain}` : '• oczekuje na pierwsze połączenie z domeną WP'}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-emerald-400 flex-shrink-0">Aktywny</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </section>
+
           {/* ── Sekcja 2: Portale WordPress ──────────────────────────────── */}
           <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <span className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-xs">🌐</span>
-                Portale WordPress
+                Portale WordPress (Auto-Publikacja 1-klikiem z Dashboardu)
               </h2>
               {!portalsLoading && (
                 <span className="text-xs text-gray-500">
@@ -658,8 +828,8 @@ function UstawieniaContent() {
               <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl mb-4">
                 <span className="text-amber-400 mt-0.5">🔒</span>
                 <div>
-                  <p className="text-sm font-medium text-amber-300">Funkcja dostępna od planu Starter</p>
-                  <p className="text-xs text-gray-400 mt-1">Portale WordPress umożliwiają automatyczną publikację SEO.</p>
+                  <p className="text-sm font-medium text-amber-300">Auto-publikacja pełnych artykułów dostępna od planu Starter</p>
+                  <p className="text-xs text-gray-400 mt-1">W planie Free możesz bezpłatnie korzystać z wtyczki VSE Video SEO powyżej (5 filmów/mies.). Aby wysyłać pełne artykuły 1-klikiem prosto z panelu VSE, przejdź na plan Starter lub Pro.</p>
                   <Link
                     href="/cennik"
                     className="inline-block mt-2 text-xs text-violet-400 hover:text-violet-300 underline underline-offset-2"
@@ -828,7 +998,7 @@ function UstawieniaContent() {
               <div className="flex items-center justify-between p-4 bg-gray-800/40 border border-gray-700/50 rounded-xl">
                 <div>
                   <p className="text-sm font-medium text-white mb-1">Plan Free</p>
-                  <p className="text-xs text-gray-400">5 generacji / miesiąc · bez portali WordPress</p>
+                  <p className="text-xs text-gray-400">5 generacji / miesiąc · wtyczka WordPress w cenie</p>
                 </div>
                 <Link
                   href="/cennik"
@@ -862,7 +1032,7 @@ function UstawieniaContent() {
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <span className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs">💻</span>
-                VSE Desktop Runner — Lokalny Akcelerator (Starter / Pro / Agency)
+                VSE Local Runner — Lokalny Akcelerator YouTube VTT &amp; ShortMachine 9:16
               </h2>
               {userProfile?.desktop_runner_active ? (
                 <span className="px-2.5 py-0.5 text-xs bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold">
@@ -876,25 +1046,22 @@ function UstawieniaContent() {
             </div>
 
             <p className="text-xs text-gray-400 leading-relaxed mb-4">
-              Konto Free działa w 100% w chmurze i nie wymaga żadnej instalacji. Dla planów <strong className="text-gray-200">Starter, Pro i Agency</strong> udostępniamy gotowy pakiet <strong className="text-gray-200">VSE Desktop Runner</strong> (Windows / macOS) z indywidualnym kluczem API — do lokalnego wycinania rolek ShortMachine 9:16 (FFmpeg) oraz pobierania napisów z domowego IP przy masowym generowaniu.
+              Pobierz gotowy pakiet <strong className="text-gray-200">VSE Local Runner (vse-local-runner.zip)</strong> (Windows / macOS) z indywidualnym kluczem API — do lokalnego wycinania rolek ShortMachine 9:16 (FFmpeg) oraz pobierania napisów z domowego IP przy masowym generowaniu.
             </p>
 
-            {!isPaid ? (
-              <Link
-                href="/cennik"
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-xs font-semibold text-violet-300 transition-colors"
-              >
-                🔒 Odblokuj w planie Starter / Pro ↗
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={handleDownloadDesktopRunner}
-                disabled={downloadingRunner}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl text-xs font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all disabled:opacity-50"
-              >
-                {downloadingRunner ? 'Generowanie pakietu (.zip)...' : '⬇️ Pobierz gotowy pakiet instalacyjny (.zip)'}
-              </button>
+            <button
+              type="button"
+              onClick={handleDownloadDesktopRunner}
+              disabled={downloadingRunner}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl text-xs font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all disabled:opacity-50"
+            >
+              {downloadingRunner ? 'Generowanie pakietu (.zip)...' : '⬇️ Pobierz gotowy pakiet instalacyjny (vse-local-runner.zip)'}
+            </button>
+
+            {runnerDownloadError && (
+              <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400">
+                ⚠️ {runnerDownloadError}
+              </div>
             )}
           </section>
         </div>
