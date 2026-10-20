@@ -50,6 +50,7 @@ from api.db import AsyncSessionLocal
 from api.models.job import TranscriptJob
 from api.auth import get_current_user
 from api.models.user import User, ApiKey
+from api.services.pipeline import notify_job_transcript_ready
 
 logger = logging.getLogger(__name__)
 
@@ -373,7 +374,8 @@ async def complete_job(
 
     KROK B.B: Przyjmuje wynik również gdy job przeszedł w status 'cloud_fallback'
     lub 'processing' (oraz zawsze gdy nie ma jeszcze zapisanego transkryptu),
-    aby wynik z Local Runnera nigdy nie przepadał.
+    aby wynik z Local Runnera nigdy nie przepadał. Wybudza in-memory asyncio.Event
+    w pipeline.py (0.001s), dzięki czemu generowanie rusza w tej samej milisekundzie.
     """
     runner_user_id = await _resolve_runner_user_id(token, db)
     job = await db.get(TranscriptJob, job_id)
@@ -388,6 +390,7 @@ async def complete_job(
             "[jobs] Job %s already has transcript in status '%s', ignoring duplicate result",
             job_id, job.status,
         )
+        notify_job_transcript_ready(str(job_id))
         return {"status": "already_processed", "job_status": job.status}
 
     if result.status == "fetched" and result.transcript:
@@ -417,6 +420,7 @@ async def complete_job(
 
     job.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    notify_job_transcript_ready(str(job_id))
     return {"status": job.status}
 
 
