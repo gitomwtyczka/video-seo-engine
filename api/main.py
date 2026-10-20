@@ -161,10 +161,10 @@ async def health() -> HealthResponse:
 
 
 async def _seed_plans() -> None:
-    """Insert default subscription plans on startup if they don't exist.
+    """Insert or update default subscription plans on startup.
 
-    Uses ON CONFLICT DO NOTHING so it's safe to run on every startup
-    (idempotent). Required because register endpoint has FK to plans table.
+    Uses ON CONFLICT DO UPDATE + explicit UPDATE statements so the database
+    always reflects the owner-approved quotas: 5 / 30 / 110 / 250.
     """
     plans = [
         {
@@ -179,7 +179,7 @@ async def _seed_plans() -> None:
         {
             "id": "starter",
             "display_name": "Starter",
-            "monthly_quota": 50,
+            "monthly_quota": 30,
             "wp_sites_limit": 3,
             "api_access": True,
             "price_pln": 49,
@@ -188,7 +188,7 @@ async def _seed_plans() -> None:
         {
             "id": "pro",
             "display_name": "Pro",
-            "monthly_quota": 250,
+            "monthly_quota": 110,
             "wp_sites_limit": 10,
             "api_access": True,
             "price_pln": 149,
@@ -197,7 +197,7 @@ async def _seed_plans() -> None:
         {
             "id": "agency",
             "display_name": "Agency",
-            "monthly_quota": 1000,
+            "monthly_quota": 250,
             "wp_sites_limit": 50,
             "api_access": True,
             "price_pln": 499,
@@ -221,8 +221,13 @@ async def _seed_plans() -> None:
                 ),
                 plan,
             )
+        # Safe explicit UPDATE to guarantee 5 / 30 / 110 / 250 quotas in DB on startup
+        await db.execute(text("UPDATE plans SET monthly_quota = 5, wp_sites_limit = 1, price_pln = 0 WHERE id = 'free';"))
+        await db.execute(text("UPDATE plans SET monthly_quota = 30, wp_sites_limit = 3, price_pln = 49 WHERE id = 'starter';"))
+        await db.execute(text("UPDATE plans SET monthly_quota = 110, wp_sites_limit = 10, price_pln = 149 WHERE id = 'pro';"))
+        await db.execute(text("UPDATE plans SET monthly_quota = 250, wp_sites_limit = 50, price_pln = 499 WHERE id = 'agency';"))
         await db.commit()
-    logger.info("Plans seeded/updated with Stripe prices and accurate quotas.")
+    logger.info("Plans seeded/updated with Stripe prices and accurate quotas (5 / 30 / 110 / 250).")
 
 
 @app.on_event("startup")
@@ -286,7 +291,7 @@ async def startup_event() -> None:
         logger.warning(f"DB init skipped (no DB configured?): {e}")
         return
 
-    # Seed default subscription plans (idempotent — ON CONFLICT DO NOTHING)
+    # Seed default subscription plans (idempotent — ON CONFLICT DO UPDATE)
     try:
         await _seed_plans()
     except Exception as e:
