@@ -1,12 +1,12 @@
 {
-  "callsign": "vse-dev-n1",
-  "status": "working",
-  "current_task": "Zadanie N1: naprawa nawigacji frontendu (PublicHeader, not-found, logo linki) na branchu n1-navigation",
-  "timestamp": "2026-10-20T23:08:00+02:00",
+  "callsign": "vse-dev-k1",
+  "status": "done",
+  "current_task": "Zadanie K1+K2: ukończone, zmergowane i wdrożone na VPS (merge ca8bd7a)",
+  "timestamp": "2026-10-20T23:11:00+02:00",
   "last_completed": [
-    "74e52187e05d08bfe2cc24f7b2b8101d41e310cc: chore(heartbeat): set status to handoff with full commit list [vse-dev-01]"
+    "ca8bd7a220577bdce53f8d58ebd9a021ca39448b: Merge PR #2 - K1+K2 generator perf (single-pass watching_page, Python clean_transcript) [vse-dev-k1]",
+    "16c23343ca522bfe6c898f6c7c196a82c4938ba8: perf(generator): drop LLM clean_transcript, single-pass watching_page, truncation detection [vse-dev-k1]",
+    "e57a4f0aaf8b438ce4effe76ac3d7bc94d4c8696: test(generator): add unit tests for K1+K2 perf and single-pass [vse-dev-k1]"
   ],
-  "pending": [
-    "N1: PublicHeader, not-found.tsx, logo Link / - in_progress"
-  ]
+  "pending": []
 }
