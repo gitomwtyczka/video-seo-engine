@@ -2,6 +2,7 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { PublicHeader } from "@/components/PublicHeader";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://vse.impresjapr.pl";
 
@@ -163,8 +164,10 @@ export default function CennikPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-20 px-4">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex flex-col">
+      <PublicHeader showBack />
+      <main className="flex-1 py-12 sm:py-20 px-4">
+        <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="text-center mb-16">
           <span className="inline-block px-4 py-1 rounded-full text-xs font-semibold bg-violet-900/40 text-violet-300 border border-violet-700/40 mb-4 uppercase tracking-widest">
@@ -398,5 +401,6 @@ export default function CennikPage() {
         </p>
       </div>
     </main>
+  </div>
   );
 }
