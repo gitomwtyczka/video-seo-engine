@@ -1,14 +1,21 @@
 {
   "callsign": "vse-architect-01",
   "status": "done",
-  "current_task": "Wdrożenie wtyczki WordPress v3.0 (vse-video-seo) + pakiety Top-Up (+50/+150/+500) + rozbudowa /admin — zakończone i zweryfikowane E2E",
-  "timestamp": "2026-10-18T23:33:00+02:00",
+  "current_task": "Wdrożenie KROK A+B+C: limity 5/30/110/250, Top-Up 99/249/699 PLN, OAuth channel match, asyncio.Event wakeup (2.0s/90s), blokada anty-konfabulacyjna HTTP 422 i clean_transcript — wdrożone na VPS i zweryfikowane E2E",
+  "timestamp": "2026-10-20T14:19:00+02:00",
   "last_completed": [
-    "42de7c413aeb70e16f781ca5cbc2be82b0b760b8: report: vse-architect-01 WP Plugin v3.0 + Top-Up + Admin Quota E2E complete [vse-architect-01]",
-    "06a721e7395ea656114455e952f9d7ec5b2111ce: docs(tasks): mark WP Plugin v3.0, Top-Up packs, and Admin quota management complete in current.md [vse-architect-01]",
-    "3cb5a15ce3071d0665090722f8ec83af4aea9db8: fix(plugin): support both GET and HEAD on /v1/plugin/download and align PLAN_LIMITS [vse-architect-01]",
-    "46f79aca902874dd59b7001a22348c77c0f70694: feat(payments): unify Top-Up packs (+50/+150/+500) credits/videos metadata in payments.py [vse-architect-01]",
-    "571f237e74183fadd6611193c141dd26b2d59299: feat(dashboard): display Top-Up extra_quota_balance, VIP custom quota, and VSE v3.0 auto-paired portals [vse-dev-01]"
+    "4b4c3d7d8eb22b722e05ec7495677c7b17755fcc: report: vse-architect-01 KROK A+B+C transcript fix, quotas 5/30/110/250, Top-Up 99/249/699 E2E complete [vse-architect-01]",
+    "e7de50990fdc9d7edc7b54dab27ad183d546483e: docs(tasks): mark KROK A+B+C complete in current.md [vse-architect-01]",
+    "212c5881d495454cbb689aaf5df5c7fb7c5dc670: perf(jobs): trigger in-memory asyncio.Event wakeup on POST /v1/jobs/{id}/result [vse-dev-01]",
+    "93cf9308987a57ac44c1da9f3020dedba8f30fac: perf(pipeline): set LOCAL_RUNNER_POLL_INTERVAL=2.0s + in-memory asyncio.Event instant wakeup [vse-dev-01]",
+    "87e21a30ecde01c65a8ed355f33dd7fed4f64150: fix(generator): hard anti-confabulation block on missing transcript, ASR phonetic correction instructions, and clean_transcript field [vse-dev-01]",
+    "4d0ed1611fa0335429906291fbe4e34e5b400287: fix(generate): return HTTP 422 with 0 credits charged on missing transcript and reuse existing transcript job [vse-dev-01]",
+    "3d651cd82079e850579855861f341bbda6de69fc: fix(jobs): accept transcript results on cloud_fallback/processing jobs [vse-dev-01]",
+    "64e83e2a36c6c19076cfabd5e9876d016c423f72: fix(pipeline): match video channel_id for YT OAuth, add DB transcript cache, 90s/0.5s runner polling, and hard anti-confabulation block [vse-dev-01]",
+    "2009f30ddc4a4215717a178d55fca06f51c91b90: fix(fetcher): multi-track fallback in fetch_transcript_api_v3 and log channel_id [vse-dev-01]",
+    "581f2328d7131ad3435fcea0ede25604ca4e8d44: feat(cennik): set quotas to 30/110/250, Top-Up to 99/249/699 PLN and >250 Enterprise banner [vse-dev-01]",
+    "5196757017784fb870861d0f454381cc3f8a6618: feat(payments): update Top-Up prices to 99 / 249 / 699 PLN [vse-dev-01]",
+    "a63cb06: feat(plugin): set PLAN_LIMITS to 5/30/110/250 [vse-dev-01]"
   ],
   "pending": []
 }
