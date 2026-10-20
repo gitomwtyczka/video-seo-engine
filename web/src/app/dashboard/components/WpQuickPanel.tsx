@@ -2,7 +2,6 @@ import Link from 'next/link'
 import { ErrorBoundary } from '../error-boundary'
 
 export function WpQuickPanel() {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
   return (
     <ErrorBoundary>
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
@@ -15,18 +14,11 @@ export function WpQuickPanel() {
             </div>
           </div>
           <div className="flex items-center gap-2 ml-auto">
-            <a
-              href={`${apiUrl}/v1/plugin/download`}
-              download="vse-video-seo.zip"
-              className="px-3 py-1.5 rounded-lg bg-violet-600/20 hover:bg-violet-600/30 border border-violet-500/40 text-xs font-semibold text-violet-300 transition-colors"
-            >
-              📥 Pobierz wtyczkę WordPress v3.0 (.zip)
-            </a>
             <Link
               href="/ustawienia#wp-plugin"
               className="text-xs text-violet-400 hover:text-violet-300 transition-colors font-medium"
             >
-              Klucz API / Portale →
+              Zarządzaj portalami, wtyczką WordPress v3.0 i kluczami API w Ustawieniach →
             </Link>
           </div>
         </div>
