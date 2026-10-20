@@ -1,12 +1,17 @@
 {
-  "callsign": "vse-dev-k1",
+  "callsign": "vse-dev-n1",
   "status": "done",
-  "current_task": "Zadanie K1+K2: ukończone, zmergowane i wdrożone na VPS (merge ca8bd7a)",
-  "timestamp": "2026-10-20T23:11:00+02:00",
+  "current_task": "Zadanie N1: naprawa nawigacji frontendu na branchu n1-navigation (PublicHeader, not-found, logo linki) - oczekiwanie na GO do merge/deploy",
+  "timestamp": "2026-10-20T23:48:00+02:00",
   "last_completed": [
-    "ca8bd7a220577bdce53f8d58ebd9a021ca39448b: Merge PR #2 - K1+K2 generator perf (single-pass watching_page, Python clean_transcript) [vse-dev-k1]",
-    "16c23343ca522bfe6c898f6c7c196a82c4938ba8: perf(generator): drop LLM clean_transcript, single-pass watching_page, truncation detection [vse-dev-k1]",
-    "e57a4f0aaf8b438ce4effe76ac3d7bc94d4c8696: test(generator): add unit tests for K1+K2 perf and single-pass [vse-dev-k1]"
+    "5dfacdc0adf46e35f5eff81f5c1681e040e4d2a6: fix(web): logo link to / in dashboard sidebar [vse-dev-n1]",
+    "2acfd141b2831a76b013c6d090e7dc2179743212: fix(web): logo link to / in admin sidebar [vse-dev-n1]",
+    "7ccedb420e3f56379b75b140b5ccd4fae8015229: fix(web): logo link to / in settings sidebar [vse-dev-n1]",
+    "c7c6e31950475f74f8c79007d313be7a563724bd: fix(web): logo link to / on landing, shortmachine and historia sidebar [vse-dev-n1]",
+    "585df8b05ebc0e31dab967b5cf5cb1d0e2cc6bc1: feat(web): add PublicHeader to cennik, payments, regulamin, privacy policy [vse-dev-n1]",
+    "908ecd2035aa5b385b6d4da63f316ea8ec096ce1: feat(web): add PublicHeader component and not-found page [vse-dev-n1]"
   ],
-  "pending": []
+  "pending": [
+    "N1: merge branch n1-navigation to main and deploy to VPS after GO"
+  ]
 }
