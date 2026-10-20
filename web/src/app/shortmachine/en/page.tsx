@@ -10,7 +10,7 @@ export default function ShortMachinePageEN() {
       </div>
 
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4" style={{background:'rgba(7,13,31,0.8)',backdropFilter:'blur(12px)',borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
-        <div className="font-black text-xl" style={{background:'linear-gradient(90deg,#a855f7,#06b6d4)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>ShortMachine</div>
+        <Link href="/" className="font-black text-xl hover:opacity-90 transition-opacity" style={{background:'linear-gradient(90deg,#a855f7,#06b6d4)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>ShortMachine</Link>
         <div className="flex gap-3">
           <Link href="/shortmachine" className="text-sm text-gray-400 hover:text-white px-3 py-1">PL</Link>
           <Link href="/shortmachine/en" className="text-sm text-gray-400 hover:text-white px-3 py-1">EN</Link>

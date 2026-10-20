@@ -69,13 +69,13 @@ export default function Home() {
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 glass border-b border-white/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center">
               <Video className="w-4 h-4 text-white" />
             </div>
             <span className="font-bold text-lg tracking-tight">VSE</span>
             <span className="text-dark-400 text-sm ml-1">Video SEO Engine</span>
-          </div>
+          </Link>
           <div className="flex items-center gap-4">
             <Link href="/login" className="text-dark-300 hover:text-white transition-smooth text-sm">
               Zaloguj
@@ -274,11 +274,11 @@ export default function Home() {
       {/* Footer */}
       <footer className="py-12 px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
             <div className="w-6 h-6 rounded-md bg-gradient-to-br from-brand-500 to-purple-600" />
             <span className="font-semibold">VSE</span>
             <span className="text-dark-400 text-sm">— ImpresjaAI</span>
-          </div>
+          </Link>
           <p className="text-dark-400 text-sm">© 2026 ImpresjaAI. Wszelkie prawa zastrzeżone.</p>
         </div>
       </footer>
