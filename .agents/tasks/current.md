@@ -1,6 +1,13 @@
-# Current Tasks (Stan na 20.10.2026)
+# Current Tasks (Stan na 20.10.2026 — Wzorcowy Handoff v2.2)
 
-## ✅ Zamknięte (Etap 1 + Faza 2B, 3.1-3.2, 4, 4.5/5.2, 5.1, WP Plugin v3.0 + Limity 5/30/110/250 + Top-Up 99/249/699 + Niezawodność Napisów & Blokada Anty-Konfabulacyjna)
+## ✅ Zamknięte (Etap 1 + Faza 2B, 3.1-3.2, 4, 4.5/5.2, 5.1, WP Plugin v3.0 + Limity 5/30/110/250 + Top-Up 99/249/699 + Niezawodność Napisów & Blokada Anty-Konfabulacyjna + UX `/ustawienia`)
+- [x] **Przebudowa UX `/ustawienia` + Język Białoruski (`be`) + Ujednolicenie limitu 50 portali WP w Agency (`3e0cb38`, `59ca091`, `c17a7a6`):**
+  - **Przebudowa `web/src/app/ustawienia/page.tsx` (`3e0cb38`):** Zastąpiono chaotyczny 6-sekcyjny układ (z duplikatem karty „Plan subskrypcji” i rozwiniętymi polami `textarea` stopki YT) czystym, logicznym układem **4 kart**:
+    1. *👤 Konto & Subskrypcja* — połączona karta z adresem e-mail, aktywnym planem, odznakami `🌐 8 Jęz.` / `VIP`, przyciskiem `⚙ Zarządzaj subskrypcją`, linkiem `↑ Zmień plan / Dokup Top-Up`, paskiem wykorzystania miesięcznego oraz widocznym saldem `⚡ Pakiet Top-Up: +X filmów`.
+    2. *🌐 Portale WordPress (Auto-Publikacja 1-klikiem)* — kompaktowa lista portali z plakietkami trybu autoryzacji (`🔌 Wtyczka v3.0 (Auto-Parowanie)` vs `🔑 App Password`), przyciskiem `+ Dodaj portal` oraz kotwicą otwierającą akordeon wtyczki WP.
+    3. *▶️ Kanały YouTube (OAuth 2.0)* — lista podłączonych kanałów ze statusem stopki (`✔ Stopka aktywna` / `Brak stopki`), jednoliniowym podglądem i zwijanym edytorem pod przyciskiem `📝 Edytuj stopkę kanału ▾`.
+    4. *📦 Wtyczki, Integracje API & Narzędzia do pobrania* — sekcja z **2 zwijanymi akordeonami**: **Akordeon 1 (`#wp-plugin`)** dla *Wtyczki WordPress VSE v3.0 + Kluczy API (`vse_live_...`)* oraz **Akordeon 2 (`#local-runner`)** dla *VSE Local Runner (`vse-local-runner.zip`)* ze zaktualizowanym statusem `Instant Wakeup + Auto-Fallback`.
+  - **Dodanie języka białoruskiego (`be` — `🇧🇾 Беларуская`) i korekta limitu portali (`59ca091`, `c17a7a6`):** Dodano wsparcie języka białoruskiego w generatorze (`core/generator.py`), tłumaczeniach UI (`web/src/app/dashboard/vse-translations.ts`) i dashboardzie oraz ujednolicono opis limitu portali w planie Agency do `50 portali WP`.
 - [x] **Wdrożenie KROK A+B+C: Limity 5/30/110/250 + Top-Up 99/249/699 PLN + OAuth Channel Match + Instant Runner Wakeup + Blokada Anty-Konfabulacyjna (`212c588`, `93cf930`, `87e21a3`, `4d0ed16`, `3d651cd`, `64e83e2`, `2009f30`, `a480164`, `d43c544`, `581f232`, `c3fac7c`, `3a62af9`, `5196757`, `a63cb06`):**
   - **KROK A — Ujednolicenie limitów planów (`5 / 30 / 110 / 250`) i cen pakietów Top-Up (`99 / 249 / 699 PLN`):** Zsynchronizowano limity planów (`Free: 5`, `Starter: 30`, `Pro: 110`, `Agency: 250`) w bazie PostgreSQL (`plans`), `api/main.py`, `api/quota.py`, `api/routers/plugin.py`, `api/routers/admin.py`, `scripts/setup_stripe_live.py`, na stronie głównej (`web/src/app/page.tsx`), w cenniku (`web/src/app/cennik/page.tsx`) oraz w panelu `/admin` (`web/src/app/admin/page.tsx`). Zaktualizowano cennik pakietów Top-Up (`+50 filmów = 99 PLN`, `+150 filmów = 249 PLN`, `+500 filmów = 699 PLN`) w `api/routers/payments.py` i `web/src/app/cennik/page.tsx` wraz z banerem VIP/Enterprise `>250 filmów`.
   - **KROK B — Niezawodność pobierania napisów (YouTube OAuth Channel Match + Multi-Track Fallback + Instant Runner Wakeup):**
@@ -13,18 +20,20 @@
 - [x] **Wtyczka WordPress `vse-video-seo` v3.0 + Model >250 filmów (Top-Up + VIP Quota) + Rozbudowa `/admin` (`3cb5a15`, `46f79ac`, `571f237`, `325ece7`):**
   - Wtyczka WordPress v3.0 (`plugins/vse-video-seo/`), dynamiczny `GET/HEAD /v1/plugin/download`, paczka Desktop Runnera (`GET /v1/users/desktop-runner-package`), kolumny `extra_quota_balance` i `custom_monthly_quota` oraz rozbudowany panel `/admin`.
 - [x] **Faza 4.5 / 5.2: Wielojęzyczność — Cross-Language & Per-Material Translation Engine („Złoty Środek”, `93cef05`):**
-  - Uniwersalne wykrywanie języka źródłowego, 8-języczny fallback napisów, architektura Dual-Language Anchor, `adapt_material_language()`, Stripe Add-on (+29 PLN/mies.).
+  - Wsparcie dla 8+ języków (w tym `be`), architektura Dual-Language Anchor, `adapt_material_language()`, Stripe Add-on (+29 PLN/mies.).
 - [x] **Etap 1 + Faza 2B, 3.1-3.2, 4, 5.1 (Komercjalizacja VSE v2.0):**
   - Wszystkie wcześniejsze zadania Etapu 1, wtyczki WordPress `vse-video-seo` (`/v1/plugin/*`) oraz YouTube Data API v3 OAuth Captions (`1ccbf8d`, `bd82107`, `128570b`) zamknięte i wdrożone.
 
 ---
 
 ## 🟡 W toku
-- Brak zadań w toku — wdrożenie KROK A+B+C (limity `5/30/110/250`, Top-Up `99/249/699 PLN`, dopasowanie kanału OAuth po `channel_id`, wybudzanie `asyncio.Event` + `POLL_INTERVAL=2.0s` / `TIMEOUT=90s`, twarda blokada anty-konfabulacyjna `HTTP 422`, `clean_transcript` z korektą fonetyczną ASR) zamknięte i zweryfikowane E2E na produkcji.
+- Brak zadań w toku — sesja zamknięta wzorcowym Handoffem (`GitHub == VPS == Local`, zero nie-wypchniętych commitów).
 
 ---
 
-## 🔵 Następne (Zgodnie z Master Roadmap v2.2 — Fazy 5.3–5.7, 6)
+## 🔵 Następne (Priorytety na kolejną sesję — Master Roadmap v2.2)
+- [ ] **Priorytet 1 — Test praktyczny Wtyczki WordPress v3.0.0 (`plugins/vse-video-seo/`) na żywych portalach:** Po reinstalacji z paczki `.zip` (`GET /v1/plugin/download`) przetestować E2E auto-parowanie `POST /v1/plugin/validate`, generowanie z Classic Meta Box / Gutenberg Sidebar oraz import gotowego materiału z historii VSE za `0 kredytów`.
+- [ ] **Priorytet 2 — Przełączenie Stripe z `sk_test_` na `sk_live_`:** Po decyzji Właściciela podmienić klucze w `.env` na VPS i uruchomić `docker exec vse-api python3 /app/scripts/setup_stripe_live.py` (plany 49 / 149 / 499 PLN + Add-on 29 PLN + Top-Up 99 / 249 / 699 PLN).
 - [ ] **Faza 5.3:** Ręczny upload pliku `.vtt` / `.srt` w dashboardzie (fallback dla filmów bez napisów).
 - [ ] **Faza 5.4:** Moduł M4B — cytaty z klikalnymi deep-linkami czasowymi (fuzzy match VTT → timestamp).
 - [ ] **Faza 5.5:** Przeglądarka kanału (`/channels`) i Channel Monitor E2E z izolacją `user_id`/`tenant_id`.
