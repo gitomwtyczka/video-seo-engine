@@ -369,7 +369,12 @@ async def complete_job(
     token: str = Depends(_verify_runner_token),
     db: AsyncSession = Depends(_get_db),
 ) -> dict:
-    """Runner przesyła wynik transkrypcji (lub błąd)."""
+    """Runner przesyła wynik transkrypcji (lub błąd).
+
+    KROK B.B: Przyjmuje wynik również gdy job przeszedł w status 'cloud_fallback'
+    lub 'processing' (oraz zawsze gdy nie ma jeszcze zapisanego transkryptu),
+    aby wynik z Local Runnera nigdy nie przepadał.
+    """
     runner_user_id = await _resolve_runner_user_id(token, db)
     job = await db.get(TranscriptJob, job_id)
     if not job:
@@ -378,12 +383,9 @@ async def complete_job(
     if runner_user_id is not None and job.user_id is not None and job.user_id != runner_user_id:
         raise HTTPException(403, "Job belongs to another user")
 
-
-
-    # Idempotent: jeśli już przetworzony, zwróć 200 bez zmian
-    if job.status != "pending":
+    if job.status not in ("pending", "cloud_fallback", "processing") and job.transcript:
         logger.warning(
-            "[jobs] Job %s already in status '%s', ignoring duplicate result",
+            "[jobs] Job %s already has transcript in status '%s', ignoring duplicate result",
             job_id, job.status,
         )
         return {"status": "already_processed", "job_status": job.status}
@@ -395,20 +397,21 @@ async def complete_job(
             logger.error("[jobs] Transcript sanitization failed for %s: %s", job_id, e)
             raise HTTPException(422, f"Invalid transcript: {e}")
 
-        # Loguj format dla diagnostyki
         is_vtt = sanitized.startswith("__VTT__")
         logger.info(
-            "[jobs] Job %s: transcript received (%d chars, format=%s)",
-            job_id, len(sanitized), "VTT" if is_vtt else "plain",
+            "[jobs] Job %s: transcript received (%d chars, format=%s, prev_status=%s)",
+            job_id, len(sanitized), "VTT" if is_vtt else "plain", job.status,
         )
 
         job.transcript = sanitized
-        job.status = "fetched"
+        # Jeśli schema_data już istnieje, ustawiamy status 'done'; w przeciwnym razie 'fetched' (pipeline czeka na 'fetched' lub 'done')
+        job.status = "done" if job.schema_data else "fetched"
         job.error = None
     elif result.status == "failed":
-        job.status = "failed"
-        job.error = result.error or "Runner reported failure"
-        logger.error("[jobs] Job %s failed: %s", job_id, job.error)
+        if not job.transcript:
+            job.status = "failed"
+            job.error = result.error or "Runner reported failure"
+            logger.error("[jobs] Job %s failed: %s", job_id, job.error)
     else:
         raise HTTPException(422, "status must be 'fetched' (with transcript) or 'failed'")
 
@@ -538,7 +541,7 @@ def _job_to_response(job: TranscriptJob) -> JobResponse:
 def _job_to_full_response(job: TranscriptJob) -> FullJobResponse:
     """Konwertuje ORM model na pełny response z schema_data."""
     video_id = _extract_video_id_from_url(job.video_url) if job.video_url else None
-    has_vtt = bool(job.transcript and job.transcript.startswith("__VTT__"))
+    has_vtt = bool(job.transcript and (job.transcript.startswith("__VTT__") or job.transcript.startswith("WEBVTT")))
     return FullJobResponse(
         id=str(job.id),
         video_url=job.video_url,
@@ -555,7 +558,7 @@ def _job_to_full_response(job: TranscriptJob) -> FullJobResponse:
 def _job_to_history_response(job: TranscriptJob) -> HistoryJobResponse:
     """Konwertuje ORM model na rozszerzony response dla historii."""
     video_id = _extract_video_id_from_url(job.video_url) if job.video_url else None
-    has_vtt = bool(job.transcript and job.transcript.startswith("__VTT__"))
+    has_vtt = bool(job.transcript and (job.transcript.startswith("__VTT__") or job.transcript.startswith("WEBVTT")))
     has_schema = job.schema_data is not None
     post_title = None
     if has_schema and isinstance(job.schema_data, dict):
