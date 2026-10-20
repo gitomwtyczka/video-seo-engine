@@ -1,14 +1,15 @@
 'use client'
 /**
- * CO: Strona /ustawienia — ustawienia konta, portale WordPress, plan subskrypcji.
- * PO CO: Daje użytkownikowi dostęp do zarządzania kontem, listą portali WP
- *        i informacją o aktualnym planie — bez wychodzenia z aplikacji.
- * JAK: 3 sekcje — Konto (email + plan + ManageSubscription),
- *      Portale WP (usePortals + AddPortalModal inline + usuwanie),
- *      Plan (link do /cennik lub info o planie płatnym).
- *
- * Limity portali per plan:
- *   free: 0 | starter: 3 | pro: 10 | agency: 999
+ * CO: Strona /ustawienia — uporządkowany hub zarządzania kontem, portalami WordPress,
+ *     kanałami YouTube oraz sekcją pobrań (Wtyczka WP v3.0 + VSE Local Runner w akordeonach).
+ * PO CO: Daje użytkownikowi przejrzysty, logiczny układ 4 sekcji bez duplikatów i bez
+ *        rozciągniętych formularzy, łącząc Konto & Subskrypcję w jedną kartę oraz grupując
+ *        narzędzia do pobrania w zwijanych akordeonach na dole.
+ * JAK: 4 karty:
+ *      1. Konto & Subskrypcja (email, aktywny plan, odznaki VIP/8 Jęz., Top-Up, pasek zużycia, Stripe Portal)
+ *      2. Portale WordPress (lista portali z odznakami Wtyczka v3.0 / App Password, dodawanie, usuwanie)
+ *      3. Kanały YouTube (lista kanałów OAuth 2.0 ze zwijaną edycją stopki footer_text)
+ *      4. Wtyczki, Integracje API & Narzędzia do pobrania (2 akordeony: Wtyczka WP v3.0 + Klucze API oraz VSE Local Runner)
  */
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -48,8 +49,18 @@ interface UserProfile {
   has_multilang_addon?: boolean
   plan_badge?: string
   desktop_runner_active?: boolean
+  extra_quota_balance?: number
+  custom_monthly_quota?: number | null
+  used_this_month?: number
+  monthly_quota?: number
   plan: UserPlan
-  usage: { used_this_month: number; quota: number; percent: number }
+  usage: {
+    used_this_month: number
+    quota: number
+    percent: number
+    extra_quota_balance?: number
+    custom_monthly_quota?: number | null
+  }
   subscription?: {
     status?: string
     current_period_end?: string
@@ -96,13 +107,13 @@ function ManageSubscriptionLink({ accessToken }: { accessToken?: string }) {
     <button
       onClick={handleManage}
       disabled={loading}
-      className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 border border-gray-700 hover:border-violet-500/50 text-gray-300 hover:text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+      className="inline-flex items-center gap-2 px-3.5 py-2 bg-gray-800 border border-gray-700 hover:border-violet-500/50 text-gray-200 hover:text-white rounded-xl text-xs font-medium transition-all disabled:opacity-50"
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg className="w-3.5 h-3.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
-      {loading ? 'Przekierowuję...' : 'Zarządzaj subskrypcją'}
+      {loading ? 'Przekierowuję...' : '⚙ Zarządzaj subskrypcją'}
     </button>
   )
 }
@@ -274,9 +285,18 @@ function AddPortalModal({
   )
 }
 
-// ─── FooterTextEditor ────────────────────────────────────────────────────────
+// ─── FooterTextEditor (zwijana edycja stopki kanału YT) ─────────────────────
 
-function FooterTextEditor({ channel, apiUrl, accessToken }: { channel: any, apiUrl: string, accessToken?: string }) {
+function FooterTextEditor({
+  channel,
+  apiUrl,
+  accessToken,
+}: {
+  channel: YtChannel
+  apiUrl: string
+  accessToken?: string
+}) {
+  const [open, setOpen] = useState(false)
   const [text, setText] = useState<string>(channel.footer_text || '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -289,8 +309,11 @@ function FooterTextEditor({ channel, apiUrl, accessToken }: { channel: any, apiU
     try {
       const res = await fetch(`${apiUrl}/v1/youtube/channels/${channel.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(accessToken && { Authorization: `Bearer ${accessToken}` }) },
-        body: JSON.stringify({ footer_text: text })
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
+        },
+        body: JSON.stringify({ footer_text: text }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -298,30 +321,70 @@ function FooterTextEditor({ channel, apiUrl, accessToken }: { channel: any, apiU
       }
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch (e: any) {
-      setError(e.message || 'Błąd zapisu')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Błąd zapisu')
     } finally {
       setSaving(false)
     }
   }
 
+  const hasFooter = text.trim().length > 0
+
   return (
-    <div>
-      <textarea
-        value={text}
-        onChange={e => setText(e.target.value)}
-        rows={3}
-        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-violet-500 resize-y"
-        placeholder="np. 📌 Obserwuj kanał | Instagram: @kanał | Linktree: ..."
-      />
-      <button
-        onClick={save}
-        disabled={saving}
-        className="mt-1 px-3 py-1 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-500 disabled:opacity-50"
-      >
-        {saving ? 'Zapisuję...' : saved ? '✔ Zapisano' : 'Zapisz stopkę'}
-      </button>
-      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+    <div className="mt-2 pt-2 border-t border-gray-800/70">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className={`px-2 py-0.5 text-[11px] rounded-full border flex-shrink-0 ${
+              hasFooter
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : 'bg-gray-800 text-gray-500 border-gray-700'
+            }`}
+          >
+            {hasFooter ? '✔ Stopka aktywna' : 'Brak stopki'}
+          </span>
+          {!open && hasFooter && (
+            <span className="text-xs text-gray-500 truncate">
+              {text.replace(/\s+/g, ' ').slice(0, 70)}
+              {text.length > 70 ? '…' : ''}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-xs text-violet-400 hover:text-violet-300 font-medium flex items-center gap-1 flex-shrink-0"
+        >
+          <span>📝 {open ? 'Zwiń stopkę' : 'Edytuj stopkę kanału'}</span>
+          <span className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-2.5 space-y-2">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-violet-500 resize-y"
+            placeholder="np. 📌 Subskrybuj kanał | Instagram: @twojkanal | WWW: https://..."
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-gray-500">
+              Automatycznie doklejana na końcu każdego opisu YouTube wysyłanego na ten kanał.
+            </span>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="px-3.5 py-1.5 text-xs bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-500 disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Zapisuję...' : saved ? '✔ Zapisano' : 'Zapisz stopkę'}
+            </button>
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+      )}
     </div>
   )
 }
@@ -357,12 +420,6 @@ function SidebarLink({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 function UstawieniaContent() {
-  /**
-   * CO: Strona /ustawienia — hub zarządzania kontem.
-   * PO CO: Użytkownik widzi swój email, plan, zarządza portalami WP i subskrypcją.
-   * JAK: useSession → auth guard. Fetch /v1/users/me → dane planu.
-   *      usePortals() → lista portali z możliwością dodawania i usuwania.
-   */
   const { data: session, status } = useSession()
   const router = useRouter()
 
@@ -372,6 +429,10 @@ function UstawieniaContent() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
 
+  // Accordions in Downloads section
+  const [openWpPlugin, setOpenWpPlugin] = useState(false)
+  const [openLocalRunner, setOpenLocalRunner] = useState(false)
+
   const searchParams = useSearchParams()
   const [ytStatus, setYtStatus] = useState<string | null>(null)
 
@@ -380,6 +441,11 @@ function UstawieniaContent() {
     if (yt) {
       setYtStatus(yt)
       window.history.replaceState({}, '', '/ustawienia')
+    }
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash
+      if (hash === '#wp-plugin') setOpenWpPlugin(true)
+      if (hash === '#local-runner') setOpenLocalRunner(true)
     }
   }, [searchParams])
 
@@ -429,7 +495,7 @@ function UstawieniaContent() {
     fetch(`${apiUrl}/v1/youtube/channels`, {
       headers: { Authorization: `Bearer ${session.accessToken as string}` },
     })
-      .then((r) => r.ok ? r.json() : [])
+      .then((r) => (r.ok ? r.json() : []))
       .then((data) => setYtChannels(Array.isArray(data) ? data : []))
       .catch(() => {})
       .finally(() => setYtLoading(false))
@@ -451,11 +517,15 @@ function UstawieniaContent() {
         const { authorization_url } = await res.json()
         window.location.href = authorization_url
       }
-    } catch {}
-    finally { setYtConnecting(false) }
+    } catch {
+      // silent
+    } finally {
+      setYtConnecting(false)
+    }
   }
 
   const handleDisconnectYoutube = async (channelId: string) => {
+    if (!confirm('Czy na pewno chcesz odłączyć ten kanał YouTube?')) return
     if (!session?.accessToken) return
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
     await fetch(`${apiUrl}/v1/youtube/channels/${channelId}`, {
@@ -563,6 +633,14 @@ function UstawieniaContent() {
   const canAddPortal = portalLimit === 0 ? false : portalCount < portalLimit
   const accessToken = session?.accessToken as string | undefined
 
+  const usageUsed = userProfile?.usage?.used_this_month ?? userProfile?.used_this_month ?? 0
+  const usageQuota = userProfile?.usage?.quota ?? userProfile?.monthly_quota ?? 5
+  const extraQuotaBalance = userProfile?.extra_quota_balance ?? userProfile?.usage?.extra_quota_balance ?? 0
+  const customMonthlyQuota = userProfile?.custom_monthly_quota ?? userProfile?.usage?.custom_monthly_quota ?? null
+  const usagePercent = usageQuota === -1 ? 15 : usageQuota > 0 ? Math.min(100, (usageUsed / usageQuota) * 100) : 0
+
+  const activeWpPluginKeys = pluginKeys.filter((k) => k.name !== 'VSE Desktop Runner')
+
   const handleDownloadDesktopRunner = async () => {
     if (!accessToken) return
     setDownloadingRunner(true)
@@ -592,6 +670,14 @@ function UstawieniaContent() {
     }
   }
 
+  const scrollToWpPluginAccordion = () => {
+    setOpenWpPlugin(true)
+    setTimeout(() => {
+      const el = document.getElementById('wp-plugin')
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+  }
+
   // Renewal date display
   const renewalDate = userProfile?.subscription?.current_period_end
     ? new Date(userProfile.subscription.current_period_end).toLocaleDateString('pl-PL', {
@@ -614,6 +700,11 @@ function UstawieniaContent() {
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  )
+  const iconPricing = (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
     </svg>
   )
 
@@ -639,197 +730,174 @@ function UstawieniaContent() {
           <SidebarLink href="/dashboard" icon={iconDashboard} label="Dashboard" />
           <SidebarLink href="/historia" icon={iconHistory} label="Historia" />
           <SidebarLink href="/ustawienia" icon={iconSettings} label="Ustawienia" active />
+          <SidebarLink href="/cennik" icon={iconPricing} label="Cennik / Top-Up" />
         </nav>
 
-        <div className="p-4 border-t border-gray-800 space-y-1">
+        <div className="p-4 border-t border-gray-800 space-y-2">
           <p className="text-sm text-white truncate">{session?.user?.email}</p>
-          <span className="inline-block px-2 py-0.5 text-xs bg-violet-500/15 text-violet-400 rounded-full border border-violet-500/20">
-            {planLabel}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="inline-block px-2 py-0.5 text-xs bg-violet-500/15 text-violet-400 rounded-full border border-violet-500/20">
+              {planLabel}
+            </span>
+            {extraQuotaBalance > 0 && (
+              <span className="inline-block px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/40">
+                ⚡ +{extraQuotaBalance} Top-Up
+              </span>
+            )}
+          </div>
         </div>
       </aside>
 
       {/* Main */}
       <main className="ml-64 p-8">
-        <div className="max-w-2xl">
-          <h1 className="text-2xl font-bold text-white mb-1">Ustawienia</h1>
-          <p className="text-gray-400 mb-8">Zarządzaj kontem, wtyczką WordPress, portalami i subskrypcją.</p>
+        <div className="max-w-3xl">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-white mb-1">Ustawienia</h1>
+            <p className="text-sm text-gray-400">
+              Zarządzaj subskrypcją, podłączonymi portalami WordPress, kanałami YouTube oraz narzędziami do pobrania.
+            </p>
+          </div>
 
-          {/* ── Sekcja 1: Konto ───────────────────────────────────────────── */}
+          {/* ── Karta 1: Konto & Subskrypcja (połączona w jedną spójną kartę) ── */}
           <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
-            <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-              <span className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-xs">👤</span>
-              Konto
-            </h2>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-sm">👤</span>
+                Konto &amp; Subskrypcja
+              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                {isPaid && accessToken && (
+                  <ManageSubscriptionLink accessToken={accessToken} />
+                )}
+                <Link
+                  href="/cennik"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600/15 hover:bg-violet-600/25 border border-violet-500/30 rounded-xl text-xs font-semibold text-violet-300 transition-all"
+                >
+                  ↑ Zmień plan / Dokup Top-Up
+                </Link>
+              </div>
+            </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
               {/* Email */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Email</p>
-                  <p className="text-sm font-medium text-white">{session?.user?.email ?? '—'}</p>
-                </div>
+              <div className="p-3.5 bg-gray-950/60 border border-gray-800/80 rounded-xl">
+                <p className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">Konto e-mail</p>
+                <p className="text-sm font-medium text-white truncate">{session?.user?.email ?? '—'}</p>
               </div>
 
-              {/* Plan */}
-              <div className="flex items-center justify-between border-t border-gray-800 pt-4">
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Aktualny plan</p>
-                  {profileLoading ? (
-                    <div className="h-5 w-16 bg-gray-800 rounded animate-pulse" />
-                  ) : (
-                    <div className="flex items-center gap-2">
+              {/* Aktualny plan */}
+              <div className="p-3.5 bg-gray-950/60 border border-gray-800/80 rounded-xl">
+                <p className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">Aktywny plan</p>
+                {profileLoading ? (
+                  <div className="h-5 w-24 bg-gray-800 rounded animate-pulse" />
+                ) : (
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-white">{planLabel}</span>
-                      {isPaid && (
-                        <span className="px-2 py-0.5 text-xs bg-emerald-500/15 text-emerald-400 rounded-full border border-emerald-500/20">
-                          Aktywny
+                      {userProfile?.has_multilang_addon && !planLabel.includes('8 Jęz') && (
+                        <span className="px-2 py-0.5 text-[11px] bg-violet-500/20 text-violet-300 rounded-full border border-violet-500/30 font-semibold">
+                          🌐 8 Jęz.
                         </span>
                       )}
-                      {!isPaid && (
-                        <span className="px-2 py-0.5 text-xs bg-gray-700/50 text-gray-400 rounded-full">
+                      {customMonthlyQuota !== null && (
+                        <span className="px-2 py-0.5 text-[11px] bg-amber-500/20 text-amber-300 rounded-full border border-amber-500/30 font-semibold">
+                          VIP
+                        </span>
+                      )}
+                      {isPaid ? (
+                        <span className="px-2 py-0.5 text-[11px] bg-emerald-500/15 text-emerald-400 rounded-full border border-emerald-500/20">
+                          Aktywny
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-[11px] bg-gray-800 text-gray-400 rounded-full border border-gray-700">
                           Bezpłatny
                         </span>
                       )}
                     </div>
-                  )}
-                </div>
-                {isPaid && accessToken && (
-                  <ManageSubscriptionLink accessToken={accessToken} />
+                    {renewalDate && (
+                      <span className="text-[11px] text-gray-500">
+                        Odnowienie: <span className="text-gray-300">{renewalDate}</span>
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
+            </div>
 
-              {/* Usage */}
-              {userProfile && (
-                <div className="border-t border-gray-800 pt-4">
-                  <p className="text-xs text-gray-500 mb-2">
-                    Wykorzystanie w tym miesiącu: <span className="text-gray-300">{userProfile.usage.used_this_month} / {userProfile.usage.quota}</span> generacji
-                  </p>
-                  <div className="w-full bg-gray-800 rounded-full h-1.5">
-                    <div
-                      className="bg-gradient-to-r from-violet-500 to-fuchsia-500 h-1.5 rounded-full transition-all"
-                      style={{ width: `${Math.min(userProfile.usage.percent, 100)}%` }}
-                    />
+            {/* Wykorzystanie miesięczne + saldo Top-Up */}
+            {userProfile && (
+              <div className="p-4 bg-gray-950/60 border border-gray-800/80 rounded-xl">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                  <span className="text-xs text-gray-400">
+                    Wykorzystanie w tym miesiącu:{' '}
+                    <strong className="text-white font-semibold">
+                      {usageUsed} / {usageQuota === -1 ? '∞' : usageQuota}
+                    </strong>{' '}
+                    generacji
+                    {customMonthlyQuota !== null && (
+                      <span className="ml-1.5 text-[11px] text-amber-400 font-semibold">(Limit VIP)</span>
+                    )}
+                  </span>
+
+                  <div className="flex items-center gap-2.5">
+                    {extraQuotaBalance > 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        ⚡ Pakiet Top-Up: +{extraQuotaBalance} filmów
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">Pakiet Top-Up: 0 filmów</span>
+                    )}
+                    <Link
+                      href="/cennik#topup"
+                      className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                    >
+                      + Dokup Top-Up
+                    </Link>
                   </div>
                 </div>
-              )}
-            </div>
+
+                <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-violet-500 to-fuchsia-500 h-2 rounded-full transition-all"
+                    style={{ width: `${usagePercent}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </section>
 
-          {/* ── Sekcja 1B: Wtyczka WordPress (VSE Video SEO v3.0) ─────────────── */}
-          <section id="wp-plugin" className="bg-gray-900 border border-violet-500/30 rounded-2xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-xs">🔌</span>
-                Wtyczka WordPress VSE v3.0 + Klucze API (vse_live_...)
-              </h2>
-              <span className="px-2.5 py-0.5 text-xs bg-violet-500/15 text-violet-300 rounded-full border border-violet-500/30 font-semibold">
-                v3.0.0 · Dostępna również w planie Free
-              </span>
-            </div>
-
-            <p className="text-xs text-gray-400 leading-relaxed mb-4">
-              Zainstaluj oficjalną wtyczkę <strong className="text-gray-200">VSE Video SEO v3.0</strong> w swoim WordPressie, aby automatycznie sparować portal po kluczu API (bez Application Passwords), publikować pełne artykuły SEO z Dashboardu i Gutenberga oraz wstrzykiwać znaczniki <code className="text-violet-300">VideoObject + Clip + FAQPage</code> do sekcji <code className="text-violet-300">&lt;head&gt;</code>.
-            </p>
-
-            <div className="flex flex-wrap items-center gap-3 mb-5">
-              <a
-                href={`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/plugin/download`}
-                download="vse-video-seo.zip"
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-90 rounded-xl text-xs font-semibold text-white shadow-lg shadow-violet-950/50 transition-all"
-              >
-                📥 Pobierz wtyczkę WordPress v3.0 (.zip)
-              </a>
-              <input
-                type="text"
-                value={pluginDomainInput}
-                onChange={(e) => setPluginDomainInput(e.target.value)}
-                placeholder="Opcjonalnie: domena WP (np. mojportal.pl)"
-                className="flex-1 min-w-[180px] bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-violet-500"
-              />
-              <button
-                type="button"
-                onClick={handleCreatePluginKey}
-                disabled={creatingPluginKey}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-violet-500/50 rounded-xl text-xs font-semibold text-violet-300 transition-all disabled:opacity-50"
-              >
-                {creatingPluginKey ? 'Generowanie klucza...' : '🔑 Wygeneruj klucz API do wtyczki'}
-              </button>
-            </div>
-
-            {newPluginKeyRaw && (
-              <div className="mb-4 p-4 bg-emerald-950/30 border border-emerald-500/40 rounded-xl">
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <span className="text-xs font-semibold text-emerald-300">
-                    ✓ Twój nowy klucz API do wtyczki WordPress (skopiuj go teraz):
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyPluginKey(newPluginKeyRaw)}
-                    className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors"
-                  >
-                    {copiedPluginKey ? '✓ Skopiowano!' : '📋 Kopiuj klucz'}
-                  </button>
-                </div>
-                <code className="block w-full p-2.5 bg-gray-950 border border-gray-800 rounded-lg text-xs text-emerald-200 font-mono break-all select-all">
-                  {newPluginKeyRaw}
-                </code>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  Wklej ten klucz w panelu WordPress: <strong>VSE Video SEO → Ustawienia &amp; Klucz API</strong> i kliknij „Sprawdź i połącz z chmurą VSE”.
+          {/* ── Karta 2: Portale WordPress (Auto-Publikacja 1-klikiem) ───────── */}
+          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-white flex items-center gap-2.5">
+                  <span className="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-sm">🌐</span>
+                  Portale WordPress (Auto-Publikacja 1-klikiem)
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5 ml-9">
+                  Wysyłaj gotowe artykuły SEO i znaczniki Schema.org bezpośrednio z Dashboardu.
                 </p>
               </div>
-            )}
-
-            {!pluginKeysLoading && pluginKeys.filter((k) => k.name !== 'VSE Desktop Runner').length > 0 && (
-              <div className="border-t border-gray-800 pt-3">
-                <p className="text-xs text-gray-500 mb-2">Aktywne klucze wtyczki WordPress:</p>
-                <div className="space-y-1.5">
-                  {pluginKeys
-                    .filter((k) => k.name !== 'VSE Desktop Runner')
-                    .slice(0, 5)
-                    .map((k) => (
-                      <div
-                        key={k.id}
-                        className="flex items-center justify-between px-3 py-2 bg-gray-800/40 border border-gray-800 rounded-lg text-xs"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <code className="text-violet-300 font-mono">{k.key_prefix}</code>
-                          <span className="text-gray-400 truncate">
-                            {k.allowed_domain ? `🌐 ${k.allowed_domain}` : '• oczekuje na pierwsze połączenie z domeną WP'}
-                          </span>
-                        </div>
-                        <span className="text-[11px] text-emerald-400 flex-shrink-0">Aktywny</span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* ── Sekcja 2: Portale WordPress ──────────────────────────────── */}
-          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-xs">🌐</span>
-                Portale WordPress (Auto-Publikacja 1-klikiem z Dashboardu)
-              </h2>
               {!portalsLoading && (
-                <span className="text-xs text-gray-500">
+                <span className="px-2.5 py-1 text-xs bg-gray-800 text-gray-300 rounded-lg border border-gray-700 font-medium">
                   {portalLimit === 999
                     ? `${portalCount} portali (bez limitu)`
                     : portalLimit === 0
-                    ? '0 portali (plan Free)'
+                    ? 'Plan Free (tylko wtyczka)'
                     : `${portalCount} / ${portalLimit} portali`}
                 </span>
               )}
             </div>
 
             {/* Free plan lock */}
-            {planId === 'free' && !profileLoading && (
+            {planId === 'free' && !isPaid && !profileLoading && (
               <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl mb-4">
                 <span className="text-amber-400 mt-0.5">🔒</span>
                 <div>
-                  <p className="text-sm font-medium text-amber-300">Auto-publikacja pełnych artykułów dostępna od planu Starter</p>
-                  <p className="text-xs text-gray-400 mt-1">W planie Free możesz bezpłatnie korzystać z wtyczki VSE Video SEO powyżej (5 filmów/mies.). Aby wysyłać pełne artykuły 1-klikiem prosto z panelu VSE, przejdź na plan Starter lub Pro.</p>
+                  <p className="text-sm font-medium text-amber-300">Auto-publikacja pełnych artykułów z Dashboardu dostępna od planu Starter</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    W planie Free możesz bezpłatnie korzystać z wtyczki WordPress VSE v3.0 (5 filmów/mies.). Aby wysyłać pełne artykuły 1-klikiem prosto z panelu VSE, przejdź na plan Starter lub Pro.
+                  </p>
                   <Link
                     href="/cennik"
                     className="inline-block mt-2 text-xs text-violet-400 hover:text-violet-300 underline underline-offset-2"
@@ -842,68 +910,83 @@ function UstawieniaContent() {
 
             {/* Portal list */}
             {portalsLoading ? (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {[1, 2].map((i) => (
                   <div key={i} className="h-14 bg-gray-800/50 rounded-xl animate-pulse" />
                 ))}
               </div>
             ) : portalsError ? (
               <p className="text-red-400 text-sm">{portalsError}</p>
-            ) : portals.length === 0 && planId !== 'free' ? (
-              <div className="text-center py-6 text-gray-500">
-                <p className="text-sm">Brak portali. Dodaj pierwszy portal WordPress.</p>
+            ) : portals.length === 0 && (planId !== 'free' || isPaid) ? (
+              <div className="text-center py-6 bg-gray-950/40 border border-gray-800/60 rounded-xl text-gray-500">
+                <p className="text-sm">Brak podłączonych portali WordPress.</p>
+                <p className="text-xs text-gray-600 mt-1">
+                  Dodaj portal ręcznie (App Password) lub zainstaluj wtyczkę VSE v3.0, która sparuje portal automatycznie.
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
-                {portals.map((portal: Portal) => (
-                  <div
-                    key={portal.id}
-                    className="flex items-center justify-between p-4 bg-gray-800/40 border border-gray-700/50 rounded-xl hover:border-gray-700 transition-colors"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-sm font-medium text-white truncate">{portal.name}</span>
-                        {portal.is_default && (
-                          <span className="flex-shrink-0 px-1.5 py-0.5 text-xs bg-violet-500/20 text-violet-400 rounded-full border border-violet-500/20">
-                            domyślny
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 truncate">{portal.url}</p>
-                    </div>
-                    <button
-                      onClick={() => handleDeletePortal(portal.id)}
-                      disabled={deletingId === portal.id}
-                      className="ml-3 flex-shrink-0 p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all disabled:opacity-30"
-                      title="Usuń portal"
+                {portals.map((portal: Portal) => {
+                  const isPluginMode = portal.auth_mode === 'plugin_token' || Boolean(portal.is_plugin_connected)
+                  return (
+                    <div
+                      key={portal.id}
+                      className="flex items-center justify-between p-3.5 bg-gray-950/60 border border-gray-800 rounded-xl hover:border-gray-700 transition-colors"
                     >
-                      {deletingId === portal.id ? (
-                        <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-500/30 border-t-gray-400 rounded-full" />
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                ))}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                          <span className="text-sm font-medium text-white truncate">{portal.name}</span>
+                          {isPluginMode ? (
+                            <span className="flex-shrink-0 px-2 py-0.5 text-[11px] bg-emerald-500/15 text-emerald-300 rounded-full border border-emerald-500/30 font-medium">
+                              🔌 Wtyczka v3.0 (Auto-Parowanie)
+                            </span>
+                          ) : (
+                            <span className="flex-shrink-0 px-2 py-0.5 text-[11px] bg-gray-800 text-gray-400 rounded-full border border-gray-700">
+                              🔑 App Password
+                            </span>
+                          )}
+                          {portal.is_default && (
+                            <span className="flex-shrink-0 px-2 py-0.5 text-[11px] bg-violet-500/20 text-violet-300 rounded-full border border-violet-500/30">
+                              domyślny
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 truncate">{portal.url}</p>
+                      </div>
+                      <button
+                        onClick={() => handleDeletePortal(portal.id)}
+                        disabled={deletingId === portal.id}
+                        className="ml-3 flex-shrink-0 p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all disabled:opacity-30"
+                        title="Usuń portal"
+                      >
+                        {deletingId === portal.id ? (
+                          <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-500/30 border-t-gray-400 rounded-full" />
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             )}
 
             {deleteError && <p className="text-red-400 text-xs mt-3">{deleteError}</p>}
 
-            {/* Add portal button */}
-            {planId !== 'free' && !profileLoading && (
-              <div className="mt-4">
-                {canAddPortal ? (
+            {/* Footer actions: Add portal + jump to WP Plugin accordion */}
+            <div className="mt-4 pt-3 border-t border-gray-800/80 flex items-center justify-between flex-wrap gap-3">
+              {(planId !== 'free' || isPaid) && !profileLoading ? (
+                canAddPortal ? (
                   <button
                     onClick={() => setShowAddPortal(true)}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-violet-600/10 border border-violet-500/20 hover:border-violet-500/50 hover:bg-violet-600/20 text-violet-400 rounded-xl text-sm font-medium transition-all"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600/15 border border-violet-500/30 hover:border-violet-500/60 hover:bg-violet-600/25 text-violet-300 rounded-xl text-xs font-semibold transition-all"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
-                    Dodaj portal
+                    + Dodaj portal (App Password)
                   </button>
                 ) : (
                   <p className="text-xs text-gray-500">
@@ -912,157 +995,322 @@ function UstawieniaContent() {
                       <> <Link href="/cennik" className="text-violet-400 hover:text-violet-300 underline underline-offset-2">Upgrade do Pro →</Link></>
                     )}
                   </p>
-                )}
-              </div>
-            )}
+                )
+              ) : (
+                <span />
+              )}
+
+              <button
+                type="button"
+                onClick={scrollToWpPluginAccordion}
+                className="text-xs text-violet-400 hover:text-violet-300 font-medium underline underline-offset-2"
+              >
+                🔌 Pobierz wtyczkę WP v3.0 i wygeneruj klucz API poniżej ↓
+              </button>
+            </div>
           </section>
 
-          {/* ── YouTube Channels ─────────────────────────────────────────── */}
-          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6 space-y-4">
+          {/* ── Karta 3: Kanały YouTube (OAuth 2.0) ────────────────────────── */}
+          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
             {ytStatus === 'connected' && (
-              <div className="bg-emerald-900/30 border border-emerald-500/30 rounded-xl px-4 py-3 text-sm text-emerald-400 flex items-center gap-2">
+              <div className="mb-4 bg-emerald-900/30 border border-emerald-500/30 rounded-xl px-4 py-3 text-xs text-emerald-300 flex items-center gap-2">
                 <span>✅</span> Kanał YouTube został pomyślnie podłączony!
               </div>
             )}
             {ytStatus === 'error' && (
-              <div className="bg-red-900/30 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400 flex items-center gap-2">
+              <div className="mb-4 bg-red-900/30 border border-red-500/30 rounded-xl px-4 py-3 text-xs text-red-300 flex items-center gap-2">
                 <span>⚠️</span> Błąd podczas podłączania kanału. Spróbuj ponownie.
               </div>
             )}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-red-600/20 flex items-center justify-center text-sm">
-                  📺
-                </div>
-                <div>
-                  <h2 className="font-semibold text-white">Kanały YouTube</h2>
-                  <p className="text-xs text-gray-500">Podłączone kanały do wysyłki SEO</p>
-                </div>
+
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-white flex items-center gap-2.5">
+                  <span className="w-7 h-7 rounded-lg bg-red-600/20 flex items-center justify-center text-sm">▶️</span>
+                  Kanały YouTube (OAuth 2.0)
+                </h2>
+                <p className="text-xs text-gray-500 mt-0.5 ml-9">
+                  Oficjalny odczyt napisów przez YouTube Data API v3 oraz 1-klikowa aktualizacja opisów i rozdziałów na kanale.
+                </p>
               </div>
               <button
                 onClick={handleConnectYoutube}
                 disabled={ytConnecting}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
               >
-                {ytConnecting ? '...' : '+ Podłącz kanał'}
+                {ytConnecting ? 'Łączenie...' : '+ Podłącz kanał'}
               </button>
             </div>
 
-            {ytLoading && <p className="text-sm text-gray-500">Ładowanie...</p>}
-
-            {!ytLoading && ytChannels.length === 0 && (
-              <p className="text-sm text-gray-600">Brak podłączonych kanałów YouTube.</p>
-            )}
-
-            {!ytLoading && ytChannels.map((ch) => (
-              <div key={ch.id} className="py-3 border-b border-gray-800 last:border-0 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {ch.channel_thumbnail && (
-                      <img src={ch.channel_thumbnail} alt="" className="w-8 h-8 rounded-full" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-white">{ch.channel_title}</p>
-                      <p className="text-xs text-gray-500">{ch.channel_id}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleDisconnectYoutube(ch.id)}
-                    className="text-gray-500 hover:text-red-400 transition-colors p-1"
-                    title="Odłącz kanał"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-                {/* footer_text — stopka kanału */}
-                <div className="mt-2 pl-11">
-                  <label className="block text-xs text-gray-400 mb-1">Stopka kanału (footer)</label>
-                  <FooterTextEditor channel={ch} apiUrl={process.env.NEXT_PUBLIC_API_URL || ''} accessToken={accessToken} />
-                </div>
+            {ytLoading ? (
+              <div className="space-y-2.5">
+                <div className="h-14 bg-gray-800/50 rounded-xl animate-pulse" />
               </div>
-            ))}
-          </section>
-
-          {/* ── Sekcja 3: Plan ───────────────────────────────────────────── */}
-          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-6">
-            <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-              <span className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-xs">💳</span>
-              Plan subskrypcji
-            </h2>
-
-            {profileLoading ? (
-              <div className="h-10 bg-gray-800/50 rounded-xl animate-pulse" />
-            ) : !isPaid ? (
-              <div className="flex items-center justify-between p-4 bg-gray-800/40 border border-gray-700/50 rounded-xl">
-                <div>
-                  <p className="text-sm font-medium text-white mb-1">Plan Free</p>
-                  <p className="text-xs text-gray-400">5 generacji / miesiąc · wtyczka WordPress w cenie</p>
-                </div>
-                <Link
-                  href="/cennik"
-                  className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl text-sm font-semibold text-white hover:opacity-90 transition-all"
-                >
-                  Upgrade ↗
-                </Link>
-              </div>
-            ) : (
-              <div className="p-4 bg-emerald-500/5 border border-emerald-500/15 rounded-xl">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-white">Plan {planLabel}</span>
-                    <span className="px-2 py-0.5 text-xs bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/20">Aktywny</span>
-                  </div>
-                  {accessToken && <ManageSubscriptionLink accessToken={accessToken} />}
-                </div>
-                {renewalDate && (
-                  <p className="text-xs text-gray-400">Odnowienie: <span className="text-gray-300">{renewalDate}</span></p>
-                )}
-                <p className="text-xs text-gray-500 mt-1">
-                  {userProfile?.usage?.quota ?? '—'} generacji / miesiąc ·
-                  {` ${portalLimit === 999 ? 'Bez limitu' : portalLimit} portali WordPress`}
+            ) : ytChannels.length === 0 ? (
+              <div className="text-center py-6 bg-gray-950/40 border border-gray-800/60 rounded-xl text-gray-500">
+                <p className="text-sm">Brak podłączonych kanałów YouTube.</p>
+                <p className="text-xs text-gray-600 mt-1">
+                  Podłącz własny kanał, aby pobierać napisy bezpośrednio przez Google OAuth i aktualizować opisy wideo z Dashboardu.
                 </p>
               </div>
+            ) : (
+              <div className="space-y-2.5">
+                {ytChannels.map((ch) => (
+                  <div
+                    key={ch.id}
+                    className="p-3.5 bg-gray-950/60 border border-gray-800 rounded-xl hover:border-gray-700/80 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {ch.channel_thumbnail ? (
+                          <img src={ch.channel_thumbnail} alt="" className="w-9 h-9 rounded-full flex-shrink-0 border border-gray-700" />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                            YT
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-white truncate">{ch.channel_title}</p>
+                          <p className="text-[11px] text-gray-500 font-mono truncate">{ch.channel_id}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDisconnectYoutube(ch.id)}
+                        className="text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors p-2 rounded-lg flex-shrink-0"
+                        title="Odłącz kanał"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Zwijana stopka kanału */}
+                    <FooterTextEditor
+                      channel={ch}
+                      apiUrl={process.env.NEXT_PUBLIC_API_URL || ''}
+                      accessToken={accessToken}
+                    />
+                  </div>
+                ))}
+              </div>
             )}
           </section>
 
-          {/* ── Sekcja 4: VSE Desktop Runner ──────────────────────────────── */}
-          <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs">💻</span>
-                VSE Local Runner — Lokalny Akcelerator YouTube VTT &amp; ShortMachine 9:16
+          {/* ── Karta 4: Wtyczki, Integracje API & Narzędzia do pobrania (2 Akordeony) ── */}
+          <section id="downloads" className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <div className="mb-4">
+              <h2 className="text-base font-semibold text-white flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-sm">📦</span>
+                Wtyczki, Integracje API &amp; Narzędzia do pobrania
               </h2>
-              {userProfile?.desktop_runner_active ? (
-                <span className="px-2.5 py-0.5 text-xs bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold">
-                  ● Połączony (Online)
-                </span>
-              ) : (
-                <span className="px-2.5 py-0.5 text-xs bg-gray-800 text-gray-400 rounded-full border border-gray-700">
-                  ○ Tryb Chmurowy (Auto-Fallback 8s)
-                </span>
-              )}
+              <p className="text-xs text-gray-500 mt-0.5 ml-9">
+                Rozwiń wybrane narzędzie, aby pobrać instalator <code className="text-gray-400">.zip</code> lub zarządzać kluczami połączenia.
+              </p>
             </div>
 
-            <p className="text-xs text-gray-400 leading-relaxed mb-4">
-              Pobierz gotowy pakiet <strong className="text-gray-200">VSE Local Runner (vse-local-runner.zip)</strong> (Windows / macOS) z indywidualnym kluczem API — do lokalnego wycinania rolek ShortMachine 9:16 (FFmpeg) oraz pobierania napisów z domowego IP przy masowym generowaniu.
-            </p>
+            <div className="space-y-3">
+              {/* ── Akordeon 1: Wtyczka WordPress VSE v3.0 + Klucze API ── */}
+              <div
+                id="wp-plugin"
+                className={`border rounded-xl transition-colors ${
+                  openWpPlugin
+                    ? 'bg-gray-950/80 border-violet-500/40'
+                    : 'bg-gray-950/40 border-gray-800 hover:border-gray-700'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenWpPlugin((v) => !v)}
+                  className="w-full flex items-center justify-between gap-3 p-4 text-left"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-wrap">
+                    <span className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400 text-sm flex-shrink-0">
+                      🔌
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-white">
+                          Wtyczka WordPress VSE v3.0 + Klucze API (vse_live_...)
+                        </span>
+                        <span className="px-2 py-0.5 text-[11px] bg-violet-500/15 text-violet-300 rounded-full border border-violet-500/30 font-semibold">
+                          v3.0.0 • Auto-Parowanie &amp; Gutenberg
+                        </span>
+                        {!pluginKeysLoading && (
+                          <span className="px-2 py-0.5 text-[11px] bg-gray-800 text-gray-300 rounded-full border border-gray-700">
+                            Aktywne klucze: {activeWpPluginKeys.length}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Wstrzykiwanie JSON-LD VideoObject + Clip + FAQPage oraz publikacja artykułów bez Application Passwords.
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-gray-400 text-sm transition-transform duration-200 flex-shrink-0 ${
+                      openWpPlugin ? 'rotate-180 text-violet-400' : ''
+                    }`}
+                  >
+                    ▾
+                  </span>
+                </button>
 
-            <button
-              type="button"
-              onClick={handleDownloadDesktopRunner}
-              disabled={downloadingRunner}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl text-xs font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all disabled:opacity-50"
-            >
-              {downloadingRunner ? 'Generowanie pakietu (.zip)...' : '⬇️ Pobierz gotowy pakiet instalacyjny (vse-local-runner.zip)'}
-            </button>
+                {openWpPlugin && (
+                  <div className="px-4 pb-4 pt-2 border-t border-gray-800/80">
+                    <p className="text-xs text-gray-400 leading-relaxed mb-4">
+                      Zainstaluj oficjalną wtyczkę <strong className="text-gray-200">VSE Video SEO v3.0</strong> w swoim WordPressie, aby automatycznie sparować portal po kluczu API (bez Application Passwords), publikować pełne artykuły SEO z Dashboardu i Gutenberga oraz wstrzykiwać znaczniki <code className="text-violet-300">VideoObject + Clip + FAQPage</code> do sekcji <code className="text-violet-300">&lt;head&gt;</code>.
+                    </p>
 
-            {runnerDownloadError && (
-              <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400">
-                ⚠️ {runnerDownloadError}
+                    <div className="flex flex-wrap items-center gap-3 mb-4">
+                      <a
+                        href={`${process.env.NEXT_PUBLIC_API_URL || ''}/v1/plugin/download`}
+                        download="vse-video-seo.zip"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-90 rounded-xl text-xs font-semibold text-white shadow-lg shadow-violet-950/50 transition-all"
+                      >
+                        📥 Pobierz wtyczkę WordPress v3.0 (.zip)
+                      </a>
+                      <input
+                        type="text"
+                        value={pluginDomainInput}
+                        onChange={(e) => setPluginDomainInput(e.target.value)}
+                        placeholder="Opcjonalnie: domena WP (np. mojportal.pl)"
+                        className="flex-1 min-w-[180px] bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-violet-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreatePluginKey}
+                        disabled={creatingPluginKey}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-violet-500/50 rounded-xl text-xs font-semibold text-violet-300 transition-all disabled:opacity-50"
+                      >
+                        {creatingPluginKey ? 'Generowanie klucza...' : '🔑 Wygeneruj klucz API (vse_live_...)'}
+                      </button>
+                    </div>
+
+                    {newPluginKeyRaw && (
+                      <div className="mb-4 p-4 bg-emerald-950/30 border border-emerald-500/40 rounded-xl">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="text-xs font-semibold text-emerald-300">
+                            ✓ Twój nowy klucz API do wtyczki WordPress (skopiuj go teraz):
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyPluginKey(newPluginKeyRaw)}
+                            className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors"
+                          >
+                            {copiedPluginKey ? '✓ Skopiowano!' : '📋 Kopiuj klucz'}
+                          </button>
+                        </div>
+                        <code className="block w-full p-2.5 bg-gray-950 border border-gray-800 rounded-lg text-xs text-emerald-200 font-mono break-all select-all">
+                          {newPluginKeyRaw}
+                        </code>
+                        <p className="text-[11px] text-gray-400 mt-2">
+                          Wklej ten klucz w panelu WordPress: <strong>VSE Video SEO → Ustawienia &amp; Klucz API</strong> i kliknij „Sprawdź i połącz z chmurą VSE”.
+                        </p>
+                      </div>
+                    )}
+
+                    {!pluginKeysLoading && activeWpPluginKeys.length > 0 && (
+                      <div className="border-t border-gray-800/80 pt-3">
+                        <p className="text-xs text-gray-500 mb-2">Aktywne klucze wtyczki WordPress:</p>
+                        <div className="space-y-1.5">
+                          {activeWpPluginKeys.slice(0, 5).map((k) => (
+                            <div
+                              key={k.id}
+                              className="flex items-center justify-between px-3 py-2 bg-gray-900 border border-gray-800 rounded-lg text-xs"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <code className="text-violet-300 font-mono">{k.key_prefix}</code>
+                                <span className="text-gray-400 truncate">
+                                  {k.allowed_domain ? `🌐 ${k.allowed_domain}` : '• oczekuje na pierwsze połączenie z domeną WP'}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-emerald-400 flex-shrink-0">Aktywny</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* ── Akordeon 2: VSE Local Runner ── */}
+              <div
+                id="local-runner"
+                className={`border rounded-xl transition-colors ${
+                  openLocalRunner
+                    ? 'bg-gray-950/80 border-emerald-500/40'
+                    : 'bg-gray-950/40 border-gray-800 hover:border-gray-700'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenLocalRunner((v) => !v)}
+                  className="w-full flex items-center justify-between gap-3 p-4 text-left"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-wrap">
+                    <span className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-sm flex-shrink-0">
+                      💻
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-white">
+                          VSE Local Runner — Lokalny Akcelerator YouTube VTT &amp; ShortMachine 9:16
+                        </span>
+                        <span className="px-2 py-0.5 text-[11px] bg-gray-800 text-gray-300 rounded-full border border-gray-700 font-medium">
+                          Windows / macOS (.zip)
+                        </span>
+                        {userProfile?.desktop_runner_active ? (
+                          <span className="px-2 py-0.5 text-[11px] bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-semibold">
+                            ● Połączony (Online)
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-[11px] bg-gray-800 text-gray-400 rounded-full border border-gray-700">
+                            ○ Tryb Chmurowy (Instant Wakeup + Auto-Fallback)
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Pobieranie napisów z domowego IP dla obcych kanałów oraz lokalne wycinanie rolek 9:16 (FFmpeg).
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-gray-400 text-sm transition-transform duration-200 flex-shrink-0 ${
+                      openLocalRunner ? 'rotate-180 text-emerald-400' : ''
+                    }`}
+                  >
+                    ▾
+                  </span>
+                </button>
+
+                {openLocalRunner && (
+                  <div className="px-4 pb-4 pt-2 border-t border-gray-800/80">
+                    <p className="text-xs text-gray-400 leading-relaxed mb-4">
+                      Pobierz gotowy pakiet <strong className="text-gray-200">VSE Local Runner (vse-local-runner.zip)</strong> (Windows / macOS) ze skonfigurowanym indywidualnym kluczem API. Narzędzie działa w tle i błyskawicznie pobiera napisy VTT z Twojego domowego IP (dla filmów z obcych kanałów YouTube) oraz lokalnie wycina rolki wideo 9:16 w module ShortMachine (FFmpeg).
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadDesktopRunner}
+                      disabled={downloadingRunner}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl text-xs font-semibold text-white shadow-lg shadow-emerald-950/50 transition-all disabled:opacity-50"
+                    >
+                      {downloadingRunner
+                        ? 'Generowanie pakietu (.zip)...'
+                        : '📥 Pobierz gotowy pakiet instalacyjny (vse-local-runner.zip)'}
+                    </button>
+
+                    {runnerDownloadError && (
+                      <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400">
+                        ⚠️ {runnerDownloadError}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </section>
         </div>
       </main>
