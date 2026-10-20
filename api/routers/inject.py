@@ -78,8 +78,6 @@ async def _inject_via_plugin_endpoint(
                 if portal_domain and _normalize_domain(k.allowed_domain) == portal_domain:
                     api_key_obj = k
                     break
-            if api_key_obj is None and all_keys:
-                api_key_obj = all_keys[0]
 
         if api_key_obj is None:
             raise HTTPException(
