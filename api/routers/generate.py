@@ -16,12 +16,12 @@ D9 (2026-06-20, vse-dev-23):
   - Passes portal_id from request to pipeline.run_generate()
   - Portal determines site_url for SAAS enrichment and site_brand for generator
 
-FIX D (2026-07-10, vse-dev-01):
-  - RuntimeError messages parsed into user-friendly Polish messages
-  - error_code field added: 'NO_TRANSCRIPT', 'VIDEO_UNAVAILABLE', 'UNKNOWN_ERROR'
-
-FIX A (2026-07-10, vse-dev-01):
-  - transcript_available and partial_result propagated from pipeline result
+KROK B (2026-10-20, vse-dev-01):
+  - Hard Anti-Confabulation Guard: gdy run_generate() rzuci ValueError (brak transkryptu),
+    zwraca czytelny błąd HTTP 422 (lub event 'error' w /v1/generate/stream) BEZ naliczania
+    zużycia kredytu (success=False / brak UsageLog(..., success=True)).
+  - _save_schema_to_job() szuka istniejącego rekordu dla video_id w statusach
+    ["fetched", "processing", "done", "cloud_fallback", "pending"], aby nie tworzyć duplikatów.
 """
 import asyncio
 import json
@@ -30,6 +30,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
@@ -40,7 +41,7 @@ from api.quota import check_quota, log_usage, check_multilang_access
 from api.models.job import TranscriptJob
 from api.models.request import GenerateRequest, AdaptMaterialRequest
 from api.models.response import GenerateResponse
-from api.services.pipeline import run_generate
+from api.services.pipeline import run_generate, _extract_video_id
 from core.generator import adapt_material_language, current_llm_usage, calculate_cost_usd, SUPPORTED_LANGUAGES
 
 router = APIRouter(prefix="/v1", tags=["generate"])
@@ -51,10 +52,11 @@ def _parse_runtime_error(exc: RuntimeError) -> tuple[str, str]:
     """Parse RuntimeError into user-friendly Polish message and error_code."""
     exc_str = str(exc)
 
-    if "No transcript available" in exc_str:
+    if "No transcript available" in exc_str or "Brak transkryptu" in exc_str:
         return (
-            "Brak dostępnych napisów dla tego wideo. "
-            "Film zostanie przetworzony na podstawie tytułu i opisu.",
+            "Brak transkryptu wideo: nie udało się pobrać napisów z YouTube "
+            "(sprawdź czy działa VSE Local Runner na komputerze lub czy film posiada napisy na YouTube). "
+            "Generowanie zostało zatrzymane, aby zapobiec konfabulacji AI (0 pobranych kredytów).",
             "NO_TRANSCRIPT",
         )
 
@@ -70,16 +72,19 @@ def _parse_runtime_error(exc: RuntimeError) -> tuple[str, str]:
 
 
 async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
-    """Zapisuje schema_data do najnowszego job'u dla danego video_url."""
+    """Zapisuje schema_data do istniejącego job'u dla danego video_id (preferując ten z transkryptem)."""
     try:
+        try:
+            vid_key = _extract_video_id(video_url)
+        except Exception:
+            vid_key = video_url.split("v=")[-1][:11] if "v=" in video_url else video_url[:11]
+
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(TranscriptJob)
-                .where(TranscriptJob.video_url.contains(
-                    video_url.split("v=")[-1][:11] if "v=" in video_url else video_url[:11]
-                ))
-                .where(TranscriptJob.status.in_(["fetched", "processing"]))
-                .order_by(desc(TranscriptJob.created_at))
+                .where(TranscriptJob.video_url.contains(vid_key))
+                .where(TranscriptJob.status.in_(["fetched", "processing", "done", "cloud_fallback", "pending"]))
+                .order_by(desc(TranscriptJob.transcript.isnot(None)), desc(TranscriptJob.created_at))
                 .limit(1)
             )
             job = result.scalar_one_or_none()
@@ -91,8 +96,8 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
                     job.user_id = user_id
                 await db.commit()
                 logger.info(
-                    "[generate] Saved schema_data to job %s (status=done)",
-                    job.id,
+                    "[generate] Saved schema_data to existing job %s (status=done, has_transcript=%s)",
+                    job.id, bool(job.transcript),
                 )
             else:
                 new_job = TranscriptJob(
@@ -106,7 +111,7 @@ async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Opti
                 await db.commit()
                 await db.refresh(new_job)
                 logger.info(
-                    "[generate] Created new job %s with schema_data (no matching pending job)",
+                    "[generate] Created new job %s with schema_data (no matching existing job)",
                     new_job.id,
                 )
     except Exception as exc:
@@ -175,7 +180,6 @@ async def generate_endpoint(
             estimated_cost_usd=result.get("estimated_cost_usd", 0.0),
         )
 
-        # FIX A: propagate transcript availability flags from pipeline
         has_transcript = result.get("has_transcript", True)
         is_partial = result.get("partial_result", False)
 
@@ -190,16 +194,7 @@ async def generate_endpoint(
             target_lang=result.get("target_lang", schema_data.get("target_lang", target_lang)),
         )
     except ValueError as exc:
-        logger.error("[/v1/generate] ValueError: %s", exc)
-        await log_usage(
-            user_id=current_user.id,
-            db=db,
-            youtube_id="",
-            success=False,
-            error_msg=str(exc),
-            endpoint="/v1/generate",
-            llm_provider=effective_provider,
-        )
+        logger.error("[/v1/generate] ValueError (0 credits charged): %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         logger.error("[/v1/generate] RuntimeError: %s", exc)
@@ -212,7 +207,6 @@ async def generate_endpoint(
             endpoint="/v1/generate",
             llm_provider=effective_provider,
         )
-        # FIX D: Parse error into user-friendly Polish message + error_code
         error_message, error_code = _parse_runtime_error(exc)
         return GenerateResponse(
             status="error",
@@ -233,6 +227,97 @@ async def generate_endpoint(
             llm_provider=effective_provider,
         )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/generate/stream")
+async def generate_stream_endpoint(
+    req: GenerateRequest,
+    current_user: User = Depends(check_quota),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE stream endpoint for /v1/generate with hard anti-confabulation guard (0 credits on missing transcript)."""
+    plan_id = getattr(current_user, "plan_id", "free") or "free"
+    effective_provider = req.llm_provider
+    if plan_id in ("free", "starter"):
+        effective_provider = "gemini"
+    elif not effective_provider:
+        effective_provider = "gemini"
+
+    ui_lang = (req.ui_lang or "pl").lower()[:2]
+    target_lang = (req.target_lang or req.lang or ui_lang or "pl").lower()[:2]
+    if target_lang not in SUPPORTED_LANGUAGES:
+        target_lang = "pl"
+
+    entitlements = await check_multilang_access(current_user.id, db, user=current_user)
+    if target_lang != ui_lang and not entitlements.get("allow_target_override", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Wybór innego języka docelowego niż język panelu wymaga Pakietu Wielojęzycznego (+29 zł/mies.) lub planu Pro / Agency.",
+        )
+
+    async def _event_stream():
+        start = time.time()
+        yield f"data: {json.dumps({'event': 'stage', 'stage': 'fetching_transcript'}, ensure_ascii=False)}\n\n"
+        try:
+            result = await run_generate(
+                video_url=req.video_url,
+                llm_provider=effective_provider,
+                lang=target_lang,
+                post_title_override=req.post_title,
+                publication_type=req.publication_type,
+                portal_id=req.portal_id,
+                user_id=str(current_user.id),
+                target_lang=target_lang,
+            )
+            schema_data = result["seo"]
+            await _save_schema_to_job(req.video_url, schema_data, req.portal_id, current_user.id)
+
+            video_id = result.get("video_id") or ""
+            await log_usage(
+                user_id=current_user.id,
+                db=db,
+                youtube_id=video_id,
+                success=True,
+                endpoint="/v1/generate",
+                llm_provider=result.get("llm_provider") or effective_provider,
+                input_tokens=result.get("input_tokens", 0),
+                output_tokens=result.get("output_tokens", 0),
+                estimated_cost_usd=result.get("estimated_cost_usd", 0.0),
+            )
+            payload = {
+                "event": "done",
+                "status": "ok",
+                "video_id": result["video_id"],
+                "processing_time_s": round(time.time() - start, 2),
+                "schema_data": schema_data,
+                "transcript_available": True,
+                "partial_result": None,
+                "source_lang": result.get("source_lang", schema_data.get("source_lang", "pl")),
+                "target_lang": result.get("target_lang", schema_data.get("target_lang", target_lang)),
+            }
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        except ValueError as exc:
+            logger.error("[/v1/generate/stream] ValueError (0 credits charged): %s", exc)
+            err_payload = {
+                "event": "error",
+                "status": "error",
+                "error_code": "NO_TRANSCRIPT",
+                "detail": str(exc),
+                "error": str(exc),
+            }
+            yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.exception("[/v1/generate/stream] Error")
+            err_payload = {
+                "event": "error",
+                "status": "error",
+                "error_code": "UNKNOWN_ERROR",
+                "detail": str(exc),
+                "error": str(exc),
+            }
+            yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
 
 async def _save_translation_to_job(
@@ -415,4 +500,3 @@ async def adapt_material_endpoint(
             llm_provider=effective_provider,
         )
         raise HTTPException(status_code=500, detail=f"Błąd adaptacji językowej: {exc}") from exc
-
