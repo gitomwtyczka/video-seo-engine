@@ -34,9 +34,9 @@ router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
 DEFAULT_PLAN_QUOTAS = {
     "free": 5,
-    "starter": 50,
-    "pro": 250,
-    "agency": 1000,
+    "starter": 30,
+    "pro": 110,
+    "agency": 250,
 }
 
 
