@@ -64,14 +64,13 @@ D15 JSON Sanitizer (2026-06-29, vse-dev-30):
   - Zero false positives on plain text, multiline, nested HTML
   - Eliminates 500 errors from LLM outputting raw HTML with unescaped quotes
 
-FIX A (2026-07-10, vse-dev-01):
-  - process_video() now accepts vtt_path=None (Optional[str])
-  - When vtt_path is None → calls generate_schema_without_transcript()
-  - generate_schema_without_transcript(): LLM generates SEO from title+desc only
-    - chapters = [] (no VTT → no anchors)
-    - faq_items = [] (skipped)
-    - VideoObject + meta description + focus_keyphrase: generated normally
-  - Result marked with partial_result=True, transcript_available=False
+KROK B (2026-10-20, vse-dev-01):
+  - Twarda blokada anty-konfabulacyjna: całkowity zakaz generowania pakietu SEO
+    lub artykułu z samego tytułu bez transkryptu (>= 50 znaków).
+  - Korekta stylistyczna i interpunkcyjna transkryptu: pole `clean_transcript`
+    w wynikowym słowniku `result` (zredagowany zapis z timestampami `[MM:SS]` co akapit,
+    oczyszczony z wypełniaczy ASR typu 'yyy', 'eee') oraz jawna instrukcja ASR
+    w promptach Pass 1 i Pass 2 dot. korygowania błędów fonetycznych nazwisk i nazw własnych.
 
 VTT Limit fix (2026-07-14, Supervisor-01):
   - text_trimmed limit raised from 80000 → 200000 chars
@@ -94,6 +93,13 @@ logger = logging.getLogger(__name__)
 
 # Kontekstowy licznik tokenów LLM (thread/async-safe per wywołanie process_video)
 current_llm_usage: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar("current_llm_usage", default=None)
+
+ASR_PHONETIC_INSTRUCTION = (
+    "Transkrypt pochodzi z automatycznego rozpoznawania mowy (ASR) i może zawierać "
+    "fonetyczne przekręcenia nazwisk, nazw własnych lub potoczne wtrącenia ('yyy', powtórzenia). "
+    "Zawsze koryguj oczywiste błędy fonetyczne ASR zgodnie z kontekstem wypowiedzi i tytułem materiału "
+    "(np. nazwiska autorów i gości z tytułu filmu)."
+)
 
 
 def calculate_cost_usd(provider: str, input_tokens: int, output_tokens: int) -> float:
@@ -180,8 +186,58 @@ def format_duration_iso(seconds: float) -> str:
 
 
 # ============================================================
-# VTT PARSER
+# VTT PARSER & CLEAN TRANSCRIPT FORMATTER
 # ============================================================
+
+_ASR_FILLER_RE = re.compile(
+    r"\b(?:y{2,}|e{2,}|mhm+|yyy+|eee+|hm+|uh+|um+)\b[,\s]*",
+    flags=re.IGNORECASE,
+)
+
+
+def build_clean_transcript_from_segments(segments: list[tuple[float, str]], interval_sec: float = 45.0) -> str:
+    """Buduje czytelny, podzielony na akapity transkrypt z zachowaniem timestampów [MM:SS] co akapit
+    oraz oczyszczeniem z wypełniaczy ASR ('yyy', 'eee') i powtórzeń."""
+    if not segments:
+        return ""
+    paragraphs: list[str] = []
+    current_words: list[str] = []
+    para_start_ts: Optional[float] = None
+
+    for ts, raw_text in segments:
+        cleaned = _ASR_FILLER_RE.sub("", raw_text).strip()
+        cleaned = re.sub(r"\b(\w+)(?:\s+\1\b)+", r"\1", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+        if not cleaned:
+            continue
+        if para_start_ts is None:
+            para_start_ts = ts
+        current_words.append(cleaned)
+        joined_len = sum(len(x) for x in current_words)
+        if (ts - para_start_ts >= interval_sec and joined_len >= 180) or joined_len >= 420:
+            minutes = int(para_start_ts // 60)
+            seconds = int(para_start_ts % 60)
+            body = " ".join(current_words).strip()
+            if body and body[0].islower():
+                body = body[0].upper() + body[1:]
+            if body and body[-1] not in ".!?…":
+                body += "."
+            paragraphs.append(f"[{minutes:02d}:{seconds:02d}] {body}")
+            current_words = []
+            para_start_ts = None
+
+    if current_words and para_start_ts is not None:
+        minutes = int(para_start_ts // 60)
+        seconds = int(para_start_ts % 60)
+        body = " ".join(current_words).strip()
+        if body and body[0].islower():
+            body = body[0].upper() + body[1:]
+        if body and body[-1] not in ".!?…":
+            body += "."
+        paragraphs.append(f"[{minutes:02d}:{seconds:02d}] {body}")
+
+    return "\n\n".join(paragraphs)
+
 
 def parse_vtt_full(vtt_path: str) -> tuple[str, list[tuple[float, str]], float]:
     """Parse a WebVTT file into timestamped text, segments list, and total duration."""
@@ -349,6 +405,7 @@ def _generate_article_fallback(
     keyphrase = schema.get("focus_keyphrases", [""])[0] if schema.get("focus_keyphrases") else ""
     instruction = FORMAT_INSTRUCTIONS.get(publication_type, FORMAT_INSTRUCTIONS["full_analysis"])
     post_title = schema.get("post_title", "")
+    original_title = schema.get("original_title", post_title)
     lang_cfg = SUPPORTED_LANGUAGES.get(target_lang, SUPPORTED_LANGUAGES["pl"])
     lang_name = lang_cfg["name"]
     summary_heading = lang_cfg.get("summary_heading", "Podsumowanie")
@@ -361,6 +418,10 @@ KRYTYCZNA DYREKTYWA JĘZYKOWA (CROSS-LANGUAGE):
 - JĘZYK DOCELOWY ARTYKUŁU: **{lang_name} ({target_lang.upper()})**
 - Cały artykuł HTML (lead, akapity <p>, śródtytuły <h2> i <h3>, cytaty <blockquote> oraz sekcja podsumowania '<h2>{summary_heading}</h2>') MUSI być napisany w 100% w języku **{lang_name}**!
 - Używaj naturalnej gramatyki, stylistyki i idiomów języka {lang_name}. Jeśli wplatasz linki E-E-A-T, preferuj źródła dla tego języka: {eeat_sources}.
+
+KOREKTA BŁĘDÓW ASR:
+- {ASR_PHONETIC_INSTRUCTION}
+- Oryginalny tytuł filmu: {original_title}
 
 FRAZA KLUCZOWA: {keyphrase}
 TYTUŁ: {post_title}
@@ -458,34 +519,7 @@ async def generate_article_content(
 # ============================================================
 
 def _sanitize_llm_json(raw_text: str) -> str:
-    """Sanitize raw LLM output before json.loads() to prevent JSONDecodeError.
-
-    CO: Naprawia surowy tekst zwracany przez LLM przed parsowaniem JSON.
-
-    PO CO: LLM (Claude/Gemini) czasem generuje w polach HTML (article_body)
-    surowe podwójne cudzysłowy w atrybutach tagów HTML, np:
-      <a href="https://prawy.pl" target="_blank">link</a>
-    To niszczy składnię JSON i powoduje błęd 500. Ta funkcja jest ostatnią
-    deską ratunku przed json.loads() — naprawia taki output bez korumpowania
-    poprawnego JSON lub zwykłego tekstu.
-
-    JAK: Dwie warstwy naprawy (PRIMARY → FALLBACK):
-      1. PRIMARY: json-repair (pip install json-repair) — rozumie strukturę JSON,
-         naprawia semantycznie, zero false positives.
-      2. FALLBACK (gdy json-repair niedostępny): regex wyizolowany do wartości
-         atrybutów HTML (attr=\\\"val\\\" → attr='val'), działa wyłącznie wewnątrz
-         sekwencji wyglądających jak HTML tag. NIE dotyka zwykłego tekstu.
-
-    Passthrough: jeśli raw_text jest już poprawnym JSON — zwracany bez zmian
-    (json.loads() OK → natychmiastowy return, zero overhead).
-
-    Args:
-        raw_text: Raw string output from LLM (may contain broken JSON).
-
-    Returns:
-        Sanitized string ready for json.loads(). Always returns a string.
-        On catastrophic failure returns raw_text unchanged (re-raise by caller).
-    """
+    """Sanitize raw LLM output before json.loads() to prevent JSONDecodeError."""
     # Fast path: already valid JSON — no work needed
     try:
         json.loads(raw_text)
@@ -508,22 +542,9 @@ def _sanitize_llm_json(raw_text: str) -> str:
             logger.warning("D15: json-repair failed (%s) — trying regex fallback", repair_exc)
 
     # FALLBACK: regex — restricted to HTML attribute values only
-    # Pattern: matches attr="value" sequences inside JSON string values
-    # ONLY converts double-quoted HTML attributes to single-quoted.
-    # Does NOT touch: plain text, JSON keys, already-correct JSON.
-    #
-    # Strategy: find sequences that look like HTML attribute assignments
-    # (word="...") and convert the surrounding double quotes to single quotes.
-    # The lookahead/behind anchors it to HTML-like context (alphanumeric attr name).
-    #
-    # Limitation: cannot fix deeply nested escaped sequences without json-repair.
-    # For those cases, the D12 retry mechanism takes over.
     try:
-        # Match: word characters followed by =" ... " where value has no unescaped "
-        # Replace: attr="val" → attr='val'
-        # The pattern is anchored to look like HTML attr=" ... "
         fixed = re.sub(
-            r'(\b[\w-]+)=\\"((?:[^\\\"]|\\.)*)\\"',
+            r'(\b[\w-]+)=\\"((?:[^\\"]|\\.)*)\\"',
             r"\1='\2'",
             raw_text,
         )
@@ -548,24 +569,7 @@ def _build_saas_prompt_section(
     priority_keywords: Optional[list[str]] = None,
     internal_links: Optional[list[dict]] = None,
 ) -> str:
-    """Build an additional prompt section with SAAS enrichment data.
-
-    CO: Generuje sekcję promptu z danymi z SAAS (frazy GSC + linki wewn.).
-
-    PO CO: Jeśli SAAS zwraca dane, chcemy żeby LLM wiedział o priorytetowych
-    frazach portalu i mógł wpleść je w generowany artykuł. To podnosi
-    trafność SEO — artykuł używa fraz które portal JUŻ rankuje w Google.
-
-    JAK: Buduje markdown section która jest doklejana do głównego promptu.
-    Jeśli brak danych → pusty string (prompt bez zmian).
-
-    Args:
-        priority_keywords: Lista fraz kluczowych z GSC.
-        internal_links: Lista dictów z 'url' i 'title' do linkowania.
-
-    Returns:
-        String z sekcją promptu lub pusty string.
-    """
+    """Build an additional prompt section with SAAS enrichment data."""
     sections = []
 
     if priority_keywords:
@@ -601,25 +605,7 @@ powiązany z omawianym materiałem wideo, wstaw link w article_body jako natural
 # ============================================================
 
 def _get_publication_type_override(publication_type: str) -> str:
-    """Get prompt override section for a specific publication type.
-
-    CO: Zwraca nadpisanie promptu zależne od typu publikacji.
-
-    PO CO: Różne witryny potrzebują różnych formatów artykułów:
-           - full_analysis: pełny artykuł SEO (domyślny)
-           - watching_page: krótki z embedem i chapterami
-           - discover: format pod Google Discover
-
-    JAK: Zwraca sekcję promptu która nadpisuje instrukcje
-         dot. article_body i związanych pól.
-
-    Args:
-        publication_type: 'full_analysis', 'watching_page', or 'discover'.
-
-    Returns:
-        Prompt override string (appended to main prompt).
-        Empty string for 'full_analysis' (no changes needed).
-    """
+    """Get prompt override section for a specific publication type."""
     if publication_type == "watching_page":
         return """
 
@@ -653,7 +639,7 @@ To jest krótki artykuł Discover (500-600 słów). Zasady Google Discover 2026:
 
 
 # ============================================================
-# SEO GENERATION — prompt v5.8 + slug hard limit D13
+# SEO GENERATION — prompt v5.8 + slug hard limit D13 + KROK B ASR
 # ============================================================
 
 def generate_seo_v4(
@@ -670,51 +656,7 @@ def generate_seo_v4(
     target_lang: str = "pl",
     source_lang: str = "auto",
 ) -> dict:
-    """Call LLM to generate full SEO package for a video.
-
-    D6b.6: publication_type parameter controls article format/length.
-    Three types supported:
-      - 'full_analysis': full SEO article (default, unchanged)
-      - 'watching_page': short article with embed focus
-      - 'discover': Google Discover optimized format
-
-    D10: LLM prompt now requests external_links (2-3 authority DoFollow links)
-    and instructs article_body to weave in <a> tags to authority sources.
-
-    D11: LLM prompt now requests image_descriptions (2 screenshot descriptions)
-    as FALLBACK when SAAS Vision API is unavailable. SAAS descriptions are
-    preferred because GPT-4o Vision actually sees the image.
-
-    D12: JSON Resilience — log raw output on parse failure, 1 retry with fix
-    prompt, instruct LLM to use apostrophes in HTML attributes.
-
-    D13: wp_slug prompt updated — preserve Polish conjunctions (i, w, z, na,
-    do, o) when part of focus keyphrase. Hard 60-char limit enforced in
-    process_video() after json.loads().
-
-    D15: _sanitize_llm_json() applied before json.loads() — PRIMARY via
-    json-repair, FALLBACK via regex restricted to HTML attr values.
-    Eliminates 500 errors from unescaped double quotes in HTML attributes.
-
-    Args:
-        title: WordPress post title.
-        timestamped_text: VTT text with [MM:SS] markers from parse_vtt_full().
-        total_duration: Video duration in seconds.
-        yt_url: Full YouTube watch URL.
-        api_key: API key for the selected LLM provider.
-        provider: LLM provider: 'gemini' (default) or 'claude'.
-        priority_keywords: Optional list of priority keyword phrases from GSC.
-        internal_links: Optional list of dicts with 'url' and 'title' for linking.
-        site_brand: Optional portal brand name for seo_title branding pipe.
-        publication_type: Article type: 'full_analysis', 'watching_page', 'discover'.
-
-    Returns:
-        Parsed JSON dict from LLM response.
-
-    Raises:
-        json.JSONDecodeError: If LLM returns malformed JSON (after sanitizer + 1 retry).
-        Exception: On LLM API errors (re-raised with logging).
-    """
+    """Call LLM to generate full SEO package for a video."""
     text_trimmed = timestamped_text[:200000]  # ~90 min @ avg 2200 char/min post-parse (raised from 80k, Supervisor-01 2026-07-14)
     total_min = int(total_duration // 60)
 
@@ -760,11 +702,14 @@ def generate_seo_v4(
 ## DYREKTYWA JĘZYKOWA (CROSS-LANGUAGE ENGINE — DUAL-LANGUAGE ANCHOR)
 - Język oryginalnego transkryptu wideo (SOURCE_LANG): {source_lang}
 - Język docelowy wszystkich wygenerowanych materiałów SEO (TARGET_LANG): {target_lang_name} (kod ISO: {target_lang})
-- WSZYSTKIE pola widoczne dla czytelnika (focus_keyphrases, post_title, seo_title, yt_title, meta_description, lead, chapters[].label, quotes[].text, faq[].question, faq[].answer, youtube_description_hook, youtube_hashtags, video_description, tags, external_links[].anchor_text, external_links[].reason, image_descriptions[].alt_text, image_descriptions[].caption) MUSZĄ być napisane w 100% w języku docelowym: **{target_lang_name} ({target_lang})**, naturalnym, idiomatycznym językiem redakcyjnym.
+- WSZYSTKIE pola widoczne dla czytelnika (focus_keyphrases, post_title, seo_title, yt_title, meta_description, lead, chapters[].label, quotes[].text, faq[].question, faq[].answer, youtube_description_hook, youtube_hashtags, video_description, tags, external_links[].anchor_text, external_links[].reason, image_descriptions[].alt_text, image_descriptions[].caption, clean_transcript) MUSZĄ być napisane w 100% w języku docelowym: **{target_lang_name} ({target_lang})**, naturalnym, idiomatycznym językiem redakcyjnym.
 - ⚠️ KRYTYCZNY WYJĄTEK TECHNICZNY (DUAL-LANGUAGE ANCHOR):
   Pola `chapters[].anchor_text` oraz `quotes[].anchor_text` służą do technicznego dopasowania znaczników czasu (regex/fuzzy match) bezpośrednio w oryginalnym pliku VTT!
   Dlatego `anchor_text` MUSI pozostać DOKŁADNYM, NIETŁUMACZONYM cytatem 8-15 słów w oryginalnym języku transkryptu ({source_lang}) — słowo w słowo tak, jak występuje w transkrypcie poniżej!
   Natomiast `chapters[].label` oraz `quotes[].text` MUSZĄ być w języku docelowym ({target_lang_name}).
+
+## KOREKTA BŁĘDÓW FONETYCZNYCH ASR
+- {ASR_PHONETIC_INSTRUCTION}
 
 Na podstawie transkryptu nagrania wideo przygotuj PELNY PAKIET SEO w języku {target_lang_name} ({target_lang}).
 
@@ -815,8 +760,8 @@ Rozdzialy musza:
 6. **meta_description** \u2014 max 155 znakow, z fraza kluczowa, w języku {target_lang_name}.
 7. **lead** \u2014 2-3 zdania, max 300 znakow, w języku {target_lang_name}. PIERWSZE ZDANIE musi zawierac glowna fraze z focus_keyphrases[0]. To jest meta description artykulu.
 8. **quotes** \u2014 {qt_range} cytatow z rozmowy:
-   - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania) PRZETŁUMACZONY / ZREDAGOWANY W JĘZYKU DOCELOWYM ({target_lang_name}). Usun jakania, powtorzenia.
-   - "speaker": imie i nazwisko
+   - "text": WYGLADZONY, CZYTELNY cytat (1-3 zdania) PRZETŁUMACZONY / ZREDAGOWANY W JĘZYKU DOCELOWYM ({target_lang_name}). Usun jakania, powtorzenia, skoryguj bledy fonetyczne ASR.
+   - "speaker": imie i nazwisko (skorygowane zgodnie z tytułem i kontekstem)
    - "anchor_text": DOKLADNE 8-15 pierwszych slow ORYGINALNEGO transkryptu w języku źródłowym ({source_lang}) — BEZ TŁUMACZENIA!
 10. **chapters** \u2014 {ch_range} rozdzialow:
     - "label": tytul rozdzialu (max 60 zn) w języku docelowym ({target_lang_name})
@@ -850,6 +795,7 @@ Rozdzialy musza:
     b) caption: 1 zdanie w języku {target_lang_name} opisujace scene widoczna na screenshocie z wideo.
     c) context: gdzie wstawic screenshot w article_body ("po akapicie 1" lub "po pierwszym H2").
        Pierwsza pozycja: "po akapicie 1". Druga: "po pierwszym H2" lub "przed FAQ".
+18. **clean_transcript** \u2014 zredagowany stylistycznie, interpunkcyjnie i ortograficznie zapis wypowiedzi z transkryptu, podzielony na czytelne akapity (oddzielone znakami \\n\\n) z zachowaniem timestampów co akapit w formacie `[MM:SS]`, oczyszczony z błędów fonetycznych ASR (skoryguj nazwiska i nazwy własne zgodnie z tytułem filmu: {title}) oraz wypełniaczy typu 'yyy', 'eee'.
 
 ## KRYTYCZNE ZASADY FORMATU JSON I DUAL-LANGUAGE ANCHOR
 
@@ -866,7 +812,7 @@ yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]}}"""
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}],"clean_transcript":"[00:00] Zredagowany akapit 1...\\n\\n[02:15] Zredagowany akapit 2..."}}"""
 
     logger.info("Calling %s for: %s [type=%s, source=%s -> target=%s]", provider, title[:60], publication_type, source_lang, target_lang)
     if priority_keywords:
@@ -934,20 +880,11 @@ Odpowiedz TYLKO JSON (bez markdown):
 # ============================================================
 
 def _normalize_keyphrases(result: dict) -> list[str]:
-    """Normalize LLM output to always have focus_keyphrases as a list.
-
-    Args:
-        result: Raw LLM JSON output dict.
-
-    Returns:
-        List of keyphrase strings (1-3 items typically).
-    """
-    # New format: focus_keyphrases (list)
+    """Normalize LLM output to always have focus_keyphrases as a list."""
     keyphrases = result.get("focus_keyphrases", [])
     if isinstance(keyphrases, list) and keyphrases:
         return [kp.strip() for kp in keyphrases if isinstance(kp, str) and kp.strip()]
 
-    # Old format: focus_keyphrase (string) — backward compat
     keyphrase = result.get("focus_keyphrase", "").strip()
     if keyphrase:
         return [keyphrase]
@@ -966,7 +903,6 @@ def _trim_slug(slug: str, max_len: int = 60) -> str:
     if len(slug) <= max_len:
         return slug
     trimmed = slug[:max_len].rsplit("-", 1)[0]
-    # Edge case: no hyphen found (single long token) — hard cut at max_len
     return trimmed if trimmed else slug[:max_len]
 
 
@@ -1054,15 +990,7 @@ def adapt_material_language(
     llm_provider: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> dict:
-    """Adapt/translate a specific generated SEO material into target_lang on-demand.
-
-    Supported material_type values:
-      - 'article': translates post_title, lead, article_body, faq (preserves HTML tags, <h3>, <a>, timestamps)
-      - 'youtube': translates yt_title, youtube_description_hook, chapters[].label (preserves chapters[].time!), youtube_hashtags, tags
-      - 'meta': translates seo_title, post_title, meta_description, focus_keyphrases, tags
-      - 'quotes': translates quotes[].text (preserves quotes[].speaker and quotes[].time!)
-      - 'schema': translates video_description, seo_title, faq, chapters[].label and rebuilds JSON-LD with inLanguage=target_lang
-    """
+    """Adapt/translate a specific generated SEO material into target_lang on-demand."""
     target_lang = (target_lang or "pl").lower()[:2]
     if target_lang not in SUPPORTED_LANGUAGES:
         raise ValueError(f"Unsupported target_lang: {target_lang}")
@@ -1291,188 +1219,16 @@ Zwróć WYŁĄCZNIE poprawny JSON z kluczami: `seo_title`, `video_description`, 
 
 
 # ============================================================
-# FIX A: PARTIAL SCHEMA — generate SEO without transcript
+# KROK B.C: HARD ANTI-CONFABULATION BLOCK
 # ============================================================
 
-def generate_schema_without_transcript(
-    youtube_id: str,
-    wp_id: int,
-    post_title: str,
-    yt_url: str,
-    api_key: str,
-    provider: str = "gemini",
-    priority_keywords: Optional[list[str]] = None,
-    internal_links: Optional[list[dict]] = None,
-    site_brand: Optional[str] = None,
-    publication_type: str = "full_analysis",
-    meta: Optional[dict] = None,
-    target_lang: str = "pl",
-    source_lang: str = "auto",
-) -> dict:
-    """Generate partial SEO schema from title and description only (no VTT)."""
-    target_lang = (target_lang or "pl").lower()[:2]
-    if target_lang not in SUPPORTED_LANGUAGES:
-        target_lang = "pl"
-    lang_cfg = SUPPORTED_LANGUAGES[target_lang]
-    target_lang_name = lang_cfg["name"]
-    eeat_sources = lang_cfg["eeat_sources"]
-
-    logger.info(
-        "[FIX A] generate_schema_without_transcript: %s via %s [type=%s, source=%s -> target=%s]",
-        youtube_id, provider, publication_type, source_lang, target_lang,
+def generate_schema_without_transcript(*args, **kwargs) -> dict:
+    """ZAKAZANE (KROK B.C): Nigdy nie generujemy pakietu SEO ani artykułu z samego tytułu bez transkryptu."""
+    raise ValueError(
+        "Brak transkryptu wideo: nie udało się pobrać napisów z YouTube "
+        "(sprawdź czy działa VSE Local Runner na komputerze lub czy film posiada napisy na YouTube). "
+        "Generowanie zostało zatrzymane, aby zapobiec konfabulacji AI (0 pobranych kredytów)."
     )
-
-    # Extract description from meta if available
-    video_description_hint = ""
-    duration_seconds = 0
-    if meta:
-        video_description_hint = meta.get("description", "") or ""
-        duration_seconds = meta.get("duration", 0) or 0
-        if video_description_hint:
-            video_description_hint = video_description_hint[:3000]
-
-    saas_section = _build_saas_prompt_section(priority_keywords, internal_links)
-
-    if site_brand:
-        seo_title_instruction = (
-            f"**seo_title** \u2014 max 60 znakow. Z branding pipe: '| {site_brand}'."
-        )
-    else:
-        seo_title_instruction = "**seo_title** \u2014 max 60 znakow. Bez branding pipe."
-
-    desc_section = f"\nOpis wideo (YouTube):\n{video_description_hint}" if video_description_hint else ""
-
-    prompt = f"""Jestes ekspertem SEO. Przygotuj pakiet SEO dla materialu wideo w języku docelowym: **{target_lang_name} ({target_lang})**.
-NIE MASZ TRANSKRYPTU — bazuj tylko na tytule i opisie. Wszystkie wygenerowane pola MUSZĄ być w języku {target_lang_name} ({target_lang}).
-
-## DANE WEJSCIOWE
-Tytul: {post_title}
-URL: {yt_url}{desc_section}
-{saas_section}
-## CO WYGENEROWAC (w języku {target_lang_name} [{target_lang}])
-
-1. **focus_keyphrases** — Lista w języku {target_lang_name}: PIERWSZA fraza = Glowna (2-4 slowa, naturalna, wyszukiwalna). POZOSTALE = Poboczne LSI (5-8 fraz, 2-5 slow, semantycznie powiazane).
-2. **post_title** — max 80 znakow, SEO-first, z glowna fraza, w języku {target_lang_name}.
-3. {seo_title_instruction} (w języku {target_lang_name})
-4. **yt_title** — 40-65 znakow, inny niz post_title, angazujacy YouTubowy tytul w języku {target_lang_name}.
-5. **meta_description** — max 155 znakow, z fraza kluczowa, w języku {target_lang_name}.
-6. **lead** — 2-3 zdania, max 300 znakow, w języku {target_lang_name}. Pierwsza fraza w pierwszym zdaniu.
-7. **faq** — 1-2 pytania i odpowiedzi na podstawie tytulu w języku {target_lang_name}.
-8. **youtube_description_hook** — max 200 znakow, w języku {target_lang_name}. Angazujacy wstep 2-3 zdania.
-   PIERWSZE zdanie MUSI zawierac glowna fraze z focus_keyphrases[0]. BEZ hashtagow.
-9. **youtube_hashtags** — lista 3 hashtagow jako JSON array w języku {target_lang_name}.
-10. **video_description** — max 200 zn, w języku {target_lang_name}.
-11. **tags** — 5-8 tagow lowercase w języku {target_lang_name}.
-12. **external_links** — 1-2 linki do authority sources ({eeat_sources}).
-    Format: {{"url": "...", "anchor_text": "...", "reason": "..."}}
-13. **image_descriptions** — 1 opis screenshota w języku {target_lang_name}.
-    Format: {{"alt_text": "...", "caption": "...", "context": "po akapicie 1"}}
-
-NIE generuj: chapters, quotes (brak transkryptu), article_body.
-Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":[],"post_title":"","seo_title":"","yt_title":"","meta_description":"","lead":"","chapters":[],"quotes":[],"faq":[{{"question":"","answer":""}}],"youtube_description_hook":"","youtube_hashtags":[],"video_description":"","tags":[],"external_links":[],"image_descriptions":[{{"alt_text":"","caption":"","context":""}}]}}"""
-
-    try:
-        text = _call_llm(prompt, api_key, provider)
-        text = text.strip()
-        text = re.sub(r"^```json\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-        text = _sanitize_llm_json(text)
-        result = json.loads(text)
-    except json.JSONDecodeError as e:
-        logger.error(
-            "[FIX A] JSON parse failed at %d: %s\nRaw (first 1000):\n%s",
-            e.pos, e.msg, text[:1000]
-        )
-        # Minimal retry
-        retry_prompt = (
-            f"Napraw JSON (blad na poz. {e.pos}: {e.msg}). "
-            "W atrybutach HTML uzywaj apostrofow ('), nie cudzyslowow. "
-            f"Do naprawy:\n{text}"
-        )
-        text2 = _call_llm(retry_prompt, api_key, provider)
-        text2 = text2.strip()
-        text2 = re.sub(r"^```json\s*", "", text2)
-        text2 = re.sub(r"\s*```$", "", text2)
-        text2 = _sanitize_llm_json(text2)
-        result = json.loads(text2)
-
-    # Normalize keyphrases
-    keyphrases = _normalize_keyphrases(result)
-    result["focus_keyphrases"] = keyphrases
-    result["focus_keyphrase"] = keyphrases[0] if keyphrases else ""
-
-    # Ensure chapters and quotes are empty (no VTT)
-    result["chapters"] = []
-    result["quotes"] = []
-
-    # Fallback titles
-    if not result.get("post_title", "").strip():
-        result["post_title"] = result.get("seo_title", post_title)
-    if not result.get("yt_title", "").strip():
-        result["yt_title"] = result.get("post_title", post_title)[:100]
-
-    # Attach metadata
-    result["wp_id"] = wp_id
-    result["youtube_id"] = youtube_id
-    result["original_title"] = post_title
-    result["yt_url"] = yt_url
-    result["total_duration"] = int(duration_seconds)
-    result["duration_seconds"] = int(duration_seconds)
-    result["duration_iso"] = format_duration_iso(duration_seconds)
-    result["llm_provider"] = provider
-    result["publication_type"] = publication_type
-    result["saas_enriched"] = bool(priority_keywords)
-    result["transcript_available"] = False  # FIX A flag
-    result["partial_result"] = True          # FIX A flag
-    result["target_lang"] = target_lang
-    result["source_lang"] = source_lang
-
-    if priority_keywords:
-        result["saas_keywords_count"] = len(priority_keywords)
-
-    logger.info(
-        "[FIX A] Partial schema generated: keyphrases=%r type=%s brand=%s lang=%s->%s",
-        keyphrases, publication_type, site_brand or "none", source_lang, target_lang,
-    )
-    
-    # PASS 2: Article Generation
-    pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
-    pressai_url = os.getenv("SAAS_API_URL") or os.getenv("PRESSAI_API_URL", "")
-    pressai_token = os.getenv("SAAS_API_TOKEN") or os.getenv("PRESSAI_EXTERNAL_TOKEN") or os.getenv("EXTERNAL_API_TOKEN", "")
-    
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    try:
-        article_html, article_engine = loop.run_until_complete(
-            generate_article_content(
-                schema=result,
-                vtt_text=video_description_hint,  # No transcript, pass hint
-                publication_type=publication_type,
-                api_key=api_key,
-                provider=provider,
-                pressai_api_url=pressai_url if pressai_enabled else "",
-                pressai_token=pressai_token if pressai_enabled else "",
-                internal_links=internal_links,
-                target_lang=target_lang,
-                source_lang=source_lang,
-            )
-        )
-        result["article_body"] = article_html
-        result["article_engine"] = article_engine
-        logger.info("Pass 2 (Partial): article_body=%d chars engine=%s", len(article_html), article_engine)
-    except Exception as e:
-        logger.error("Pass 2 (Partial): article generation failed: %s", e)
-        result["article_body"] = result.get("article_body", "")
-        result["article_engine"] = "pass1_legacy"
-
-    result["json_ld"] = build_jsonld_schemas(result, target_lang=target_lang)
-    return result
 
 
 # ============================================================
@@ -1510,31 +1266,214 @@ def process_video(
         youtube_id, wp_id, provider, publication_type, source_lang, target_lang,
     )
 
+    # KROK B.C: Hard Anti-Confabulation Guard — vtt_path must exist and have >= 50 chars of real transcript
+    if not vtt_path or not os.path.exists(vtt_path):
+        raise ValueError(
+            "Brak transkryptu wideo: nie udało się pobrać napisów z YouTube "
+            "(sprawdź czy działa VSE Local Runner na komputerze lub czy film posiada napisy na YouTube). "
+            "Generowanie zostało zatrzymane, aby zapobiec konfabulacji AI (0 pobranych kredytów)."
+        )
+
     tracker_token = current_llm_usage.set({
         "input_tokens": 0,
         "output_tokens": 0,
         "last_provider": provider,
     })
-    # FIX A: Guard — when vtt_path is None, use partial schema generator
-    if vtt_path is None:
-        logger.warning(
-            "[FIX A] vtt_path=None for %s — calling generate_schema_without_transcript()",
-            youtube_id,
+
+    try:
+        # Auto-detect source_lang from VTT if still unknown
+        if not source_lang or source_lang == "auto":
+            try:
+                from core.fetcher import detect_transcript_language
+                with open(vtt_path, encoding="utf-8", errors="replace") as vf:
+                    raw_vtt_sample = vf.read(16000)
+                source_lang = detect_transcript_language(
+                    raw_vtt_sample,
+                    metadata_lang=(meta or {}).get("default_audio_language"),
+                )
+            except Exception:
+                source_lang = "pl"
+
+        timestamped, segments, duration = parse_vtt_full(vtt_path)
+        if len(timestamped.strip()) < 50:
+            raise ValueError(
+                "Brak transkryptu wideo: pobrany plik napisów zawiera mniej niż 50 znaków tekstu. "
+                "Generowanie zostało zatrzymane, aby zapobiec konfabulacji AI (0 pobranych kredytów)."
+            )
+
+        dur_min = int(duration // 60)
+        dur_sec = int(duration % 60)
+        logger.info(
+            "VTT parsed: %d chars | %d segments | %d:%02d | source_lang=%s | target_lang=%s",
+            len(timestamped), len(segments), dur_min, dur_sec, source_lang, target_lang,
         )
-        result = generate_schema_without_transcript(
-            youtube_id=youtube_id,
-            wp_id=wp_id,
-            post_title=post_title,
-            yt_url=yt_url,
-            api_key=api_key,
-            provider=provider,
+
+        result = generate_seo_v4(
+            post_title, timestamped, duration, yt_url, api_key, provider,
             priority_keywords=priority_keywords,
             internal_links=internal_links,
             site_brand=site_brand,
             publication_type=publication_type,
-            meta=meta,
             target_lang=target_lang,
             source_lang=source_lang,
+        )
+
+        # KROK B.D: Ensure clean_transcript is populated (LLM-edited or rule-based fallback with [MM:SS] paragraphs)
+        llm_clean_tr = (result.get("clean_transcript") or "").strip()
+        if len(llm_clean_tr) >= 50:
+            result["clean_transcript"] = llm_clean_tr
+        else:
+            result["clean_transcript"] = build_clean_transcript_from_segments(segments)
+
+        # D5: Normalize keyphrases — always store as list
+        keyphrases = _normalize_keyphrases(result)
+        result["focus_keyphrases"] = keyphrases
+        result["focus_keyphrase"] = keyphrases[0] if keyphrases else ""
+        logger.info("focus_keyphrases: %r", keyphrases)
+
+        # Fallback: post_title z seo_title jesli puste
+        if not result.get("post_title", "").strip():
+            result["post_title"] = result.get("seo_title", post_title)
+            logger.warning(
+                "post_title missing — fallback to seo_title: %r",
+                result["post_title"][:60],
+            )
+
+        # Fallback: yt_title z post_title jesli puste
+        if not result.get("yt_title", "").strip():
+            result["yt_title"] = result.get("post_title", post_title)[:100]
+            logger.warning(
+                "yt_title missing — fallback to post_title: %r",
+                result["yt_title"][:60],
+            )
+
+        # Attach original_title before Pass 2 so ASR phonetic instruction has full context
+        result["original_title"] = post_title
+
+        # D10: Log external links from LLM output
+        ext_links = result.get("external_links", [])
+        if ext_links:
+            logger.info("D10 external_links: %d authority links generated", len(ext_links))
+            for el in ext_links:
+                logger.info("  -> %s (%s)", el.get("url", "?")[:60], el.get("reason", "?")[:40])
+        else:
+            logger.warning("D10 external_links: LLM returned 0 links (expected 2-3)")
+
+        # D11: Log image descriptions from LLM output (fallback for SAAS Vision)
+        img_descs = result.get("image_descriptions", [])
+        if img_descs:
+            logger.info("D11 image_descriptions: %d LLM fallback descriptions generated", len(img_descs))
+            for idx, desc in enumerate(img_descs):
+                logger.info("  img[%d] alt=%r ctx=%r", idx, desc.get("alt_text", "?")[:60], desc.get("context", "?"))
+        else:
+            logger.info("D11 image_descriptions: LLM returned 0 (SAAS primary will be used)")
+
+        # Anchor-match chapters to exact VTT timestamps
+        resolved_chapters: list[dict] = []
+        for ch in result.get("chapters", []):
+            anchor = ch.get("anchor_text", "")
+            ts = find_anchor_in_vtt(anchor, segments)
+            matched = ts >= 0
+            resolved_chapters.append({
+                "time": max(0, ts),
+                "label": ch["label"],
+                "anchor_text": anchor,
+                "matched": matched,
+            })
+            status = f"{ts // 60:02d}:{ts % 60:02d}" if matched else "NOT FOUND"
+            logger.info("  chapter [%s] %s", status, ch["label"][:50])
+
+        resolved_chapters.sort(key=lambda x: x["time"])
+        if resolved_chapters and resolved_chapters[0]["time"] != 0:
+            resolved_chapters[0]["time"] = 0
+
+        result["chapters"] = resolved_chapters
+
+        # Anchor-match quotes
+        for q in result.get("quotes", []):
+            anchor = q.get("anchor_text", q.get("text", "")[:40])
+            ts = find_anchor_in_vtt(anchor, segments)
+            q["time"] = max(0, ts)
+
+        # PASS 2: Article Generation
+        pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
+        pressai_url = os.getenv("SAAS_API_URL") or os.getenv("PRESSAI_API_URL", "")
+        pressai_token = os.getenv("SAAS_API_TOKEN") or os.getenv("PRESSAI_EXTERNAL_TOKEN") or os.getenv("EXTERNAL_API_TOKEN", "")
+        
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        try:
+            article_html, article_engine = loop.run_until_complete(
+                generate_article_content(
+                    schema=result,
+                    vtt_text=timestamped,
+                    publication_type=publication_type,
+                    api_key=api_key,
+                    provider=provider,
+                    pressai_api_url=pressai_url if pressai_enabled else "",
+                    pressai_token=pressai_token if pressai_enabled else "",
+                    internal_links=internal_links,
+                    target_lang=target_lang,
+                    source_lang=source_lang,
+                )
+            )
+            result["article_body"] = article_html
+            result["article_engine"] = article_engine
+            logger.info("Pass 2: article_body=%d chars engine=%s", len(article_html), article_engine)
+        except Exception as e:
+            logger.error("Pass 2: article generation failed: %s", e)
+            result["article_body"] = result.get("article_body", "")
+            result["article_engine"] = "pass1_legacy"
+
+        # Attach metadata
+        result["wp_id"] = wp_id
+        result["youtube_id"] = youtube_id
+        result["original_title"] = post_title
+        result["yt_url"] = yt_url
+        result["total_duration"] = int(duration)
+        result["duration_seconds"] = int(duration)
+        result["duration_iso"] = format_duration_iso(duration)
+        result["llm_provider"] = provider
+        result["publication_type"] = publication_type
+        result["transcript_available"] = True
+        result["partial_result"] = False
+        result["target_lang"] = target_lang
+        result["source_lang"] = source_lang
+        result["json_ld"] = build_jsonld_schemas(result, target_lang=target_lang)
+
+        # Track SAAS enrichment in result metadata
+        if priority_keywords:
+            result["saas_enriched"] = True
+            result["saas_keywords_count"] = len(priority_keywords)
+        else:
+            result["saas_enriched"] = False
+
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, f"{youtube_id}.json")
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+            logger.info("Saved: %s", out_path)
+
+        if sleep_between > 0:
+            time.sleep(sleep_between)
+
+        matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
+        logger.info(
+            "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d, img_descs=%d, lang=%s->%s",
+            len(resolved_chapters), matched_count, len(resolved_chapters),
+            keyphrases, publication_type,
+            "enriched" if result.get("saas_enriched") else "standalone",
+            site_brand or "none",
+            len(ext_links),
+            len(img_descs),
+            source_lang,
+            target_lang,
         )
         usage = current_llm_usage.get() or {}
         result["input_tokens"] = usage.get("input_tokens", 0)
@@ -1543,195 +1482,6 @@ def process_video(
         result["estimated_cost_usd"] = calculate_cost_usd(
             result["llm_provider"], result["input_tokens"], result["output_tokens"]
         )
-        current_llm_usage.reset(tracker_token)
         return result
-
-    # Auto-detect source_lang from VTT if still unknown
-    if not source_lang or source_lang == "auto":
-        try:
-            from core.fetcher import detect_transcript_language
-            with open(vtt_path, encoding="utf-8", errors="replace") as vf:
-                raw_vtt_sample = vf.read(16000)
-            source_lang = detect_transcript_language(
-                raw_vtt_sample,
-                metadata_lang=(meta or {}).get("default_audio_language"),
-            )
-        except Exception:
-            source_lang = "pl"
-
-    timestamped, segments, duration = parse_vtt_full(vtt_path)
-    dur_min = int(duration // 60)
-    dur_sec = int(duration % 60)
-    logger.info(
-        "VTT parsed: %d chars | %d segments | %d:%02d | source_lang=%s | target_lang=%s",
-        len(timestamped), len(segments), dur_min, dur_sec, source_lang, target_lang,
-    )
-
-    result = generate_seo_v4(
-        post_title, timestamped, duration, yt_url, api_key, provider,
-        priority_keywords=priority_keywords,
-        internal_links=internal_links,
-        site_brand=site_brand,
-        publication_type=publication_type,
-        target_lang=target_lang,
-        source_lang=source_lang,
-    )
-
-    # D5: Normalize keyphrases — always store as list
-    keyphrases = _normalize_keyphrases(result)
-    result["focus_keyphrases"] = keyphrases
-    # Backward compat: keep focus_keyphrase (singular) as first item for old consumers
-    result["focus_keyphrase"] = keyphrases[0] if keyphrases else ""
-    logger.info("focus_keyphrases: %r", keyphrases)
-
-    # Fallback: post_title z seo_title jesli puste
-    if not result.get("post_title", "").strip():
-        result["post_title"] = result.get("seo_title", post_title)
-        logger.warning(
-            "post_title missing — fallback to seo_title: %r",
-            result["post_title"][:60],
-        )
-
-    # Fallback: yt_title z post_title jesli puste
-    if not result.get("yt_title", "").strip():
-        result["yt_title"] = result.get("post_title", post_title)[:100]
-        logger.warning(
-            "yt_title missing — fallback to post_title: %r",
-            result["yt_title"][:60],
-        )
-
-    # D10: Log external links from LLM output
-    ext_links = result.get("external_links", [])
-    if ext_links:
-        logger.info("D10 external_links: %d authority links generated", len(ext_links))
-        for el in ext_links:
-            logger.info("  -> %s (%s)", el.get("url", "?")[:60], el.get("reason", "?")[:40])
-    else:
-        logger.warning("D10 external_links: LLM returned 0 links (expected 2-3)")
-
-    # D11: Log image descriptions from LLM output (fallback for SAAS Vision)
-    img_descs = result.get("image_descriptions", [])
-    if img_descs:
-        logger.info("D11 image_descriptions: %d LLM fallback descriptions generated", len(img_descs))
-        for idx, desc in enumerate(img_descs):
-            logger.info("  img[%d] alt=%r ctx=%r", idx, desc.get("alt_text", "?")[:60], desc.get("context", "?"))
-    else:
-        logger.info("D11 image_descriptions: LLM returned 0 (SAAS primary will be used)")
-
-    # Anchor-match chapters to exact VTT timestamps
-    resolved_chapters: list[dict] = []
-    for ch in result.get("chapters", []):
-        anchor = ch.get("anchor_text", "")
-        ts = find_anchor_in_vtt(anchor, segments)
-        matched = ts >= 0
-        resolved_chapters.append({
-            "time": max(0, ts),
-            "label": ch["label"],
-            "anchor_text": anchor,
-            "matched": matched,
-        })
-        status = f"{ts // 60:02d}:{ts % 60:02d}" if matched else "NOT FOUND"
-        logger.info("  chapter [%s] %s", status, ch["label"][:50])
-
-    resolved_chapters.sort(key=lambda x: x["time"])
-    if resolved_chapters and resolved_chapters[0]["time"] != 0:
-        resolved_chapters[0]["time"] = 0
-
-    result["chapters"] = resolved_chapters
-
-    # Anchor-match quotes
-    for q in result.get("quotes", []):
-        anchor = q.get("anchor_text", q.get("text", "")[:40])
-        ts = find_anchor_in_vtt(anchor, segments)
-        q["time"] = max(0, ts)
-
-    # PASS 2: Article Generation
-    pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
-    pressai_url = os.getenv("SAAS_API_URL") or os.getenv("PRESSAI_API_URL", "")
-    pressai_token = os.getenv("SAAS_API_TOKEN") or os.getenv("PRESSAI_EXTERNAL_TOKEN") or os.getenv("EXTERNAL_API_TOKEN", "")
-    
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    try:
-        article_html, article_engine = loop.run_until_complete(
-            generate_article_content(
-                schema=result,
-                vtt_text=timestamped,
-                publication_type=publication_type,
-                api_key=api_key,
-                provider=provider,
-                pressai_api_url=pressai_url if pressai_enabled else "",
-                pressai_token=pressai_token if pressai_enabled else "",
-                internal_links=internal_links,
-                target_lang=target_lang,
-                source_lang=source_lang,
-            )
-        )
-        result["article_body"] = article_html
-        result["article_engine"] = article_engine
-        logger.info("Pass 2: article_body=%d chars engine=%s", len(article_html), article_engine)
-    except Exception as e:
-        logger.error("Pass 2: article generation failed: %s", e)
-        result["article_body"] = result.get("article_body", "")
-        result["article_engine"] = "pass1_legacy"
-
-    # Attach metadata
-    result["wp_id"] = wp_id
-    result["youtube_id"] = youtube_id
-    result["original_title"] = post_title
-    result["yt_url"] = yt_url
-    result["total_duration"] = int(duration)
-    result["duration_seconds"] = int(duration)
-    result["duration_iso"] = format_duration_iso(duration)
-    result["llm_provider"] = provider
-    result["publication_type"] = publication_type  # D6b.6: track type in output
-    result["transcript_available"] = True   # FIX A: full transcript was used
-    result["partial_result"] = False         # FIX A: full result
-    result["target_lang"] = target_lang
-    result["source_lang"] = source_lang
-    result["json_ld"] = build_jsonld_schemas(result, target_lang=target_lang)
-
-    # Track SAAS enrichment in result metadata
-    if priority_keywords:
-        result["saas_enriched"] = True
-        result["saas_keywords_count"] = len(priority_keywords)
-    else:
-        result["saas_enriched"] = False
-
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(out_dir, f"{youtube_id}.json")
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
-        logger.info("Saved: %s", out_path)
-
-    if sleep_between > 0:
-        time.sleep(sleep_between)
-
-    matched_count = sum(1 for c in resolved_chapters if c.get("matched"))
-    logger.info(
-        "Done: %d chapters (%d/%d matched), keyphrases=%r, type=%s, saas=%s, brand=%s, ext_links=%d, img_descs=%d, lang=%s->%s",
-        len(resolved_chapters), matched_count, len(resolved_chapters),
-        keyphrases, publication_type,
-        "enriched" if result.get("saas_enriched") else "standalone",
-        site_brand or "none",
-        len(ext_links),
-        len(img_descs),
-        source_lang,
-        target_lang,
-    )
-    usage = current_llm_usage.get() or {}
-    result["input_tokens"] = usage.get("input_tokens", 0)
-    result["output_tokens"] = usage.get("output_tokens", 0)
-    result["llm_provider"] = usage.get("last_provider", provider)
-    result["estimated_cost_usd"] = calculate_cost_usd(
-        result["llm_provider"], result["input_tokens"], result["output_tokens"]
-    )
-    current_llm_usage.reset(tracker_token)
-    return result
-
+    finally:
+        current_llm_usage.reset(tracker_token)
