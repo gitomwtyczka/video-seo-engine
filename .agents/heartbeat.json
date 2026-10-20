@@ -1,21 +1,27 @@
 {
   "callsign": "vse-architect-01",
-  "status": "done",
-  "current_task": "Wdrożenie KROK A+B+C: limity 5/30/110/250, Top-Up 99/249/699 PLN, OAuth channel match, asyncio.Event wakeup (2.0s/90s), blokada anty-konfabulacyjna HTTP 422 i clean_transcript — wdrożone na VPS i zweryfikowane E2E",
-  "timestamp": "2026-10-20T14:19:00+02:00",
+  "status": "handoff",
+  "current_task": "Wzorcowy Handoff v2.2: Przebudowa UX /ustawienia (4 czyste karty + 2 akordeony + zwijane stopki YT), język białoruski (be), KROK A+B+C (limity 5/30/110/250, Top-Up 99/249/699 PLN, OAuth channel match, asyncio.Event wakeup, blokada HTTP 422, clean_transcript) — 100% spójności GitHub == VPS == Local",
+  "timestamp": "2026-10-20T18:02:00+02:00",
   "last_completed": [
+    "e62ee95ca7f659d94d31152c5046912c6ca7f823: docs(handoff): write comprehensive v2.2 handoff (GitHub == VPS == Local) [vse-dev-01]",
+    "68e58a5ba52dfea8e655685b5b57a9c5e88dc345: docs(tasks): update current.md with settings UX redesign and v2.2 handoff state [vse-dev-01]",
+    "3e0cb38b6207d35d666b0b64317f87d60a4e70c0: feat(ustawienia): redesign settings layout into 4 clean cards with collapsible YT footers and download accordions [vse-dev-01]",
+    "59ca091dc7f2c04cccc5c56a5afa3cf504422c4b: feat(lang): add full Belarusian (be) language support across generator, translations and UI [vse-dev-01]",
+    "c17a7a6bc268b8617c148096417f70e3170d7cd7: fix(pricing): unify Agency portal limit description to 50 portals across landing and cennik [vse-dev-01]",
     "4b4c3d7d8eb22b722e05ec7495677c7b17755fcc: report: vse-architect-01 KROK A+B+C transcript fix, quotas 5/30/110/250, Top-Up 99/249/699 E2E complete [vse-architect-01]",
-    "e7de50990fdc9d7edc7b54dab27ad183d546483e: docs(tasks): mark KROK A+B+C complete in current.md [vse-architect-01]",
     "212c5881d495454cbb689aaf5df5c7fb7c5dc670: perf(jobs): trigger in-memory asyncio.Event wakeup on POST /v1/jobs/{id}/result [vse-dev-01]",
     "93cf9308987a57ac44c1da9f3020dedba8f30fac: perf(pipeline): set LOCAL_RUNNER_POLL_INTERVAL=2.0s + in-memory asyncio.Event instant wakeup [vse-dev-01]",
     "87e21a30ecde01c65a8ed355f33dd7fed4f64150: fix(generator): hard anti-confabulation block on missing transcript, ASR phonetic correction instructions, and clean_transcript field [vse-dev-01]",
     "4d0ed1611fa0335429906291fbe4e34e5b400287: fix(generate): return HTTP 422 with 0 credits charged on missing transcript and reuse existing transcript job [vse-dev-01]",
-    "3d651cd82079e850579855861f341bbda6de69fc: fix(jobs): accept transcript results on cloud_fallback/processing jobs [vse-dev-01]",
     "64e83e2a36c6c19076cfabd5e9876d016c423f72: fix(pipeline): match video channel_id for YT OAuth, add DB transcript cache, 90s/0.5s runner polling, and hard anti-confabulation block [vse-dev-01]",
-    "2009f30ddc4a4215717a178d55fca06f51c91b90: fix(fetcher): multi-track fallback in fetch_transcript_api_v3 and log channel_id [vse-dev-01]",
     "581f2328d7131ad3435fcea0ede25604ca4e8d44: feat(cennik): set quotas to 30/110/250, Top-Up to 99/249/699 PLN and >250 Enterprise banner [vse-dev-01]",
-    "5196757017784fb870861d0f454381cc3f8a6618: feat(payments): update Top-Up prices to 99 / 249 / 699 PLN [vse-dev-01]",
-    "a63cb06: feat(plugin): set PLAN_LIMITS to 5/30/110/250 [vse-dev-01]"
+    "5196757017784fb870861d0f454381cc3f8a6618: feat(payments): update Top-Up prices to 99 / 249 / 699 PLN [vse-dev-01]"
   ],
-  "pending": []
+  "pending": [
+    "Test praktyczny Wtyczki WordPress v3.0.0 na żywych portalach po reinstalacji paczki .zip — todo",
+    "Przełączenie Stripe z sk_test_ na sk_live_ i uruchomienie scripts/setup_stripe_live.py — czeka na decyzję Właściciela",
+    "Faza 5.3: Ręczny upload pliku .vtt / .srt w dashboardzie — todo",
+    "Faza 5.4: Moduł M4B (cytaty z klikalnymi deep-linkami czasowymi) — todo"
+  ]
 }
