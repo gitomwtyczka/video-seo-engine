@@ -67,7 +67,7 @@ D15 JSON Sanitizer (2026-06-29, vse-dev-30):
 KROK B (2026-10-20, vse-dev-01):
   - Twarda blokada anty-konfabulacyjna: całkowity zakaz generowania pakietu SEO
     lub artykułu z samego tytułu bez transkryptu (>= 50 znaków).
-  - Korekta stylistyczna i interpunkcyjna transkryptu: pole `clean_transcript`
+  - Korekta transkryptu z markerami [MM:SS]: funkcja `build_clean_transcript_from_segments` (Python, 0 tokenów LLM)
     w wynikowym słowniku `result` (zredagowany zapis z timestampami `[MM:SS]` co akapit,
     oczyszczony z wypełniaczy ASR typu 'yyy', 'eee') oraz jawna instrukcja ASR
     w promptach Pass 1 i Pass 2 dot. korygowania błędów fonetycznych nazwisk i nazw własnych.
@@ -351,6 +351,14 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
             in_tok = getattr(usage, "input_tokens", 0) if usage else 0
             out_tok = getattr(usage, "output_tokens", 0) if usage else 0
             logger.info("LLM Claude (%s) usage: input=%d, output=%d tokens", model, in_tok, out_tok)
+            stop_reason = getattr(msg, "stop_reason", None)
+            if stop_reason == "max_tokens":
+                logger.warning(
+                    "LLM_TRUNCATED provider=claude max_tokens=8192 model=%s input=%d output=%d",
+                    model,
+                    in_tok,
+                    out_tok,
+                )
             tracker = current_llm_usage.get()
             if tracker is not None:
                 tracker["input_tokens"] += in_tok
@@ -368,15 +376,29 @@ def _call_llm(prompt: str, api_key: str, provider: str = "gemini") -> str:
 
     if provider == "gemini":
         from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
         client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(max_output_tokens=8192)
         resp = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
+            config=config,
         )
         usage = getattr(resp, "usage_metadata", None)
         in_tok = getattr(usage, "prompt_token_count", 0) if usage else 0
         out_tok = getattr(usage, "candidates_token_count", 0) if usage else 0
         logger.info("LLM Gemini (gemini-2.5-flash) usage: input=%d, output=%d tokens", in_tok, out_tok)
+        candidates = getattr(resp, "candidates", None)
+        first_cand = candidates[0] if candidates else None
+        finish_reason = getattr(first_cand, "finish_reason", None)
+        fr_name = getattr(finish_reason, "name", finish_reason)
+        if fr_name == "MAX_TOKENS" or str(fr_name).upper() == "MAX_TOKENS":
+            logger.warning(
+                "LLM_TRUNCATED provider=gemini max_tokens=8192 model=gemini-2.5-flash input=%d output=%d finish_reason=%s",
+                in_tok,
+                out_tok,
+                fr_name,
+            )
         tracker = current_llm_usage.get()
         if tracker is not None:
             tracker["input_tokens"] += in_tok
@@ -410,6 +432,43 @@ def _generate_article_fallback(
     lang_name = lang_cfg["name"]
     summary_heading = lang_cfg.get("summary_heading", "Podsumowanie")
     eeat_sources = lang_cfg["eeat_sources"]
+
+    if publication_type == "watching_page":
+        prompt = f"""Jesteś doświadczonym redaktorem portalu. Napisz krótki opis wideo na stronę oglądania (watching page) na podstawie transkryptu.
+
+KRYTYCZNA DYREKTYWA JĘZYKOWA (CROSS-LANGUAGE):
+- Język źródłowy transkryptu: {source_lang}
+- JĘZYK DOCELOWY ARTYKUŁU: **{lang_name} ({target_lang.upper()})**
+- Cały tekst (dokładnie 2 akapity <p>) MUSI być napisany w 100% w języku **{lang_name}**!
+- Używaj naturalnej gramatyki, stylistyki i idiomów języka {lang_name}.
+
+KOREKTA BŁĘDÓW ASR:
+- {ASR_PHONETIC_INSTRUCTION}
+- Oryginalny tytuł filmu: {original_title}
+
+FRAZA KLUCZOWA: {keyphrase}
+TYTUŁ: {post_title}
+
+STRUKTURA I DŁUGOŚĆ:
+- Dokładnie 2 akapity <p>, łącznie 150-250 słów.
+- Akapit 1: o czym jest film, kto występuje / jaka jest główna teza (wpleć frazę kluczową: {keyphrase}).
+- Akapit 2: dlaczego warto obejrzeć ten materiał i czego widz się dowie.
+- ZAKAZ używania jakichkolwiek nagłówków (brak <h2>, brak <h3>).
+- ZAKAZ sekcji podsumowania.
+- W atrybutach HTML (np. linki) ZAWSZE używaj apostrofów ('), NIE cudzysłowów.
+
+TRANSKRYPT:
+{vtt_text[:60000]}
+
+Zwróć TYLKO HTML artykułu w języku {lang_name} (dokładnie 2 akapity <p>, bez JSON, bez wyjaśnień):"""
+        logger.info(
+            "_generate_article_fallback (watching_page): provider=%s target_lang=%s source_lang=%s",
+            provider, target_lang, source_lang,
+        )
+        t0_fallback = time.time()
+        res = _call_llm(prompt, api_key, provider)
+        logger.info("PASS2 fallback done in %.1fs, %d chars", time.time() - t0_fallback, len(res))
+        return res
 
     prompt = f"""Jesteś doświadczonym redaktorem portalu. Napisz kompletny artykuł na podstawie transkryptu wideo.
 
@@ -471,8 +530,8 @@ async def generate_article_content(
     target_words = _get_target_words(publication_type)
     pressai_format = FORMAT_MAP.get(publication_type, "analiza")
     
-    # Próba PressAI M2M (tylko dla języka polskiego lub gdy obsługuje target_lang)
-    if pressai_api_url and pressai_token and target_lang == "pl":
+    # Próba PressAI M2M (tylko dla języka polskiego lub gdy obsługuje target_lang; watching_page używa dedykowanego promptu 2-akapitowego)
+    if pressai_api_url and pressai_token and target_lang == "pl" and publication_type != "watching_page":
         try:
             import httpx
             payload = {
@@ -609,13 +668,16 @@ def _get_publication_type_override(publication_type: str) -> str:
     if publication_type == "watching_page":
         return """
 
-## UWAGA — TYP PUBLIKACJI: WATCHING PAGE
+## UWAGA — TYP PUBLIKACJI: WATCHING PAGE (SINGLE-PASS)
 
 To jest krótki artykuł typu "strona oglądania" z embedem wideo.
 Zastosuj ZMODYFIKOWANE reguły:
-- **article_body**: MAX 2 krótkie akapity <p> (300-500 zn). Skup się na
-  krótkim opisie o czym jest materiał i dlaczego warto obejrzeć.
-  NIE pisz rozbudowanej analizy.
+- **article_body**: DOKŁADNIE 2 akapity <p>, łącznie 150-250 słów.
+  Akapit 1: o czym jest film, kto występuje / jaka jest główna teza (wpleć główną frazę kluczową).
+  Akapit 2: dlaczego warto obejrzeć ten materiał i czego widz się dowie.
+  ZAKAZ używania jakichkolwiek nagłówków (brak <h2>, brak <h3>).
+  ZAKAZ sekcji Podsumowanie.
+  W atrybutach HTML (np. linki) ZAWSZE używaj apostrofów ('), NIE cudzysłowów.
 - **chapters**: generuj normalnie (pełna lista)
 - **faq**: MAX 2 pytania (krótkie, najważniejsze)
 - **quotes**: MAX 2 cytaty
@@ -688,6 +750,7 @@ def generate_seo_v4(
 
     # D6b.6: Publication type override
     pub_type_section = _get_publication_type_override(publication_type)
+    article_body_schema = ',"article_body":"<p>...</p><p>...</p>"' if publication_type == "watching_page" else ""
 
     target_lang = (target_lang or "pl").lower()[:2]
     if target_lang not in SUPPORTED_LANGUAGES:
@@ -702,7 +765,7 @@ def generate_seo_v4(
 ## DYREKTYWA JĘZYKOWA (CROSS-LANGUAGE ENGINE — DUAL-LANGUAGE ANCHOR)
 - Język oryginalnego transkryptu wideo (SOURCE_LANG): {source_lang}
 - Język docelowy wszystkich wygenerowanych materiałów SEO (TARGET_LANG): {target_lang_name} (kod ISO: {target_lang})
-- WSZYSTKIE pola widoczne dla czytelnika (focus_keyphrases, post_title, seo_title, yt_title, meta_description, lead, chapters[].label, quotes[].text, faq[].question, faq[].answer, youtube_description_hook, youtube_hashtags, video_description, tags, external_links[].anchor_text, external_links[].reason, image_descriptions[].alt_text, image_descriptions[].caption, clean_transcript) MUSZĄ być napisane w 100% w języku docelowym: **{target_lang_name} ({target_lang})**, naturalnym, idiomatycznym językiem redakcyjnym.
+- WSZYSTKIE pola widoczne dla czytelnika (focus_keyphrases, post_title, seo_title, yt_title, meta_description, lead, chapters[].label, quotes[].text, faq[].question, faq[].answer, youtube_description_hook, youtube_hashtags, video_description, tags, external_links[].anchor_text, external_links[].reason, image_descriptions[].alt_text, image_descriptions[].caption) MUSZĄ być napisane w 100% w języku docelowym: **{target_lang_name} ({target_lang})**, naturalnym, idiomatycznym językiem redakcyjnym.
 - ⚠️ KRYTYCZNY WYJĄTEK TECHNICZNY (DUAL-LANGUAGE ANCHOR):
   Pola `chapters[].anchor_text` oraz `quotes[].anchor_text` służą do technicznego dopasowania znaczników czasu (regex/fuzzy match) bezpośrednio w oryginalnym pliku VTT!
   Dlatego `anchor_text` MUSI pozostać DOKŁADNYM, NIETŁUMACZONYM cytatem 8-15 słów w oryginalnym języku transkryptu ({source_lang}) — słowo w słowo tak, jak występuje w transkrypcie poniżej!
@@ -795,7 +858,6 @@ Rozdzialy musza:
     b) caption: 1 zdanie w języku {target_lang_name} opisujace scene widoczna na screenshocie z wideo.
     c) context: gdzie wstawic screenshot w article_body ("po akapicie 1" lub "po pierwszym H2").
        Pierwsza pozycja: "po akapicie 1". Druga: "po pierwszym H2" lub "przed FAQ".
-18. **clean_transcript** \u2014 zredagowany stylistycznie, interpunkcyjnie i ortograficznie zapis wypowiedzi z transkryptu, podzielony na czytelne akapity (oddzielone znakami \\n\\n) z zachowaniem timestampów co akapit w formacie `[MM:SS]`, oczyszczony z błędów fonetycznych ASR (skoryguj nazwiska i nazwy własne zgodnie z tytułem filmu: {title}) oraz wypełniaczy typu 'yyy', 'eee'.
 
 ## KRYTYCZNE ZASADY FORMATU JSON I DUAL-LANGUAGE ANCHOR
 
@@ -812,7 +874,7 @@ yt_title to OSOBNY, INNY tytul niz post_title \u2014 angazujacy, YouTubowy.
 NIGDY nie zostawiaj ich pustych.
 {pub_type_section}
 Odpowiedz TYLKO JSON (bez markdown):
-{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}],"clean_transcript":"[00:00] Zredagowany akapit 1...\\n\\n[02:15] Zredagowany akapit 2..."}}"""
+{{"focus_keyphrases":["fraza glowna","fraza 2","fraza 3"],"post_title":"...","seo_title":"...","yt_title":"...","meta_description":"...","lead":"...","quotes":[{{"text":"...","speaker":"...","anchor_text":"..."}}],"chapters":[{{"label":"...","anchor_text":"..."}}],"faq":[{{"question":"...","answer":"..."}}],"youtube_description_hook":"...","youtube_hashtags":["..."],"video_description":"...","tags":["..."],"external_links":[{{"url":"...","anchor_text":"...","reason":"..."}}],"image_descriptions":[{{"alt_text":"...","caption":"...","context":"..."}}]{article_body_schema}}}"""
 
     logger.info("Calling %s for: %s [type=%s, source=%s -> target=%s]", provider, title[:60], publication_type, source_lang, target_lang)
     if priority_keywords:
@@ -825,13 +887,16 @@ Odpowiedz TYLKO JSON (bez markdown):
         logger.info("site_brand: %r", site_brand)
     if publication_type != "full_analysis":
         logger.info("Publication type override: %s", publication_type)
+    t0_pass1 = time.time()
     try:
         text = _call_llm(prompt, api_key, provider)
+        dur_pass1 = time.time() - t0_pass1
         text = text.strip()
         text = re.sub(r"^```json\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
         # D15: Pre-parse sanitization — repair broken HTML attrs before json.loads()
         text = _sanitize_llm_json(text)
+        logger.info("PASS1 done in %.1fs, %d chars", dur_pass1, len(text))
         return json.loads(text)
     except json.JSONDecodeError as e:
         # D12: Log raw LLM output for debugging (first 2000 chars)
@@ -859,7 +924,7 @@ Odpowiedz TYLKO JSON (bez markdown):
             # D15: Apply sanitizer on retry output too
             text2 = _sanitize_llm_json(text2)
             result = json.loads(text2)
-            logger.info("D12: Retry succeeded — valid JSON obtained")
+            logger.info("D12: Retry succeeded — valid JSON obtained (PASS1 total %.1fs, %d chars)", time.time() - t0_pass1, len(text2))
             return result
         except json.JSONDecodeError as e2:
             logger.error(
@@ -1308,6 +1373,7 @@ def process_video(
             len(timestamped), len(segments), dur_min, dur_sec, source_lang, target_lang,
         )
 
+        t0_pass1 = time.time()
         result = generate_seo_v4(
             post_title, timestamped, duration, yt_url, api_key, provider,
             priority_keywords=priority_keywords,
@@ -1317,13 +1383,14 @@ def process_video(
             target_lang=target_lang,
             source_lang=source_lang,
         )
+        dur_pass1 = time.time() - t0_pass1
+        logger.info("PASS1 completed in %.1fs", dur_pass1)
 
-        # KROK B.D: Ensure clean_transcript is populated (LLM-edited or rule-based fallback with [MM:SS] paragraphs)
-        llm_clean_tr = (result.get("clean_transcript") or "").strip()
-        if len(llm_clean_tr) >= 50:
-            result["clean_transcript"] = llm_clean_tr
-        else:
-            result["clean_transcript"] = build_clean_transcript_from_segments(segments)
+        # KROK B.D: Generowanie clean_transcript w Pythonie z segmentów VTT
+        # CO: Czysty transkrypt z timestampami [MM:SS] co akapit i usuniętymi wypełniaczami ASR.
+        # PO CO: Uniknięcie przepisywania transkryptu przez LLM w Pass 1 (oszczędność ~150-200s, ~4-8k tokenów, eliminacja obcięć max_tokens).
+        # JAK: build_clean_transcript_from_segments(segments) — 0 tokenów LLM, natychmiastowe wykonanie.
+        result["clean_transcript"] = build_clean_transcript_from_segments(segments)
 
         # D5: Normalize keyphrases — always store as list
         keyphrases = _normalize_keyphrases(result)
@@ -1396,39 +1463,46 @@ def process_video(
             q["time"] = max(0, ts)
 
         # PASS 2: Article Generation
-        pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
-        pressai_url = os.getenv("SAAS_API_URL") or os.getenv("PRESSAI_API_URL", "")
-        pressai_token = os.getenv("SAAS_API_TOKEN") or os.getenv("PRESSAI_EXTERNAL_TOKEN") or os.getenv("EXTERNAL_API_TOKEN", "")
-        
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        if publication_type == "watching_page" and len((result.get("article_body") or "").strip()) >= 200:
+            result["article_engine"] = "pass1_watching_page"
+            logger.info("PASS2 skipped (watching_page): single-pass article_body=%d chars", len(result["article_body"]))
+        else:
+            t0_pass2 = time.time()
+            pressai_enabled = os.getenv("USE_PRESSAI_ARTICLE_ENGINE", "false").lower() == "true"
+            pressai_url = os.getenv("SAAS_API_URL") or os.getenv("PRESSAI_API_URL", "")
+            pressai_token = os.getenv("SAAS_API_TOKEN") or os.getenv("PRESSAI_EXTERNAL_TOKEN") or os.getenv("EXTERNAL_API_TOKEN", "")
+            
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-        try:
-            article_html, article_engine = loop.run_until_complete(
-                generate_article_content(
-                    schema=result,
-                    vtt_text=timestamped,
-                    publication_type=publication_type,
-                    api_key=api_key,
-                    provider=provider,
-                    pressai_api_url=pressai_url if pressai_enabled else "",
-                    pressai_token=pressai_token if pressai_enabled else "",
-                    internal_links=internal_links,
-                    target_lang=target_lang,
-                    source_lang=source_lang,
+            try:
+                article_html, article_engine = loop.run_until_complete(
+                    generate_article_content(
+                        schema=result,
+                        vtt_text=timestamped,
+                        publication_type=publication_type,
+                        api_key=api_key,
+                        provider=provider,
+                        pressai_api_url=pressai_url if pressai_enabled else "",
+                        pressai_token=pressai_token if pressai_enabled else "",
+                        internal_links=internal_links,
+                        target_lang=target_lang,
+                        source_lang=source_lang,
+                    )
                 )
-            )
-            result["article_body"] = article_html
-            result["article_engine"] = article_engine
-            logger.info("Pass 2: article_body=%d chars engine=%s", len(article_html), article_engine)
-        except Exception as e:
-            logger.error("Pass 2: article generation failed: %s", e)
-            result["article_body"] = result.get("article_body", "")
-            result["article_engine"] = "pass1_legacy"
+                dur_pass2 = time.time() - t0_pass2
+                result["article_body"] = article_html
+                result["article_engine"] = article_engine
+                logger.info("PASS2 done in %.1fs, %d chars (engine=%s)", dur_pass2, len(article_html), article_engine)
+            except Exception as e:
+                dur_pass2 = time.time() - t0_pass2
+                logger.error("Pass 2: article generation failed after %.1fs: %s", dur_pass2, e)
+                result["article_body"] = result.get("article_body", "")
+                result["article_engine"] = "pass1_legacy"
 
         # Attach metadata
         result["wp_id"] = wp_id
