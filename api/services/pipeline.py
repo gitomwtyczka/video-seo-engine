@@ -74,8 +74,9 @@ KROK B (2026-10-20, vse-dev-01):
        potrzeby próbuje kolejne kanały użytkownika (sortowane po updated_at DESC).
     2. DB Cache: przed utworzeniem nowego joba sprawdza w transcript_jobs istniejący
        rekord z niepustym transkryptem (len >= 50) dla danego video_id.
-    3. Local Runner: LOCAL_RUNNER_POLL_TIMEOUT=90s, LOCAL_RUNNER_POLL_INTERVAL=0.5s
-       (natychmiastowy start w ułamku sekundy po zapisaniu wyniku przez runnera).
+    3. Local Runner: LOCAL_RUNNER_POLL_TIMEOUT=90s, LOCAL_RUNNER_POLL_INTERVAL=2.0s
+       + in-memory asyncio.Event per job_id wybudzający _wait_for_transcript w 0.001s
+       natychmiast po odebraniu POST /v1/jobs/{job_id}/result (z fallbackiem 2.0s DB poll).
     4. Twarda blokada anty-konfabulacyjna: jeśli po wszystkich próbach brak transkryptu
        (< 50 znaków), rzuca ValueError (0 pobranych kredytów, brak wywołania LLM).
 """
@@ -98,9 +99,19 @@ from api.models.portal import WpPortal
 
 logger = logging.getLogger(__name__)
 
-# Timeout pollowania na transkrypt od Local Runner'a (domyślnie 90s, interwał 0.5s dla natychmiastowej reakcji)
-LOCAL_RUNNER_POLL_INTERVAL = float(os.environ.get("LOCAL_RUNNER_POLL_INTERVAL", "0.5"))
+# Timeout pollowania na transkrypt od Local Runner'a (domyślnie 90s, interwał 2.0s + natychmiastowe wybudzenie asyncio.Event)
+LOCAL_RUNNER_POLL_INTERVAL = float(os.environ.get("LOCAL_RUNNER_POLL_INTERVAL", "2.0"))
 LOCAL_RUNNER_POLL_TIMEOUT = int(os.environ.get("LOCAL_RUNNER_POLL_TIMEOUT", "90"))
+
+# In-memory event map do natychmiastowego (0.001s) wybudzania _wait_for_transcript po POST /v1/jobs/{id}/result
+_job_completion_events: dict[str, asyncio.Event] = {}
+
+
+def notify_job_transcript_ready(job_id: str) -> None:
+    """Wybudza oczekujący _wait_for_transcript natychmiast po zapisaniu transkryptu przez Local Runner."""
+    ev = _job_completion_events.get(str(job_id))
+    if ev is not None:
+        ev.set()
 
 
 def _extract_video_id(url: str) -> str:
@@ -220,45 +231,58 @@ async def _create_transcript_job(video_url: str, user_id: Optional[str] = None) 
 
 
 async def _wait_for_transcript(job_id: str) -> str:
-    """Polluje DB na transkrypt z job'a Local Runner'a co 0.5s (natychmiastowy start po odebraniu)."""
+    """Czeka na transkrypt z job'a Local Runner'a: natychmiastowe wybudzenie przez asyncio.Event (0.001s) + fallback DB poll co 2.0s."""
     deadline = time.time() + LOCAL_RUNNER_POLL_TIMEOUT
     job_uuid = uuid.UUID(job_id)
+    job_key = str(job_uuid)
+    ev = _job_completion_events.setdefault(job_key, asyncio.Event())
 
-    while time.time() < deadline:
-        async with AsyncSessionLocal() as db:
-            job = await db.get(TranscriptJob, job_uuid)
-            if not job:
-                raise RuntimeError(f"Job {job_id} disappeared from DB")
+    try:
+        while time.time() < deadline:
+            async with AsyncSessionLocal() as db:
+                job = await db.get(TranscriptJob, job_uuid)
+                if not job:
+                    raise RuntimeError(f"Job {job_id} disappeared from DB")
 
-            if job.transcript and len(job.transcript.strip()) >= 50:
-                logger.info(
-                    "[pipeline] Job %s transcript ready (status=%s): %d chars — proceeding immediately!",
-                    job_id, job.status, len(job.transcript),
-                )
-                return job.transcript
-
-            if job.status in ("fetched", "done") and job.transcript:
-                logger.info(
-                    "[pipeline] Job %s fetched: %d chars",
-                    job_id, len(job.transcript),
-                )
-                return job.transcript
-
-            if job.status == "failed":
-                error_msg = job.error or ""
-                if "No transcript" in error_msg or "no transcript" in error_msg.lower():
-                    raise RuntimeError(
-                        f"No transcript available for job {job_id}: {error_msg}"
+                if job.transcript and len(job.transcript.strip()) >= 50:
+                    logger.info(
+                        "[pipeline] Job %s transcript ready (status=%s): %d chars — proceeding immediately!",
+                        job_id, job.status, len(job.transcript),
                     )
-                raise RuntimeError(
-                    f"Local Runner failed for job {job_id}: {error_msg}"
+                    return job.transcript
+
+                if job.status in ("fetched", "done") and job.transcript:
+                    logger.info(
+                        "[pipeline] Job %s fetched: %d chars",
+                        job_id, len(job.transcript),
+                    )
+                    return job.transcript
+
+                if job.status == "failed":
+                    error_msg = job.error or ""
+                    if "No transcript" in error_msg or "no transcript" in error_msg.lower():
+                        raise RuntimeError(
+                            f"No transcript available for job {job_id}: {error_msg}"
+                        )
+                    raise RuntimeError(
+                        f"Local Runner failed for job {job_id}: {error_msg}"
+                    )
+
+                logger.debug(
+                    "[pipeline] Job %s still %s — waiting...", job_id, job.status
                 )
 
-            logger.debug(
-                "[pipeline] Job %s still %s — waiting...", job_id, job.status
-            )
-
-        await asyncio.sleep(LOCAL_RUNNER_POLL_INTERVAL)
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            wait_timeout = min(LOCAL_RUNNER_POLL_INTERVAL, remaining)
+            try:
+                await asyncio.wait_for(ev.wait(), timeout=wait_timeout)
+                ev.clear()
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        _job_completion_events.pop(job_key, None)
 
     # Po upływie timeoutu brak odpowiedzi od Local Runnera — oznacz job jako cloud_fallback, aby nie wisiał w pending
     try:
