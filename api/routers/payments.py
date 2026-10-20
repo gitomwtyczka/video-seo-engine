@@ -40,23 +40,23 @@ TOPUP_PACKS: dict[str, dict[str, Any]] = {
     "topup_50": {
         "credits": 50,
         "videos": 50,
-        "amount_gr": 3900,
+        "amount_gr": 9900,
         "name": "VSE Pakiet Top-Up +50 filmów",
-        "description": "Dodatkowe 50 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
+        "description": "Dodatkowe 50 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca, 1,98 zł/film)",
     },
     "topup_150": {
         "credits": 150,
         "videos": 150,
-        "amount_gr": 9900,
+        "amount_gr": 24900,
         "name": "VSE Pakiet Top-Up +150 filmów",
-        "description": "Dodatkowe 150 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
+        "description": "Dodatkowe 150 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca, 1,66 zł/film)",
     },
     "topup_500": {
         "credits": 500,
         "videos": 500,
-        "amount_gr": 27900,
+        "amount_gr": 69900,
         "name": "VSE Pakiet Top-Up +500 filmów",
-        "description": "Dodatkowe 500 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca)",
+        "description": "Dodatkowe 500 generacji Video SEO (bezterminowe — nie przepadają na koniec miesiąca, 1,40 zł/film)",
     },
 }
 
