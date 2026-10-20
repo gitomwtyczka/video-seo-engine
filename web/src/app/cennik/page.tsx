@@ -12,7 +12,7 @@ const plans = [
     price: "49",
     description: "Dla twórców i małych portali",
     features: [
-      "50 filmów / miesiąc",
+      "30 filmów / mies.",
       "Do 3 portali WordPress",
       "VideoObject Schema",
       "Chapters + FAQ AI",
@@ -30,7 +30,7 @@ const plans = [
     price: "149",
     description: "Dla profesjonalnych twórców treści",
     features: [
-      "250 filmów / miesiąc",
+      "110 filmów / mies.",
       "Do 10 portali WordPress",
       "🌐 Pakiet Wielojęzyczny (8 języków) W CENIE",
       "Tłumaczenie poszczególnych zakładek 1 kliknięciem",
@@ -50,9 +50,10 @@ const plans = [
     price: "499",
     description: "Dla agencji i dużych wydawców",
     features: [
-      "1000 filmów / miesiąc",
+      "250 filmów / mies.",
       "Do 50 portali WordPress",
       "🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji",
+      "Moduł ShortMachine (AI Shorts 9:16 + NLE)",
       "Pakiet VSE Desktop Runner (.zip)",
       "Priorytetowe AI & wsparcie",
       "VideoObject Schema",
@@ -71,8 +72,8 @@ const topupPacks = [
     id: "topup_50",
     name: "Pakiet +50 filmów",
     credits: 50,
-    price: "39",
-    unitPrice: "0,78 zł / film",
+    price: "99",
+    unitPrice: "1,98 zł / film",
     badge: null,
     highlight: false,
     description: "Idealny zapas w gorącym tygodniu wydawniczym",
@@ -81,8 +82,8 @@ const topupPacks = [
     id: "topup_150",
     name: "Pakiet +150 filmów",
     credits: 150,
-    price: "99",
-    unitPrice: "0,66 zł / film",
+    price: "249",
+    unitPrice: "1,66 zł / film",
     badge: "Najpopularniejszy",
     highlight: true,
     description: "Najlepszy stosunek ceny do elastyczności dla redakcji",
@@ -91,8 +92,8 @@ const topupPacks = [
     id: "topup_500",
     name: "Pakiet +500 filmów",
     credits: 500,
-    price: "279",
-    unitPrice: "0,56 zł / film",
+    price: "699",
+    unitPrice: "1,40 zł / film",
     badge: "Dla wydawców",
     highlight: false,
     description: "Hurtowy pakiet na masową indeksację archiwum YouTube",
@@ -301,7 +302,7 @@ export default function CennikPage() {
               Pakiety Top-Up (Dokup filmy w dowolnym momencie — bez zmiany abonamentu)
             </h2>
             <p className="text-sm md:text-base text-gray-300 max-w-2xl mx-auto leading-relaxed">
-              Kredyty Top-Up <strong className="text-emerald-400">nie przepadają z końcem miesiąca (bezterminowy rollover)</strong> i uruchamiają się automatycznie dopiero po wykorzystaniu puli miesięcznej z Twojego planu. Idealne rozwiązanie, gdy przekroczysz 50 lub 250 filmów w gorącym miesiącu!
+              Kredyty Top-Up <strong className="text-emerald-400">nie przepadają z końcem miesiąca (bezterminowy rollover)</strong> i uruchamiają się automatycznie dopiero po wykorzystaniu puli miesięcznej z Twojego planu. Idealne rozwiązanie, gdy przekroczysz 30, 110 lub 250 filmów w gorącym miesiącu!
             </p>
           </div>
 
@@ -360,24 +361,24 @@ export default function CennikPage() {
           </div>
         </section>
 
-        {/* Enterprise / Custom Banner */}
+        {/* Enterprise / Plan Negocjowalny Banner */}
         <div className="mt-14 rounded-2xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-gray-900/80 to-gray-900/90 p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-[0_0_30px_rgba(245,158,11,0.08)]">
           <div className="space-y-2 max-w-2xl">
             <div className="flex items-center gap-2">
               <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase tracking-wider">
-                Dla dużych redakcji i grup mediowych
+                Powyżej 250 filmów / mies. • Top-Up &amp; Enterprise
               </span>
             </div>
             <h3 className="text-xl md:text-2xl font-bold text-white">
-              🏢 Plan Enterprise / Custom (&gt;1000 filmów / mies. lub rozliczenie fakturą B2B)
+              🏢 Potrzebujesz powyżej 250 filmów miesięcznie? Skorzystaj z pakietów Top-Up lub Planu Negocjowalnego (Enterprise / Media House) ustawianego indywidualnie
             </h3>
             <p className="text-sm text-gray-300 leading-relaxed">
-              Potrzebujesz indywidualnego limitu miesięcznego (<code className="text-amber-300">custom_monthly_quota</code> lub planu nielimitowanego), dedykowanej puli modeli AI (<strong className="text-white">Claude Sonnet + Gemini Pro</strong>), priorytetowego wsparcia wdrożenia wtyczki <strong className="text-white">WordPress v3.0</strong> lub aktywacji planu bezpośrednio przez opiekuna konta na podstawie faktury VAT?
+              Dla redakcji, telewizji internetowych i grup mediowych publikujących powyżej 250 materiałów wideo miesięcznie oferujemy indywidualnie negocjowany limit (<code className="text-amber-300">custom_monthly_quota</code> lub plan nielimitowany), dedykowaną pulę modeli AI (<strong className="text-white">Claude Sonnet + Gemini Pro</strong>), priorytetowe wsparcie wtyczki <strong className="text-white">WordPress v3.0</strong> oraz rozliczenie fakturą VAT B2B.
             </p>
           </div>
           <div className="flex flex-col items-stretch sm:items-end gap-2 w-full md:w-auto flex-shrink-0">
             <a
-              href="mailto:kontakt@impresjapr.pl?subject=PressAI%20VSE%20Enterprise%20%2F%20Plan%20Custom%20B2B"
+              href="mailto:kontakt@impresjapr.pl?subject=PressAI%20VSE%20Enterprise%20%2F%20Plan%20Negocjowalny%20B2B"
               className="px-6 py-3 rounded-xl font-semibold text-sm bg-amber-500 hover:bg-amber-400 text-gray-950 text-center shadow-lg shadow-amber-900/30 transition-all duration-200 whitespace-nowrap"
             >
               ✉️ Napisz: kontakt@impresjapr.pl
