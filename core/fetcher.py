@@ -510,8 +510,9 @@ def fetch_transcript_api_v3(
 
     When access_token / oauth_token (OAuth 2.0 Bearer token with youtube.force-ssl scope) is provided:
       1. Lists caption tracks via GET /youtube/v3/captions?part=snippet&videoId={video_id}
-      2. Selects best track: manual in lang -> manual any -> ASR in lang -> first available
-      3. Downloads VTT via GET /youtube/v3/captions/{caption_id}?tfmt=vtt
+      2. Orders tracks by priority: manual in lang -> manual any -> ASR in lang -> remaining tracks
+      3. Iterates through candidate tracks and downloads VTT via GET /youtube/v3/captions/{caption_id}?tfmt=vtt
+         (if one track returns 403/404 or empty, tries the next track)
       4. Works on VPS without Local Runner, including Private & Scheduled videos!
     """
     token = oauth_token or access_token
@@ -537,9 +538,10 @@ def fetch_transcript_api_v3(
         def _lang_matches(item_lang: str, target: str) -> bool:
             return normalize_lang_code(item_lang) == normalize_lang_code(target)
 
-        manual_lang = None
-        asr_lang = None
-        manual_any = None
+        manual_lang = []
+        asr_lang = []
+        manual_any = []
+        asr_any = []
 
         for item in items:
             snip = item.get("snippet", {})
@@ -547,42 +549,56 @@ def fetch_transcript_api_v3(
             track_kind = snip.get("trackKind", "")
             is_asr = track_kind.upper() == "ASR"
             if _lang_matches(item_lang, lang):
-                if not is_asr and manual_lang is None:
-                    manual_lang = item
-                elif is_asr and asr_lang is None:
-                    asr_lang = item
-            elif not is_asr and manual_any is None:
-                manual_any = item
+                if not is_asr:
+                    manual_lang.append(item)
+                else:
+                    asr_lang.append(item)
+            else:
+                if not is_asr:
+                    manual_any.append(item)
+                else:
+                    asr_any.append(item)
 
-        chosen = manual_lang or manual_any or asr_lang or items[0]
-        caption_id = chosen["id"]
-        chosen_snip = chosen.get("snippet", {})
-        chosen_lang = normalize_lang_code(chosen_snip.get("language", lang)) or lang
+        ordered_candidates = manual_lang + manual_any + asr_lang + asr_any
+        if not ordered_candidates:
+            ordered_candidates = items
 
-        dl_headers: dict[str, str] = {}
-        if token:
-            dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt"
-            dl_headers["Authorization"] = f"Bearer {token}"
-        else:
-            dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt&key={api_key}"
+        for chosen in ordered_candidates:
+            caption_id = chosen["id"]
+            chosen_snip = chosen.get("snippet", {})
+            chosen_lang = normalize_lang_code(chosen_snip.get("language", lang)) or lang
 
-        dl_req = urllib.request.Request(dl_url, headers=dl_headers)  # noqa: S310
-        with urllib.request.urlopen(dl_req, timeout=20) as resp:  # noqa: S310
-            raw_bytes = resp.read()
-            vtt_text = raw_bytes.decode("utf-8", errors="replace").strip()
+            dl_headers: dict[str, str] = {}
+            if token:
+                dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt"
+                dl_headers["Authorization"] = f"Bearer {token}"
+            else:
+                dl_url = f"https://www.googleapis.com/youtube/v3/captions/{caption_id}?tfmt=vtt&key={api_key}"
 
-        if not vtt_text:
-            logger.warning("[fetcher] API v3 captions returned empty body for %s (caption_id=%s)", video_id, caption_id)
-            return None, None
+            try:
+                dl_req = urllib.request.Request(dl_url, headers=dl_headers)  # noqa: S310
+                with urllib.request.urlopen(dl_req, timeout=20) as resp:  # noqa: S310
+                    raw_bytes = resp.read()
+                    vtt_text = raw_bytes.decode("utf-8", errors="replace").strip()
 
-        if not vtt_text.startswith("WEBVTT"):
-            vtt_text = f"WEBVTT\nLanguage: {chosen_lang}\n\n{vtt_text}\n"
+                if not vtt_text:
+                    logger.warning("[fetcher] API v3 captions returned empty body for %s (caption_id=%s)", video_id, caption_id)
+                    continue
 
-        logger.info(
-            "[fetcher] API v3 captions OK: %s caption_id=%s lang=%s oauth=%s (%d chars)",
-            video_id, caption_id, chosen_lang, bool(token), len(vtt_text),
-        )
-        return vtt_text, chosen_lang
+                if not vtt_text.startswith("WEBVTT"):
+                    vtt_text = f"WEBVTT\nLanguage: {chosen_lang}\n\n{vtt_text}\n"
+
+                logger.info(
+                    "[fetcher] API v3 captions OK: %s caption_id=%s lang=%s oauth=%s (%d chars)",
+                    video_id, caption_id, chosen_lang, bool(token), len(vtt_text),
+                )
+                return vtt_text, chosen_lang
+            except Exception as dl_exc:
+                logger.warning(
+                    "[fetcher] API v3 captions download failed for %s caption_id=%s (oauth=%s): %s",
+                    video_id, caption_id, bool(token), dl_exc,
+                )
+                continue
     except Exception as e:
         logger.warning("[fetcher] API v3 captions error for %s (oauth=%s): %s", video_id, bool(token), e)
     return None, None
@@ -598,7 +614,7 @@ def fetch_metadata_api_v3(video_id: str, api_key: str, access_token: str | None 
     Uses googleapis.com — NOT blocked on Oracle Cloud VPS.
     When access_token is provided, requests part=snippet,contentDetails,statistics,status
     so Private and Scheduled videos owned by the user's channel are accessible.
-    Extracts normalized 2-char `default_audio_language`.
+    Extracts normalized 2-char `default_audio_language` and `channel_id`.
 
     Returns metadata dict or {} on failure.
     """
@@ -675,8 +691,8 @@ def fetch_metadata_api_v3(video_id: str, api_key: str, access_token: str | None 
         "webpage_url": f"https://www.youtube.com/watch?v={video_id}",
     }
     logger.info(
-        "[fetcher] API v3 OK: %s title=%r duration=%s views=%s lang=%s privacy=%s",
-        video_id, meta["title"][:50], duration_iso_str, meta["view_count"],
+        "[fetcher] API v3 OK: %s title=%r channel_id=%s duration=%s views=%s lang=%s privacy=%s",
+        video_id, meta["title"][:50], meta["channel_id"], duration_iso_str, meta["view_count"],
         default_audio_lang or "auto", meta["privacy_status"],
     )
     return meta
