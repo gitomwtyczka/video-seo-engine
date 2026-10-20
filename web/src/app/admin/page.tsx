@@ -49,11 +49,18 @@ const PLAN_COLORS: Record<string, string> = {
   agency: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
 }
 
+const PLAN_QUOTA: Record<string, number> = {
+  free: 5,
+  starter: 30,
+  pro: 110,
+  agency: 250,
+}
+
 const PLAN_OPTIONS = [
   { id: 'free', label: 'Free', desc: '5/mies.', defaultQuota: 5 },
-  { id: 'starter', label: 'Starter', desc: '50/mies.', defaultQuota: 50 },
-  { id: 'pro', label: 'Pro', desc: '250/mies.', defaultQuota: 250 },
-  { id: 'agency', label: 'Agency', desc: '1000/mies.', defaultQuota: 1000 },
+  { id: 'starter', label: 'Starter', desc: '30/mies.', defaultQuota: 30 },
+  { id: 'pro', label: 'Pro', desc: '110/mies.', defaultQuota: 110 },
+  { id: 'agency', label: 'Agency', desc: '250/mies.', defaultQuota: 250 },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -189,7 +196,7 @@ function ChangePlanModal({
         {/* 1. Plan bazowy */}
         <div className="mb-5">
           <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-            1. Plan bazowy
+            1. Plan bazowy (5 / 30 / 110 / 250 filmów)
           </label>
           <div className="grid grid-cols-2 gap-2.5">
             {PLAN_OPTIONS.map((plan) => (
@@ -256,7 +263,7 @@ function ChangePlanModal({
                   : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
               }`}
             >
-              Domyślny z planu
+              Domyślny ({PLAN_QUOTA[selectedPlan] ?? 5}/mies.)
             </button>
             <button
               type="button"
@@ -902,7 +909,7 @@ export default function AdminPage() {
                     user.has_multilang_addon || user.plan_id === 'pro' || user.plan_id === 'agency'
                   )
                   const defaultPlanQuota =
-                    PLAN_OPTIONS.find((p) => p.id === user.plan_id)?.defaultQuota ?? 5
+                    PLAN_QUOTA[user.plan_id] ?? PLAN_OPTIONS.find((p) => p.id === user.plan_id)?.defaultQuota ?? 5
                   const effectiveQuota =
                     user.monthly_quota !== undefined ? user.monthly_quota : defaultPlanQuota
                   const isVipCustomQuota =
