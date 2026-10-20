@@ -1,21 +1,12 @@
 {
-  "callsign": "vse-architect-01",
+  "callsign": "vse-dev-k1",
   "status": "working",
-  "current_task": "Start nowej sesji po wzorcowym Handoffie v2.2 (commit 74e5218) — gotowość do realizacji Priorytetów 1-2 i Faz 5.3-5.5",
-  "timestamp": "2026-10-20T18:11:30+02:00",
+  "current_task": "Zadanie K1+K2: skrócić czas generowania (drop LLM clean_transcript, single-pass watching_page, truncation detection)",
+  "timestamp": "2026-10-20T22:30:30+02:00",
   "last_completed": [
-    "74e52187e05d08bfe2cc24f7b2b8101d41e310cc: chore(heartbeat): set status to handoff with full commit list [vse-dev-01]",
-    "e62ee95ca7f659d94d31152c5046912c6ca7f823: docs(handoff): write comprehensive v2.2 handoff (GitHub == VPS == Local) [vse-dev-01]",
-    "68e58a5ba52dfea8e655685b5b57a9c5e88dc345: docs(tasks): update current.md with settings UX redesign and v2.2 handoff state [vse-dev-01]",
-    "3e0cb38b6207d35d666b0b64317f87d60a4e70c0: feat(ustawienia): redesign settings layout into 4 clean cards with collapsible YT footers and download accordions [vse-dev-01]",
-    "59ca091dc7f2c04cccc5c56a5afa3cf5046912c6: feat(lang): add full Belarusian (be) language support across generator, translations and UI [vse-dev-01]",
-    "c17a7a6bc268b8617c148096417f70e3170d7cd7: fix(pricing): unify Agency portal limit description to 50 portals across landing and cennik [vse-dev-01]",
-    "212c5881d495454cbb689aaf5df5c7fb7c5dc670: perf(jobs): trigger in-memory asyncio.Event wakeup on POST /v1/jobs/{id}/result [vse-dev-01]"
+    "74e52187e05d08bfe2cc24f7b2b8101d41e310cc: chore(heartbeat): set status to handoff with full commit list [vse-dev-01]"
   ],
   "pending": [
-    "Test praktyczny Wtyczki WordPress v3.0.0 na żywych portalach po reinstalacji paczki .zip — todo",
-    "Przełączenie Stripe z sk_test_ na sk_live_ i uruchomienie scripts/setup_stripe_live.py — czeka na decyzję Właściciela",
-    "Faza 5.3: Ręczny upload pliku .vtt / .srt w dashboardzie — todo",
-    "Faza 5.4: Moduł M4B (cytaty z klikalnymi deep-linkami czasowymi) — todo"
+    "K1+K2: optymalizacja core/generator.py (clean_transcript, single-pass watching_page, truncation warning) - in_progress"
   ]
 }
