@@ -37,7 +37,7 @@ const plans = [
   {
     name: 'Starter',
     price: '49',
-    quota: '50 filmów / mies.',
+    quota: '30 filmów / mies.',
     features: ['Wszystko z Free', 'WordPress Auto-Publish (3 portale)', 'Cross-Language: wideo → SEO w języku panelu', 'Opcjonalny Add-on: Pakiet Wielojęzyczny (+29 zł/mies.)', 'VSE Local Runner (.zip)'],
     cta: 'Wybierz Starter',
     href: '/register?plan=starter',
@@ -46,16 +46,16 @@ const plans = [
   {
     name: 'Pro',
     price: '149',
-    quota: '250 filmów / mies.',
+    quota: '110 filmów / mies.',
     features: ['Wszystko ze Starter', '10 portali WP', '🌐 Pakiet Wielojęzyczny (8 języków) W CENIE', 'Tłumaczenie poszczególnych zakładek 1 kliknięciem', 'Pakiet analiz Premium AI', 'API Access', 'Priority support'],
     cta: 'Wybierz Pro',
     href: '/register?plan=pro',
     highlighted: true,
   },
   {
-    name: 'Agency',
+    name: 'Agencja',
     price: '499',
-    quota: '1 000 filmów / mies.',
+    quota: '250 filmów / mies.',
     features: ['Wszystko z Pro', '50 portali WP', '🌐 Pełny Multi-Language (8 języków) bez limitu adaptacji', 'Moduł ShortMachine (AI Shorts 9:16 + NLE)', 'White-label & SLA 99.9%'],
     cta: 'Wybierz Agency',
     href: '/register?plan=agency',
