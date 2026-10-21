@@ -707,7 +707,8 @@ export default function DashboardInner() {
                     <option key={l.code} value={l.code}>
                       {l.label} ({l.short})
                     </option>
-                  ))}\n                </select>
+                  ))}
+                </select>
               </div>
             </div>
 
