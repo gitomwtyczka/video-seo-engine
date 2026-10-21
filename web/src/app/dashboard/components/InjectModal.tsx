@@ -216,7 +216,13 @@ export function InjectModal({
             )}
           </div>
 
-          {!isManual && portalName && (\n            <div className=\"flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4\">\n              <span className=\"text-xs text-violet-400\">🚀</span>\n              <span className=\"text-sm text-gray-200\">Publikujesz na: <span className=\"font-semibold\">{portalName}</span></span>\n              <span className=\"text-xs text-gray-500 ml-auto\">{portalUrl}</span>\n            </div>\n          )}
+          {!isManual && portalName && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
+              <span className="text-xs text-violet-400">🚀</span>
+              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
+              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>
+            </div>
+          )}
 
           {isManual && (
             <>
