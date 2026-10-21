@@ -1,15 +1,11 @@
 {
-  "callsign": "vse-dev-k4",
+  "callsign": "vse-diag-yt",
   "status": "done",
-  "current_task": "Zadanie K4: job per click, publication_type, scoping user_id (PR #5)",
-  "timestamp": "2026-10-21T11:55:00+02:00",
+  "current_task": "Wdrożenie Y1: YouTube publish fix — owner channel preselect, visible errors, clean snippet",
+  "timestamp": "2026-10-21T20:04:00Z",
   "last_completed": [
-    "PR #5 (feat/k4-job-per-click): K4 job per click, publication_type column, user_id scoping [vse-dev-k4]",
-    "be6d3fca0ad08c506a40572a568edfb835572daf: feat(api): K4 pipeline job per click, transcript persistence, and inject resolution [vse-dev-k4]",
-    "8f969e7ebc0963dbc458dc1a708ee3a4350cfc8f: feat(api): K4 routers update [vse-dev-k4]",
-    "75001723518bc071ef8ee1bf64c604481cb62530: feat(api): K4 models, main, and migration [vse-dev-k4]"
+    "PR #6 (y1-youtube-publish): Y1 YouTube publish fix — commit d07e3ebb80cdd13d7bdc09db49deb96067f57cca",
+    "Deploy TAG=20261021-195852 na VPS oracle-crimson (smoke testy: IMPORT OK, /docs, /dashboard, / = 200)"
   ],
-  "pending": [
-    "Merge PR #5 into main and deploy vse-api via vse_snapshot.sh"
-  ]
+  "pending": []
 }
