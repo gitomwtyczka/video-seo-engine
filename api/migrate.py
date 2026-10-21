@@ -1,5 +1,4 @@
-"""
-Database migration script: creates all tables and seeds default plans.
+"""Database migration script: creates all tables and seeds default plans.
 Run once on fresh database: python -m api.migrate
 """
 import asyncio
@@ -43,6 +42,11 @@ async def run_migration():
             
             await conn.execute(text("ALTER TABLE transcript_jobs ALTER COLUMN portal_id TYPE VARCHAR(50)"))
             log.info("Ensured portal_id is VARCHAR in transcript_jobs")
+
+            # K4: Add publication_type column and backfill from schema_data
+            await conn.execute(text("ALTER TABLE transcript_jobs ADD COLUMN IF NOT EXISTS publication_type VARCHAR(50)"))
+            await conn.execute(text("UPDATE transcript_jobs SET publication_type = COALESCE(schema_data->>'publication_type', 'full_analysis') WHERE publication_type IS NULL"))
+            log.info("Ensured publication_type column exists and is backfilled on transcript_jobs")
         except Exception as e:
             log.warning(f"Error during manual migrations: {e}")
 

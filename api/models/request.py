@@ -9,6 +9,9 @@ D6b (2026-06-20, vse-dev-21):
 
 D9 (2026-06-20, vse-dev-23):
   - GenerateRequest: added profile_id field for dashboard portal selector
+
+K4 (2026-10-21, vse-dev-k4):
+  - InjectRequest: added job_id field for precise profile and schema resolution
 """
 from typing import Optional, List
 from pydantic import BaseModel, validator
@@ -117,6 +120,7 @@ class InjectRequest(BaseModel):
     schema_data: dict
     site_config: Optional[SiteConfig] = None
     portal_id: Optional[str] = None
+    job_id: Optional[str] = None  # K4: ID konkretnego zadania w transcript_jobs
     yt_channel_ids: List[str] = []
     yt_override_description: Optional[str] = None
     post_status: str = "draft"  # "draft" | "publish" — dla nowych postów
@@ -150,4 +154,3 @@ class YouTubePublishRequest(BaseModel):
 
 class YouTubeChannelUpdate(BaseModel):
     footer_text: str
-
