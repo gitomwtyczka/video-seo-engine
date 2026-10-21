@@ -234,6 +234,7 @@ class JobResponse(BaseModel):
     id: str
     video_url: str
     status: str
+    publication_type: Optional[str] = None
     error: Optional[str] = None
     created_at: str
     updated_at: Optional[str] = None
@@ -253,6 +254,7 @@ class FullJobResponse(BaseModel):
     video_url: str
     video_id: Optional[str] = None
     status: str
+    publication_type: Optional[str] = None
     error: Optional[str] = None
     has_vtt: bool = False
     schema_data: Optional[dict] = None
@@ -274,6 +276,7 @@ class HistoryJobResponse(BaseModel):
     video_url: str
     video_id: Optional[str] = None
     status: str
+    publication_type: Optional[str] = None
     error: Optional[str] = None
     has_vtt: bool = False
     has_schema: bool = False
@@ -532,10 +535,14 @@ def _extract_video_id_from_url(url: str) -> Optional[str]:
 
 def _job_to_response(job: TranscriptJob) -> JobResponse:
     """Konwertuje ORM model na Pydantic response."""
+    pub_type = getattr(job, "publication_type", None)
+    if not pub_type and isinstance(job.schema_data, dict):
+        pub_type = job.schema_data.get("publication_type")
     return JobResponse(
         id=str(job.id),
         video_url=job.video_url,
         status=job.status,
+        publication_type=pub_type,
         error=job.error,
         created_at=job.created_at.isoformat() if job.created_at else "",
         updated_at=job.updated_at.isoformat() if job.updated_at else None,
@@ -546,11 +553,15 @@ def _job_to_full_response(job: TranscriptJob) -> FullJobResponse:
     """Konwertuje ORM model na pełny response z schema_data."""
     video_id = _extract_video_id_from_url(job.video_url) if job.video_url else None
     has_vtt = bool(job.transcript and (job.transcript.startswith("__VTT__") or job.transcript.startswith("WEBVTT")))
+    pub_type = getattr(job, "publication_type", None)
+    if not pub_type and isinstance(job.schema_data, dict):
+        pub_type = job.schema_data.get("publication_type")
     return FullJobResponse(
         id=str(job.id),
         video_url=job.video_url,
         video_id=video_id,
         status=job.status,
+        publication_type=pub_type,
         error=job.error,
         has_vtt=has_vtt,
         schema_data=job.schema_data,
@@ -565,13 +576,17 @@ def _job_to_history_response(job: TranscriptJob) -> HistoryJobResponse:
     has_vtt = bool(job.transcript and (job.transcript.startswith("__VTT__") or job.transcript.startswith("WEBVTT")))
     has_schema = job.schema_data is not None
     post_title = None
+    pub_type = getattr(job, "publication_type", None)
     if has_schema and isinstance(job.schema_data, dict):
         post_title = job.schema_data.get("post_title")
+        if not pub_type:
+            pub_type = job.schema_data.get("publication_type")
     return HistoryJobResponse(
         id=str(job.id),
         video_url=job.video_url,
         video_id=video_id,
         status=job.status,
+        publication_type=pub_type,
         error=job.error,
         has_vtt=has_vtt,
         has_schema=has_schema,

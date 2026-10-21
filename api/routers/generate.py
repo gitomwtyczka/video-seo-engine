@@ -20,13 +20,19 @@ KROK B (2026-10-20, vse-dev-01):
   - Hard Anti-Confabulation Guard: gdy run_generate() rzuci ValueError (brak transkryptu),
     zwraca czytelny błąd HTTP 422 (lub event 'error' w /v1/generate/stream) BEZ naliczania
     zużycia kredytu (success=False / brak UsageLog(..., success=True)).
-  - _save_schema_to_job() szuka istniejącego rekordu dla video_id w statusach
-    ["fetched", "processing", "done", "cloud_fallback", "pending"], aby nie tworzyć duplikatów.
+
+K4 (2026-10-21, vse-dev-k4):
+  - Job per click: _save_schema_to_job aktualizuje rekord po PK (job_id),
+    tworzony na starcie run_generate().
+  - Zakres user_id (R1/R2): nigdy nie nadpisuj ani nie modyfikuj joba innego usera.
+  - Zapis publication_type do wiersza joba.
 """
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import time
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -71,51 +77,76 @@ def _parse_runtime_error(exc: RuntimeError) -> tuple[str, str]:
     return exc_str, "UNKNOWN_ERROR"
 
 
-async def _save_schema_to_job(video_url: str, schema_data: dict, portal_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
-    """Zapisuje schema_data do istniejącego job'u dla danego video_id (preferując ten z transkryptem)."""
+async def _save_schema_to_job(
+    job_id: Optional[str | uuid.UUID] = None,
+    schema_data: Optional[dict] = None,
+    portal_id: Optional[str] = None,
+    user_id: Optional[str | uuid.UUID] = None,
+    publication_type: Optional[str] = None,
+    video_url: Optional[str] = None,
+) -> Optional[str]:
+    """Zapisuje schema_data do job'u po PK (job_id) z kontrolą uprawnień user_id (R1/R2)."""
     try:
-        try:
-            vid_key = _extract_video_id(video_url)
-        except Exception:
-            vid_key = video_url.split("v=")[-1][:11] if "v=" in video_url else video_url[:11]
+        uid = None
+        if user_id:
+            try:
+                uid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
+            except (ValueError, TypeError):
+                pass
 
         async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(TranscriptJob)
-                .where(TranscriptJob.video_url.contains(vid_key))
-                .where(TranscriptJob.status.in_(["fetched", "processing", "done", "cloud_fallback", "pending"]))
-                .order_by(desc(TranscriptJob.transcript.isnot(None)), desc(TranscriptJob.created_at))
-                .limit(1)
-            )
-            job = result.scalar_one_or_none()
-            if job:
-                job.schema_data = schema_data
-                job.portal_id = portal_id
-                job.status = "done"
-                if user_id and job.user_id is None:
-                    job.user_id = user_id
-                await db.commit()
-                logger.info(
-                    "[generate] Saved schema_data to existing job %s (status=done, has_transcript=%s)",
-                    job.id, bool(job.transcript),
-                )
-            else:
-                new_job = TranscriptJob(
+            job = None
+            if job_id:
+                try:
+                    job_uuid = uuid.UUID(str(job_id)) if not isinstance(job_id, uuid.UUID) else job_id
+                    job = await db.get(TranscriptJob, job_uuid)
+                except (ValueError, TypeError):
+                    job = None
+
+            if not job and video_url:
+                # Fallback: create a new job if job_id was not found
+                job = TranscriptJob(
                     video_url=video_url,
                     status="done",
                     schema_data=schema_data,
                     portal_id=portal_id,
-                    user_id=user_id,
+                    publication_type=publication_type or "full_analysis",
+                    user_id=uid,
                 )
-                db.add(new_job)
+                db.add(job)
                 await db.commit()
-                await db.refresh(new_job)
+                await db.refresh(job)
+                logger.info("[generate] Created new job %s with schema_data (no job_id found)", job.id)
+                return str(job.id)
+
+            if job:
+                # R1/R2 Security: never overwrite or update another user's job
+                if uid is not None and job.user_id is not None and job.user_id != uid:
+                    logger.warning(
+                        "[generate] R1/R2 violation attempt: user %s tried to update job %s owned by %s",
+                        uid, job.id, job.user_id,
+                    )
+                    return None
+
+                job.schema_data = schema_data
+                if portal_id:
+                    job.portal_id = portal_id
+                if publication_type:
+                    job.publication_type = publication_type
+                job.status = "done"
+                job.updated_at = datetime.now(timezone.utc)
+                if uid is not None and job.user_id is None:
+                    job.user_id = uid
+
+                await db.commit()
                 logger.info(
-                    "[generate] Created new job %s with schema_data (no matching existing job)",
-                    new_job.id,
+                    "[generate] Saved schema_data to job %s by PK (status=done, type=%s, user_id=%s)",
+                    job.id, job.publication_type, job.user_id,
                 )
+                return str(job.id)
     except Exception as exc:
         logger.error("[generate] Failed to save schema_data to DB: %s", exc)
+    return None
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -162,9 +193,17 @@ async def generate_endpoint(
         )
 
         schema_data = result["seo"]
+        job_id = result.get("job_id")
 
-        # Persystuj schema do DB dla historii
-        await _save_schema_to_job(req.video_url, schema_data, req.portal_id, current_user.id)
+        # Persystuj schema do DB dla historii (aktualizacja po PK z kontrolą user_id)
+        await _save_schema_to_job(
+            job_id=job_id,
+            schema_data=schema_data,
+            portal_id=req.portal_id,
+            user_id=current_user.id,
+            publication_type=req.publication_type,
+            video_url=req.video_url,
+        )
 
         # Loguj udane wykonanie do miesięcznego limitu
         video_id = result.get("video_id") or ""
@@ -186,6 +225,7 @@ async def generate_endpoint(
         return GenerateResponse(
             status="ok",
             video_id=result["video_id"],
+            job_id=str(job_id) if job_id else None,
             processing_time_s=round(time.time() - start, 2),
             schema_data=schema_data,
             transcript_available=has_transcript,
@@ -270,7 +310,15 @@ async def generate_stream_endpoint(
                 target_lang=target_lang,
             )
             schema_data = result["seo"]
-            await _save_schema_to_job(req.video_url, schema_data, req.portal_id, current_user.id)
+            job_id = result.get("job_id")
+            await _save_schema_to_job(
+                job_id=job_id,
+                schema_data=schema_data,
+                portal_id=req.portal_id,
+                user_id=current_user.id,
+                publication_type=req.publication_type,
+                video_url=req.video_url,
+            )
 
             video_id = result.get("video_id") or ""
             await log_usage(
@@ -287,6 +335,7 @@ async def generate_stream_endpoint(
             payload = {
                 "event": "done",
                 "status": "ok",
+                "job_id": str(job_id) if job_id else None,
                 "video_id": result["video_id"],
                 "processing_time_s": round(time.time() - start, 2),
                 "schema_data": schema_data,
@@ -331,7 +380,6 @@ async def _save_translation_to_job(
 ) -> None:
     """Persist adapted translation inside TranscriptJob.schema_data['translations'][target_lang]."""
     try:
-        import uuid
         from sqlalchemy.orm.attributes import flag_modified
 
         job = None

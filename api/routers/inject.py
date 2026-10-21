@@ -24,6 +24,7 @@ from api.models.portal import WpPortal
 from api.models.request import InjectRequest
 from api.models.response import InjectResponse
 from api.models.user import ApiKey, User
+from api.models.job import TranscriptJob
 from api.services.pipeline import _extract_video_id, run_inject
 from core.injector import (
     _build_rankmath_meta,
@@ -87,6 +88,15 @@ async def _inject_via_plugin_endpoint(
 
     video_id = _extract_video_id(req.video_url)
     seo = dict(req.schema_data or {})
+    if not seo and req.job_id:
+        try:
+            async with AsyncSessionLocal() as db:
+                j = await db.get(TranscriptJob, uuid.UUID(str(req.job_id)))
+                if j and j.schema_data:
+                    seo = dict(j.schema_data)
+        except Exception as e:
+            logger.warning("[inject] Could not load schema from job %s: %s", req.job_id, e)
+
     upload_date = (
         seo.get("upload_date")
         or seo.get("published_at")
@@ -268,13 +278,14 @@ async def inject_endpoint(
 ) -> InjectResponse:
     """Inject a pre-generated SEO schema dict into a WordPress post."""
     logger.info(
-        "[/v1/inject] user=%s wp_post_id=%s video_url=%s mode=%s format=%s yt_channels=%d",
+        "[/v1/inject] user=%s wp_post_id=%s video_url=%s mode=%s format=%s yt_channels=%d job_id=%s",
         current_user.id,
         req.wp_post_id,
         req.video_url,
         "create" if req.wp_post_id is None else "update",
         req.post_format,
         len(req.yt_channel_ids) if req.yt_channel_ids else 0,
+        req.job_id,
     )
     try:
         site_config_dict = {}
@@ -330,6 +341,8 @@ async def inject_endpoint(
                 post_status=req.post_status,
                 post_format=req.post_format,
                 yt_channel_ids=req.yt_channel_ids,
+                portal_id=req.portal_id,
+                job_id=req.job_id,
             )
 
         # YouTube Immediate Publish — Scenariusz A
