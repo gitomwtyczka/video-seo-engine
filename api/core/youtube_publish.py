@@ -5,6 +5,8 @@
 
 import os
 import logging
+import uuid
+from typing import Any
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -18,15 +20,36 @@ logger = logging.getLogger(__name__)
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
-async def _get_channel(db: AsyncSession, user_id: int, channel_id: str) -> YouTubeChannel | None:
+
+async def _get_channel(db: AsyncSession, user_id: Any, channel_id: str) -> YouTubeChannel | None:
+    # 1. Match by youtube_channel_id (e.g. UC...)
     result = await db.execute(
         select(YouTubeChannel).where(
             YouTubeChannel.user_id == user_id,
             YouTubeChannel.youtube_channel_id == channel_id,
-            YouTubeChannel.is_active == True
+            YouTubeChannel.is_active == True,
         )
     )
-    return result.scalar_one_or_none()
+    ch = result.scalar_one_or_none()
+    if ch:
+        return ch
+
+    # 2. Fallback: match by UUID id if channel_id is UUID string
+    try:
+        ch_uuid = uuid.UUID(str(channel_id))
+        result_uuid = await db.execute(
+            select(YouTubeChannel).where(
+                YouTubeChannel.user_id == user_id,
+                YouTubeChannel.id == ch_uuid,
+                YouTubeChannel.is_active == True,
+            )
+        )
+        return result_uuid.scalar_one_or_none()
+    except (ValueError, TypeError):
+        pass
+
+    return None
+
 
 def _build_credentials(channel: YouTubeChannel) -> Credentials:
     # Scope musi byc identyczny jak w OAuth flow (youtube.py YT_SCOPE)
@@ -39,14 +62,16 @@ def _build_credentials(channel: YouTubeChannel) -> Credentials:
         scopes=["https://www.googleapis.com/auth/youtube.force-ssl"],
     )
 
+
 async def _save_refreshed_token(db: AsyncSession, channel: YouTubeChannel, creds: Credentials):
     if creds.refresh_token and creds.refresh_token != channel.refresh_token:
         channel.refresh_token = creds.refresh_token
         await db.commit()
 
+
 async def update_youtube_metadata(
     db: AsyncSession,
-    user_id: int,
+    user_id: Any,
     channel_ids: list[str],
     video_id: str,
     new_description: str,
@@ -75,34 +100,40 @@ async def update_youtube_metadata(
 
             # 3. Wywołaj videos.update
             youtube = build("youtube", "v3", credentials=creds)
-            
+
             # Pobierz aktualne dane wideo (snippet, i status jeśli ustawiamy harmonogram/widoczność)
             part_to_fetch = "snippet,status" if (publish_at or privacy_status) else "snippet"
             video_response = youtube.videos().list(
                 part=part_to_fetch,
                 id=video_id
             ).execute()
-            
+
             if not video_response.get("items"):
                 results[channel_id] = "error: video not found"
                 continue
-                
+
             item = video_response["items"][0]
             snippet = item["snippet"]
-            
-            # Zaktualizuj opis
-            snippet["description"] = new_description
-            
-            # Zaktualizuj tytuł jeśli podano
-            if new_title:
-                snippet["title"] = new_title
-            
+
+            # Wzór core/yt_admin.py: snippet do update TYLKO z dozwolonych pól,
+            # bez niemodyfikowalnych pól z videos.list (channelId, publishedAt, thumbnails, localized)
+            yt_title = (new_title.strip()[:100] if new_title else snippet.get("title", ""))
+            update_snippet = {
+                "title": yt_title,
+                "description": new_description,
+                "categoryId": snippet.get("categoryId", "25"),
+                "defaultLanguage": snippet.get("defaultLanguage", "pl"),
+                "defaultAudioLanguage": snippet.get("defaultAudioLanguage", "pl"),
+            }
+            if snippet.get("tags"):
+                update_snippet["tags"] = snippet["tags"]
+
             # Krok 1: Zawsze aktualizuj snippet (opis + tytuł)
             youtube.videos().update(
                 part="snippet",
                 body={
                     "id": video_id,
-                    "snippet": snippet
+                    "snippet": update_snippet
                 }
             ).execute()
 
@@ -138,10 +169,14 @@ async def update_youtube_metadata(
             logger.error("Error updating YT metadata for channel %s: %s", channel_id, e)
             err_str = str(e)
             if hasattr(e, "content") and isinstance(e.content, (bytes, str)):
-                err_str += f" {e.content}"
+                try:
+                    err_content = e.content.decode("utf-8", errors="replace") if isinstance(e.content, bytes) else str(e.content)
+                    err_str += f" {err_content}"
+                except Exception:
+                    pass
             if "invalidPublishAt" in err_str:
                 results[channel_id] = "error: Film był już publiczny — harmonogram działa tylko dla nowych niepublikowanych filmów"
             else:
-                results[channel_id] = f"error: {str(e)}"
+                results[channel_id] = f"error: {err_str[:200]}"
 
     return results

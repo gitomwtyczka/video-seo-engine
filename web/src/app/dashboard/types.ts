@@ -40,6 +40,8 @@ export interface GenerateResponse {
 
 export interface SchemaData {
   video_id?: string
+  channel_id?: string
+  youtube_channel_id?: string
   focus_keyphrase?: string
   focus_keyphrases?: string[]
   post_title?: string
@@ -126,6 +128,9 @@ export interface InjectResult {
   created?: boolean
   error?: string
   yt_results?: Record<string, string>
+  yt_channels?: Array<{ channel_id: string; status: string }>
+  youtube_updated?: boolean
+  ytError?: string
 }
 
 export type CopiedKey = string | null

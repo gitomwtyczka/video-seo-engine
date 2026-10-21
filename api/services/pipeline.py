@@ -1185,6 +1185,10 @@ async def run_generate(
         gsc_meta["status"], publication_type, portal_id, len(image_data),
         has_transcript, partial_result, seo.get("source_lang"), seo.get("target_lang"),
     )
+
+    if meta and meta.get("channel_id"):
+        seo["channel_id"] = meta["channel_id"]
+
     return {
         "video_id": video_id,
         "meta": meta,
