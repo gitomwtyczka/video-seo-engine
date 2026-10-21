@@ -566,6 +566,7 @@ export default function DashboardInner() {
   const schema = activeSchema
   const chapters = extractChapters(schema)
   const faq = extractFaq(schema)
+  const quotes = (schema?.quotes as QuoteItem[] | undefined) ?? []
   const planLabel =
     userProfile?.plan_badge ||
     (userProfile?.has_multilang_addon && (userPlan === 'starter' || userPlan === 'free')
@@ -1255,7 +1256,13 @@ export default function DashboardInner() {
 
                 {/* Tab: Artykuł */}
                 {activeTab === 'article' && (
-                  <ArticleTab schema={schema} faq={faq} copiedKey={copiedKey} onCopy={handleCopy} />
+                  <ArticleTab
+                    schema={schema}
+                    faq={faq}
+                    quotes={quotes}
+                    copiedKey={copiedKey}
+                    onCopy={handleCopy}
+                  />
                 )}
 
                 {/* Tab: Rozdziały */}
