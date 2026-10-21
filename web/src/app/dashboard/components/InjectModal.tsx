@@ -38,6 +38,24 @@ export function InjectModal({
 
   const modalRef = useRef<HTMLDivElement>(null)
 
+  // Preselekcja kanału będącego właścicielem wideo
+  const videoOwnerChannelId = (schemaData as any)?.channel_id || (schemaData as any)?.youtube_channel_id || ''
+
+  useEffect(() => {
+    if (selectedYtChannelIds.length === 0 && ytChannels && ytChannels.length > 0) {
+      if (videoOwnerChannelId) {
+        const ownerMatch = ytChannels.find(c => c.channel_id === videoOwnerChannelId)
+        if (ownerMatch) {
+          setSelectedYtChannelIds([ownerMatch.channel_id])
+          return
+        }
+      }
+      if (ytChannels.length === 1) {
+        setSelectedYtChannelIds([ytChannels[0].channel_id])
+      }
+    }
+  }, [ytChannels, videoOwnerChannelId, selectedYtChannelIds.length])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -125,7 +143,7 @@ export function InjectModal({
         body: JSON.stringify(body),
       })
       let data: any
-      try { data = await res.json() } catch { data = { error: `HTTP ${res.status}` } }
+      try { data = await res.json() } catch { data = { error: `Błąd serwera (HTTP ${res.status})` } }
 
       if (!res.ok) {
         let errStr = data?.detail || data?.error || `Błąd serwera (HTTP ${res.status})`
@@ -134,19 +152,23 @@ export function InjectModal({
         }
         throw new Error(errStr)
       }
-      setPublishResult(data)
-      if (data?.yt_results) {
-        const errors: string[] = []
-        Object.entries(data.yt_results).forEach(([_, status]) => {
-          if (status !== 'ok') errors.push(`Błąd YT: ${status}`)
-        })
-        if (errors.length > 0) {
-          setPublishResult(prev => ({
-            ...prev,
-            error: (prev?.error ? prev.error + '\n' : '') + errors.join('\n')
-          }))
+
+      const ytChannelsList: Array<{ channel_id: string; status: string }> = data?.yt_channels || []
+      const ytErrors = ytChannelsList
+        .filter(item => item.status && item.status !== 'ok' && !item.status.startsWith('warning'))
+        .map(item => `${item.channel_id}: ${item.status}`)
+
+      let ytErrorMsg: string | undefined = undefined
+      if (selectedYtChannelIds.length > 0) {
+        if (!data?.youtube_updated || ytErrors.length > 0) {
+          ytErrorMsg = ytErrors.length > 0 ? ytErrors.join('; ') : 'Brak potwierdzenia aktualizacji wideo na YouTube'
         }
       }
+
+      setPublishResult({
+        ...data,
+        ytError: ytErrorMsg,
+      })
     } catch (e: unknown) {
       setPublishResult({ error: e instanceof Error ? e.message : 'Błąd połączenia' })
     } finally {
@@ -194,13 +216,7 @@ export function InjectModal({
             )}
           </div>
 
-          {!isManual && portalName && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
-              <span className="text-xs text-violet-400">🚀</span>
-              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
-              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>
-            </div>
-          )}
+          {!isManual && portalName && (\n            <div className=\"flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4\">\n              <span className=\"text-xs text-violet-400\">🚀</span>\n              <span className=\"text-sm text-gray-200\">Publikujesz na: <span className=\"font-semibold\">{portalName}</span></span>\n              <span className=\"text-xs text-gray-500 ml-auto\">{portalUrl}</span>\n            </div>\n          )}
 
           {isManual && (
             <>
@@ -244,20 +260,28 @@ export function InjectModal({
             <label className="block text-xs text-gray-400 mb-1.5">Dodatkowo: Opublikuj opis na YouTube</label>
             {ytChannels && ytChannels.length > 0 ? (
               <div className="space-y-2 max-h-32 overflow-y-auto bg-gray-800/50 p-2 rounded-lg border border-gray-700">
-                {ytChannels.map(ch => (
-                  <label key={ch.channel_id} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedYtChannelIds.includes(ch.channel_id)}
-                      onChange={(e) => {
-                        if (e.target.checked) setSelectedYtChannelIds(p => [...p, ch.channel_id])
-                        else setSelectedYtChannelIds(p => p.filter(id => id !== ch.channel_id))
-                      }}
-                      className="accent-violet-500 rounded"
-                    />
-                    <span className="text-sm text-gray-300">{ch.channel_title}</span>
-                  </label>
-                ))}
+                {ytChannels.map(ch => {
+                  const isOwner = videoOwnerChannelId && ch.channel_id === videoOwnerChannelId
+                  return (
+                    <label key={ch.channel_id} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedYtChannelIds.includes(ch.channel_id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedYtChannelIds(p => [...p, ch.channel_id])
+                          else setSelectedYtChannelIds(p => p.filter(id => id !== ch.channel_id))
+                        }}
+                        className="accent-violet-500 rounded"
+                      />
+                      <span className="text-sm text-gray-300">{ch.channel_title}</span>
+                      {isOwner && (
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                          Właściciel wideo
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
               </div>
             ) : (
               <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
@@ -397,6 +421,16 @@ export function InjectModal({
                     >
                       Otwórz artykuł na portalu →
                     </a>
+                  )}
+                  {publishResult.ytError && (
+                    <div className="mt-2 pt-2 border-t border-emerald-500/20 text-amber-300 text-xs">
+                      ⚠️ Portal OK, ale wystąpił błąd YouTube: <span className="font-mono text-amber-200">{publishResult.ytError}</span>
+                    </div>
+                  )}
+                  {publishResult.youtube_updated && !publishResult.ytError && selectedYtChannelIds.length > 0 && (
+                    <p className="text-xs text-emerald-300 mt-1">
+                      🎬 Opis na kanale YouTube został pomyślnie zaktualizowany.
+                    </p>
                   )}
                 </div>
               )}
