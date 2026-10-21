@@ -1,12 +1,15 @@
 {
-  "callsign": "vse-dev-quotes",
+  "callsign": "vse-dev-k4",
   "status": "done",
-  "current_task": "NAPRAW brak sekcji Cytaty w panelu wyników dashboardu (PR #4)",
-  "timestamp": "2026-10-21T09:43:00+02:00",
+  "current_task": "Zadanie K4: job per click, publication_type, scoping user_id (PR #5)",
+  "timestamp": "2026-10-21T11:55:00+02:00",
   "last_completed": [
-    "PR #4 (fix/dashboard-quotes): fix(dashboard): przywrócenie sekcji Cytaty w panelu wyników [vse-dev-quotes]",
-    "0bb75155a6f176a6ae5b7ee9f4fb30c20a188561: fix(dashboard): pass quotes to ArticleTab in dashboard-inner [vse-dev-quotes]",
-    "247ec0d45261e6b012e5014ae7c598b84b9bf9f7: fix(dashboard): render quotes section in ArticleTab [vse-dev-quotes]"
+    "PR #5 (feat/k4-job-per-click): K4 job per click, publication_type column, user_id scoping [vse-dev-k4]",
+    "be6d3fca0ad08c506a40572a568edfb835572daf: feat(api): K4 pipeline job per click, transcript persistence, and inject resolution [vse-dev-k4]",
+    "8f969e7ebc0963dbc458dc1a708ee3a4350cfc8f: feat(api): K4 routers update [vse-dev-k4]",
+    "75001723518bc071ef8ee1bf64c604481cb62530: feat(api): K4 models, main, and migration [vse-dev-k4]"
   ],
-  "pending": []
+  "pending": [
+    "Merge PR #5 into main and deploy vse-api via vse_snapshot.sh"
+  ]
 }
