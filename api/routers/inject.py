@@ -109,13 +109,19 @@ async def _inject_via_plugin_endpoint(
         upload_date=upload_date,
         target_lang=target_lang,
     )
+    layout_format = "full_article"
     post_content = build_wp_post_html(
         seo=seo,
         yt_id=video_id,
         schemas=schemas,
         include_embed=True,
-        post_format="full_article",
+        post_format=layout_format,
     )
+
+    # W1 TASK-01: Rozdzielenie układu HTML od formatu wpisu WP (domyślnie 'video')
+    wp_post_format = (req.post_format or "video").strip().lower()
+    if wp_post_format in ("", "standard", "full_article", "article_only"):
+        wp_post_format = "video"
 
     rm_meta = _build_rankmath_meta(seo)
     post_title = (seo.get("post_title") or seo.get("seo_title") or f"Wideo {video_id}").strip()
@@ -147,6 +153,7 @@ async def _inject_via_plugin_endpoint(
     payload = {
         "post_id": req.wp_post_id,
         "post_status": req.post_status or "draft",
+        "post_format": wp_post_format,
         "post_title": post_title,
         "post_content": post_content,
         "video_url": req.video_url,
@@ -189,8 +196,8 @@ async def _inject_via_plugin_endpoint(
 
     thumb_id = wp_data.get("thumbnail_id")
     logger.info(
-        "[/v1/inject] Published via VSE WP Plugin v3.0 to %s: post_id=%s url=%s thumb_id=%s",
-        portal.url, wp_post_id, post_url, thumb_id,
+        "[/v1/inject] Published via VSE WP Plugin v3.0 to %s: post_id=%s url=%s thumb_id=%s format=%s",
+        portal.url, wp_post_id, post_url, thumb_id, wp_post_format,
     )
     return {
         "status": "ok" if wp_data.get("ok", True) else "error",
