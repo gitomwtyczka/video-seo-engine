@@ -1,11 +1,15 @@
 {
-  "callsign": "vse-diag-yt",
-  "status": "done",
-  "current_task": "Wdrożenie Y1: YouTube publish fix — owner channel preselect, visible errors, clean snippet",
-  "timestamp": "2026-10-21T20:04:00Z",
+  "callsign": "vse-dev-k4-1-deploy",
+  "status": "handoff",
+  "current_task": "Handoff po wdrożeniu K4.1 (PR #7, TAG 20261024-184707) i przygotowaniu specyfikacji zadań T1 i W1",
+  "timestamp": "2026-10-24T20:56:00Z",
   "last_completed": [
-    "PR #6 (y1-youtube-publish): Y1 YouTube publish fix — commit d07e3ebb80cdd13d7bdc09db49deb96067f57cca",
-    "Deploy TAG=20261021-195852 na VPS oracle-crimson (smoke testy: IMPORT OK, /docs, /dashboard, / = 200)"
+    "PR #7 (fix/k4-1-gaps): K4.1 local runner reuse job_id, publication_type badge w /historia, job_id w InjectModal — merge commit 7943870",
+    "Deploy TAG=20261024-184707 na VPS oracle-crimson (pytest 20/20 PASS, HTTP 200/307 PASS, transcript_jobs status OK)",
+    "Handoff zaktualizowany na main (brain pointers, zasada testów maszynowych pkt 5, specyfikacja T1 i W1)"
   ],
-  "pending": []
+  "pending": [
+    "T1 — Przywrócenie miniatur WP, PressAI Vision (D11) i ImageObject JSON-LD",
+    "W1 — Format wpisu WP (video) oraz wymogi Watch Page (TASK-01 do TASK-06)"
+  ]
 }
