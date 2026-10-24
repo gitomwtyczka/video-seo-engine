@@ -148,4 +148,1267 @@ export default function DashboardInner() {
 
   useEffect(() => {
     apiGet<any[]>('/v1/youtube/channels')
-      .then((data) => setYtChannels(Array.isArray(data) ? data : []))\n      .catch(() => setYtChannels([]))\n  }, [])\n\n\n  useEffect(() => {\n    if (typeof window === 'undefined') return\n    if ((window as any).YT) return\n    const tag = document.createElement('script')\n    tag.src = 'https://www.youtube.com/iframe_api'\n    document.head.appendChild(tag)\n  }, [])\n\n  // Portals hook\n  const { portals, loading: portalsLoading } = usePortals()\n  const [selectedPortalId, setSelectedPortalId] = useState<string>('')\n  const [publicationType, setPublicationType] = useState<string>('full_analysis')\n  const [showAddPortalModal, setShowAddPortalModal] = useState(false)\n\n  useEffect(() => {\n    if (portals.length > 0 && !selectedPortalId) {\n      const defaultPortal = portals.find((p) => p.is_default) ?? portals[0]\n      if (defaultPortal) {\n        setSelectedPortalId(defaultPortal.id)\n      }\n    }\n  }, [portals, selectedPortalId])\n\n  const accessToken = (session as any)?.accessToken as string | undefined\n  const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken)\n\n  useEffect(() => {\n    if (jobId) {\n      setActiveJobId(jobId)\n    }\n  }, [jobId])\n\n  useEffect(() => {\n    if (jobData?.schema_data) {\n      const videoId = jobData.video_id || ''\n      const sData = jobData.schema_data as SchemaData\n      const initTarget = (sData.target_lang as string) || 'pl'\n      const initSource = (sData.source_lang as string) || 'pl'\n      setResult({\n        raw: sData,\n        videoId,\n        inputUrl: jobData.video_url,\n        sourceLang: initSource,\n        targetLang: initTarget,\n      })\n      if (jobId) {\n        setActiveJobId(jobId)\n      } else if (jobData.id) {\n        setActiveJobId(jobData.id)\n      }\n      setMaterialTranslations(buildTranslationsState(sData, initTarget))\n      setActiveTabLang({\n        article: initTarget,\n        youtube: initTarget,\n        chapters: initTarget,\n        schema: initTarget,\n      })\n      setUrl(jobData.video_url)\n      setActiveTab('article')\n    }\n  }, [jobData, jobId, buildTranslationsState])\n\n  useEffect(() => {\n    if (status === 'unauthenticated') router.push('/login')\n  }, [status, router])\n\n  useEffect(() => {\n    const fetchProfile = async () => {\n      try {\n        if (typeof window !== 'undefined' && (window.location.search.includes('upgraded=1') || window.location.search.includes('payment=topup_success'))) {\n          try {\n            const sessionId = new URLSearchParams(window.location.search).get('session_id') || undefined\n            await apiPost('/v1/payments/verify-session', { session_id: sessionId })\n          } catch {\n            // ignore\n          }\n        }\n        const data = await apiGet<UserProfile>('/v1/users/me')\n        setUserProfile(data)\n      } catch {\n        // silent\n      }\n    }\n    fetchProfile()\n  }, [])\n\n  const userPlan = userProfile?.plan?.id ?? 'free'\n\n  const isPro =\n    (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||\n    (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))\n\n  const hasMultilangAddon =\n    isPro ||\n    Boolean(userProfile?.is_admin) ||\n    Boolean(userProfile?.has_multilang_addon) ||\n    Boolean(userProfile?.multilang?.has_multilang_addon)\n\n  const canOverrideTargetLang =\n    hasMultilangAddon || Boolean(userProfile?.multilang?.allow_target_override)\n\n  const canAdaptPerMaterial =\n    hasMultilangAddon || Boolean(userProfile?.multilang?.allow_per_material_adapt)\n\n  const handleUiLangChange = (newLang: string) => {\n    setUiLang(newLang)\n    setTargetLang(newLang)\n    if (typeof window !== 'undefined') {\n      window.localStorage.setItem('vse_ui_lang', newLang)\n      window.dispatchEvent(new CustomEvent('vse-lang-change', { detail: newLang }))\n    }\n  }\n\n  const handleCheckoutPlan = async (planId: string) => {\n    setAddonCheckoutLoading(true)\n    try {\n      const res = await apiPost<{ session_url?: string; checkout_url?: string }>(\n        '/v1/payments/create-checkout-session',\n        { plan_id: planId }\n      )\n      const redirectUrl = res?.session_url || res?.checkout_url\n      if (redirectUrl) {\n        window.location.href = redirectUrl\n      }\n    } catch (err: unknown) {\n      setAdaptError(err instanceof Error ? err.message : 'Nie udało się utworzyć sesji płatności Stripe')\n    } finally {\n      setAddonCheckoutLoading(false)\n    }\n  }\n\n  const handleBuyMultilangAddon = async () => {\n    await handleCheckoutPlan(userPlan === 'free' ? 'starter_multilang' : 'multilang_addon')\n  }\n\n  const getCurrentJobIdParam = () => {\n    if (activeJobId) return activeJobId\n    if (jobId) return jobId\n    if (typeof window !== 'undefined') {\n      return new URLSearchParams(window.location.search).get('job_id') || undefined\n    }\n    return undefined\n  }\n\n  const handleAdaptMaterial = async (tab: TabKey, langCode: string) => {\n    if (!result?.raw) return\n    setAdaptError('')\n\n    if (!canAdaptPerMaterial) {\n      setShowMultilangUpsell(true)\n      return\n    }\n\n    // Instant cache hit (0ms)\n    const cached = materialTranslations[tab]?.[langCode]\n    if (cached) {\n      setActiveTabLang((prev) => ({\n        ...prev,\n        [tab]: langCode,\n        ...(tab === 'youtube' || tab === 'chapters' ? { youtube: langCode, chapters: langCode } : {}),\n      }))\n      return\n    }\n\n    const materialTypeMap: Record<string, string> = {\n      article: 'article',\n      youtube: 'youtube',\n      chapters: 'youtube',\n      schema: 'schema',\n    }\n    const materialType = materialTypeMap[tab] || 'article'\n\n    setAdaptingLang(langCode)\n    try {\n      const resp = await apiPost<{\n        status: string\n        material_type: string\n        target_lang: string\n        adapted_data: Record<string, unknown>\n      }>('/v1/adapt-material', {\n        material_type: materialType,\n        target_lang: langCode,\n        source_data: result.raw,\n        youtube_id: result.videoId,\n        job_id: getCurrentJobIdParam(),\n      })\n\n      if (resp?.adapted_data) {\n        const mergedSchema: SchemaData = {\n          ...result.raw,\n          ...resp.adapted_data,\n          target_lang: langCode,\n        }\n        setMaterialTranslations((prev) => {\n          const next = { ...prev }\n          next[tab] = { ...(next[tab] || {}), [langCode]: mergedSchema }\n          if (tab === 'youtube' || tab === 'chapters') {\n            next.youtube = { ...(next.youtube || {}), [langCode]: mergedSchema }\n            next.chapters = { ...(next.chapters || {}), [langCode]: mergedSchema }\n          }\n          return next\n        })\n        setActiveTabLang((prev) => ({\n          ...prev,\n          [tab]: langCode,\n          ...(tab === 'youtube' || tab === 'chapters' ? { youtube: langCode, chapters: langCode } : {}),\n        }))\n      }\n    } catch (err: unknown) {\n      setAdaptError(err instanceof Error ? err.message : 'Błąd tłumaczenia materiału')\n    } finally {\n      setAdaptingLang(null)\n    }\n  }\n\n  const handleAdaptAllMaterials = async (langCode: string) => {\n    if (!result?.raw) return\n    setAdaptError('')\n\n    if (!canAdaptPerMaterial) {\n      setShowMultilangUpsell(true)\n      return\n    }\n\n    const allTabsCached = ['article', 'youtube', 'chapters', 'schema'].every(\n      (tKey) => Boolean(materialTranslations[tKey]?.[langCode])\n    )\n    if (allTabsCached) {\n      setActiveTabLang({\n        article: langCode,\n        youtube: langCode,\n        chapters: langCode,\n        schema: langCode,\n      })\n      return\n    }\n\n    setAdaptingAllLang(langCode)\n    setAdaptingLang(langCode)\n    try {\n      const resp = await apiPost<{\n        status: string\n        material_type: string\n        target_lang: string\n        adapted_data: Record<string, unknown>\n      }>('/v1/adapt-material', {\n        material_type: 'all',\n        target_lang: langCode,\n        source_data: result.raw,\n        youtube_id: result.videoId,\n        job_id: getCurrentJobIdParam(),\n      })\n\n      if (resp?.adapted_data) {\n        const mergedSchema: SchemaData = {\n          ...result.raw,\n          ...resp.adapted_data,\n          target_lang: langCode,\n        }\n        setMaterialTranslations((prev) => ({\n          ...prev,\n          article: { ...(prev.article || {}), [langCode]: mergedSchema },\n          youtube: { ...(prev.youtube || {}), [langCode]: mergedSchema },\n          chapters: { ...(prev.chapters || {}), [langCode]: mergedSchema },\n          schema: { ...(prev.schema || {}), [langCode]: mergedSchema },\n        }))\n        setActiveTabLang({\n          article: langCode,\n          youtube: langCode,\n          chapters: langCode,\n          schema: langCode,\n        })\n      }\n    } catch (err: unknown) {\n      setAdaptError(err instanceof Error ? err.message : 'Błąd tłumaczenia całego pakietu')\n    } finally {\n      setAdaptingAllLang(null)\n      setAdaptingLang(null)\n    }\n  }\n\n  const handleCopy = useCallback(async (text: string, id: string) => {\n    try {\n      await navigator.clipboard.writeText(text)\n      setCopiedKey(id)\n      setTimeout(() => setCopiedKey(null), 2000)\n    } catch {\n      // silent\n    }\n  }, [])\n\n  const currentTabLang = activeTabLang[activeTab] || result?.targetLang || (result?.raw?.target_lang as string) || targetLang || 'pl'\n  const activeSchema: SchemaData | null =\n    (result && materialTranslations[activeTab]?.[currentTabLang]) || result?.raw || null\n\n  useEffect(() => {\n    if (activeSchema) {\n      const wpLink = activeSchema?.wp_url as string | undefined\n      setYtDescription(buildYtDescription(activeSchema, wpLink))\n    }\n  }, [activeSchema])\n\n  const handleGenerate = async (e: React.FormEvent) => {\n    e.preventDefault()\n    if (inputMode === 'url' && !url.trim()) return\n    if (inputMode === 'audio' && !audioFile) return\n\n    setLoading(true)\n    setError('')\n    setAdaptError('')\n    setShowMultilangUpsell(false)\n    setResult(null)\n    setActiveJobId(null)\n\n    const effectiveTargetLang = canOverrideTargetLang ? targetLang : uiLang\n\n    try {\n      let data: GenerateResponse | null = null\n      const portalIdParam =\n        selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId\n          ? undefined\n          : selectedPortalId.trim()\n\n      if (inputMode === 'audio' && audioFile) {\n        const formData = new FormData()\n        formData.append('file', audioFile)\n        formData.append('publication_type', publicationType)\n        if (portalIdParam) {\n          formData.append('portal_id', portalIdParam)\n        }\n        formData.append('lang', effectiveTargetLang)\n        formData.append('target_lang', effectiveTargetLang)\n        formData.append('ui_lang', uiLang)\n        formData.append('llm_provider', 'claude')\n\n        data = await apiPostForm<GenerateResponse>('/v1/audio/generate', formData)\n      } else {\n        try {\n          data = await apiPost<GenerateResponse>('/v1/generate', {\n            video_url: url.trim(),\n            llm_provider: 'claude',\n            lang: effectiveTargetLang,\n            target_lang: effectiveTargetLang,\n            ui_lang: uiLang,\n            publication_type: publicationType,\n            portal_id: portalIdParam,\n          })\n        } catch (genErr: unknown) {\n          const msg = genErr instanceof Error ? genErr.message : String(genErr)\n          if (msg.includes('504') || msg.includes('524') || msg.includes('502') || msg.includes('Gateway')) {\n            const vid = extractVideoId(url.trim())\n            if (vid) {\n              for (let attempt = 0; attempt < 25; attempt++) {\n                await new Promise((r) => setTimeout(r, 4000))\n                try {\n                  const hist = await apiGet<Array<{ id: string; video_id?: string; video_url?: string; status: string; has_schema?: boolean }>>('/v1/jobs/history?limit=10')\n                  const match = Array.isArray(hist)\n                    ? hist.find((j) => (j.video_id === vid || (j.video_url && j.video_url.includes(vid))) && (j.status === 'done' || j.has_schema))\n                    : undefined\n                  if (match?.id) {\n                    const fullJob = await apiGet<{ id: string; video_id?: string; video_url: string; schema_data?: SchemaData }>(`/v1/jobs/${match.id}`)\n                    if (fullJob?.schema_data) {\n                      data = {\n                        status: 'ok',\n                        job_id: fullJob.id || match.id,\n                        video_id: fullJob.video_id || vid,\n                        processing_time_s: 0,\n                        schema_data: fullJob.schema_data,\n                        source_lang: (fullJob.schema_data.source_lang as string) || 'pl',\n                        target_lang: (fullJob.schema_data.target_lang as string) || effectiveTargetLang,\n                      }\n                      break\n                    }\n                  }\n                } catch {\n                  // continue polling\n                }\n              }\n            }\n          }\n          if (!data) throw genErr\n        }\n      }\n\n      if (!data) throw new Error('Pusta odpowiedź serwera')\n      if (data.error) throw new Error(data.error)\n\n      if (data.job_id) {\n        setActiveJobId(data.job_id)\n      }\n\n      const schema = data.schema_data ?? null\n      if (!schema) throw new Error('Serwer nie zwrócił schema_data')\n\n      const detectedSourceLang = (data.source_lang || schema.source_lang || 'pl') as string\n      const detectedTargetLang = (data.target_lang || schema.target_lang || effectiveTargetLang) as string\n      const effectiveInputUrl = inputMode === 'audio' ? `audio://${data.video_id}` : url.trim()\n\n      setResult({\n        raw: schema,\n        videoId: data.video_id,\n        time: data.processing_time_s,\n        inputUrl: effectiveInputUrl,\n        sourceLang: detectedSourceLang,\n        targetLang: detectedTargetLang,\n      })\n      setMaterialTranslations(buildTranslationsState(schema, detectedTargetLang))\n      setActiveTabLang({\n        article: detectedTargetLang,\n        youtube: detectedTargetLang,\n        chapters: detectedTargetLang,\n        schema: detectedTargetLang,\n      })\n      setActiveTab('article')\n    } catch (err: unknown) {\n      setError(err instanceof Error ? err.message : 'Nieznany błąd')\n    } finally {\n      setLoading(false)\n    }\n  }\n\n  if (status === 'loading') {\n    return (\n      <div className=\"min-h-screen bg-gray-950 flex items-center justify-center\">\n        <div className=\"animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-500\" />\n      </div>\n    )\n  }\n\n  const schema = activeSchema\n  const chapters = extractChapters(schema)\n  const faq = extractFaq(schema)\n  const quotes = (schema?.quotes as QuoteItem[] | undefined) ?? []\n  const planLabel =\n    userProfile?.plan_badge ||\n    (userProfile?.has_multilang_addon && (userPlan === 'starter' || userPlan === 'free')\n      ? 'Starter + 🌐 8 Jęz.'\n      : (userProfile?.plan?.display_name ?? 'Free'))\n  const usageUsed = userProfile?.usage?.used_this_month ?? userProfile?.used_this_month ?? 0\n  const usageQuota = userProfile?.usage?.quota ?? userProfile?.monthly_quota ?? 5\n  const extraQuotaBalance = userProfile?.extra_quota_balance ?? userProfile?.usage?.extra_quota_balance ?? 0\n  const customMonthlyQuota = userProfile?.custom_monthly_quota ?? userProfile?.usage?.custom_monthly_quota ?? null\n  const usagePercent = usageQuota === -1 ? 15 : usageQuota > 0 ? Math.min(100, (usageUsed / usageQuota) * 100) : 0\n\n  const sourceLangMeta = VSE_LANGUAGES.find((l) => l.code === (result?.sourceLang || result?.raw?.source_lang || 'pl'))\n  const targetLangMeta = VSE_LANGUAGES.find((l) => l.code === currentTabLang) || VSE_LANGUAGES[0]\n  const t = getTranslations(uiLang)\n\n  return (\n    <ErrorBoundary>\n      <div className=\"min-h-screen bg-gray-950 text-white\">\n        {/* Sidebar */}\n        <aside className=\"fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-20\">\n          <div className=\"p-5 border-b border-gray-800\">\n            <Link href=\"/\" className=\"flex items-center gap-3 hover:opacity-80 transition-opacity\">\n              <div className=\"w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center flex-shrink-0\">\n                <svg className=\"w-5 h-5 text-white\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n                  <path strokeLinecap=\"round\" strokeLinejoin=\"round\" strokeWidth={2} d=\"M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z\" />\n                </svg>\n              </div>\n              <div>\n                <span className=\"font-bold text-white block\">PressAI VSE</span>\n                <span className=\"text-xs text-gray-500\">Video SEO Engine</span>\n              </div>\n            </Link>\n          </div>\n\n          <nav className=\"flex-1 p-4 space-y-1\">\n            <NavItem icon=\"grid\" label={t.navDashboard} href=\"/dashboard\" active />\n            <NavItem icon=\"clock\" label={t.navHistory} href=\"/historia\" />\n            <NavItem icon=\"settings\" label={t.navSettings} href=\"/ustawienia\" />\n            <NavItem icon=\"grid\" label={t.navPricing} href=\"/cennik\" />\n          </nav>\n\n          {/* User info + plan + UI language */}\n          <div className=\"p-4 border-t border-gray-800\">\n            <div className=\"mb-3\">\n              <div className=\"flex justify-between items-center text-xs text-gray-400 mb-1\">\n                <span>{t.navUsed}</span>\n                <span className=\"font-mono text-gray-200\">\n                  {usageUsed}/{usageQuota === -1 ? '∞' : usageQuota}\n                  {customMonthlyQuota !== null && (\n                    <span className=\"ml-1 text-[10px] text-amber-400 font-semibold\">(VIP)</span>\n                  )}\n                </span>\n              </div>\n              <div className=\"h-1.5 bg-gray-800 rounded-full overflow-hidden\">\n                <div\n                  className=\"h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all\"\n                  style={{ width: `${usagePercent}%` }}\n                />\n              </div>\n              <div className=\"flex items-center justify-between mt-1.5\">\n                {extraQuotaBalance > 0 ? (\n                  <span className=\"inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40\">\n                    ⚡ +{extraQuotaBalance} Top-Up\n                  </span>\n                ) : (\n                  <span className=\"text-[10px] text-gray-500\">Top-Up: 0 filmów</span>\n                )}\n                <a\n                  href=\"/cennik#topup\"\n                  className=\"text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors\"\n                >\n                  + Dokup pakiet Top-Up\n                </a>\n              </div>\n            </div>\n\n            <div className=\"flex items-center gap-3 mb-3\">\n              <div className=\"w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center text-xs font-bold flex-shrink-0\">\n                {session?.user?.email?.[0]?.toUpperCase() || 'U'}\n              </div>\n              <div className=\"flex-1 min-w-0\">\n                <p className=\"text-sm text-white truncate\">{session?.user?.email}</p>\n                <div className=\"flex items-center gap-1.5 flex-wrap mt-0.5\">\n                  <span\n                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${\n                      userPlan !== 'free' || hasMultilangAddon\n                        ? 'bg-gradient-to-r from-violet-600/30 to-emerald-600/30 text-emerald-300 border-emerald-500/40'\n                        : 'bg-gray-800 text-gray-300 border-gray-700'\n                    }`}\n                  >\n                    Plan {planLabel}\n                  </span>\n                  {userProfile?.desktop_runner_active && (\n                    <span className=\"text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30\">\n                      💻 Runner\n                    </span>\n                  )}\n                </div>\n              </div>\n            </div>\n\n            <div className=\"flex flex-col gap-1 mb-3\">\n              <a\n                href=\"/cennik\"\n                className=\"text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5\"\n              >\n                {t.navChangePlan}\n              </a>\n              {!hasMultilangAddon && (\n                <button\n                  type=\"button\"\n                  onClick={handleBuyMultilangAddon}\n                  disabled={addonCheckoutLoading}\n                  className=\"text-left text-xs text-emerald-400 hover:text-emerald-300 transition-colors py-0.5\"\n                >\n                  {t.navBuyAddon}\n                </button>\n              )}\n              {(userProfile?.plan?.id !== 'free' || hasMultilangAddon) && (\n                <ManageSubscriptionLink accessToken={(session as { accessToken?: string })?.accessToken} />\n              )}\n            </div>\n\n            {/* Compact UI Language Switcher at the bottom of Sidebar */}\n            <div className=\"mb-3 pt-2.5 border-t border-gray-800/80\">\n              <div className=\"flex items-center justify-between gap-2\">\n                <label htmlFor=\"sidebar-ui-lang\" className=\"text-[11px] text-gray-400 truncate\">\n                  🌐 {t.uiLangLabel}:\n                </label>\n                <select\n                  id=\"sidebar-ui-lang\"\n                  aria-label={t.uiLangLabel}\n                  value={uiLang}\n                  onChange={(e) => handleUiLangChange(e.target.value)}\n                  className=\"w-28 flex-shrink-0 bg-gray-950 border border-gray-800 hover:border-gray-600 text-xs text-gray-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-violet-500\"\n                >\n                  {VSE_LANGUAGES.map((l) => (\n                    <option key={l.code} value={l.code}>\n                      {l.label} ({l.short})\n                    </option>\n                  ))}\n                </select>\n              </div>\n            </div>\n\n            <button\n              onClick={() => signOut({ callbackUrl: '/login' })}\n              className=\"w-full text-left text-sm text-gray-400 hover:text-white transition-colors py-1\"\n            >\n              → {t.navSignOut}\n            </button>\n          </div>\n        </aside>\n\n        {/* Main content */}\n        <main className=\"ml-64 p-8\">\n          <div className=\"max-w-4xl\">\n\n            <EmailVerificationBanner\n              isVerified={userProfile?.is_verified}\n              accessToken={(session as { accessToken?: string })?.accessToken}\n            />\n\n            <div className=\"flex flex-wrap items-start justify-between gap-4 mb-1\">\n              <h1 className=\"text-2xl font-bold text-white\">{t.heading}</h1>\n              <span className=\"inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300\">\n                {t.crossLangBadge}\n              </span>\n            </div>\n            <p className=\"text-gray-400 mb-8\">\n              {t.subheading}\n            </p>\n\n            {jobLoading && (\n              <div className=\"mb-6 flex items-center gap-3 p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl\">\n                <span className=\"animate-spin inline-block w-4 h-4 border-2 border-violet-300/30 border-t-violet-400 rounded-full\" />\n                <span className=\"text-sm text-violet-300\">{t.historyLoading}</span>\n              </div>\n            )}\n\n            {jobError && (\n              <div className=\"mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm\">\n                ⚠️ {jobError}\n              </div>\n            )}\n\n            {jobId && result && (\n              <div className=\"mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl\">\n                <span className=\"text-xs text-blue-400\">{t.historyLoaded}</span>\n                <Link href=\"/historia\" className=\"text-xs text-gray-500 hover:text-white ml-auto transition-colors\">\n                  {t.historyBack}\n                </Link>\n              </div>\n            )}\n\n            {/* Portal, Publication Type & Target Language Selector */}\n            <div className=\"grid grid-cols-1 md:grid-cols-3 gap-3 mb-5\">\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1.5\">{t.targetPortal}</label>\n                {portalsLoading ? (\n                  <div className=\"flex items-center gap-2 h-[42px] text-sm text-gray-500\">\n                    <span className=\"animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full\" />\n                    {t.loading}\n                  </div>\n                ) : portals.length === 0 ? (\n                  <select\n                    value=\"\"\n                    onChange={(e) => {\n                      const val = e.target.value\n                      if (val === '__add__') {\n                        setShowAddPortalModal(true)\n                      } else if (val === '__manual__') {\n                        setSelectedPortalId('__manual__')\n                      }\n                    }}\n                    className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                    style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                  >\n                    <option value=\"\" disabled>{t.noPortals}</option>\n                    <option value=\"__add__\">{t.addPortal}</option>\n                    <option value=\"__manual__\">{t.manualPortal}</option>\n                  </select>\n                ) : (\n                  <select\n                    id=\"portal-selector\"\n                    value={selectedPortalId}\n                    onChange={(e) => {\n                      const val = e.target.value\n                      if (val === '__add__') {\n                        setShowAddPortalModal(true)\n                      } else if (val === '__manual__') {\n                        setSelectedPortalId('__manual__')\n                      } else {\n                        setSelectedPortalId(val)\n                      }\n                    }}\n                    className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                    style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                  >\n                    {portals.map((p) => (\n                      <option key={p.id} value={p.id}>\n                        {p.is_plugin_connected || p.auth_mode === 'plugin_token' ? `🔌 ${p.name} (Wtyczka v3.0)` : p.name}\n                      </option>\n                    ))}\n                    <option value=\"__add__\">{t.addPortal}</option>\n                    <option value=\"__manual__\">{t.manualPortal}</option>\n                  </select>\n                )}\n              </div>\n\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1.5\">{t.publicationType}</label>\n                <select\n                  id=\"publication-type-selector\"\n                  value={publicationType}\n                  onChange={(e) => setPublicationType(e.target.value)}\n                  className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                  style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                >\n                  <option value=\"full_analysis\">{t.pubFullAnalysis}</option>\n                  <option value=\"news\">{t.pubNews}</option>\n                  <option value=\"explainer\">{t.pubExplainer}</option>\n                  <option value=\"wywiad\">{t.pubInterview}</option>\n                  <option value=\"poradnik\">{t.pubGuide}</option>\n                  <option value=\"felieton\">{t.pubColumn}</option>\n                  <option value=\"reportaz\">{t.pubReportage}</option>\n                  <option value=\"watching_page\">{t.pubVideoPage}</option>\n                  <option value=\"discover\">{t.pubDiscover}</option>\n                </select>\n              </div>\n\n              <div>\n                <div className=\"flex items-center justify-between mb-1.5\">\n                  <label className=\"block text-xs text-gray-400\">\n                    {t.targetLangLabel}{' '}\n                    <span className=\"text-[10px] text-violet-400\">({t.targetLangDefaultHint})</span>\n                  </label>\n                  {!canOverrideTargetLang && (\n                    <button\n                      type=\"button\"\n                      onClick={() => setShowMultilangUpsell(true)}\n                      className=\"text-[11px] text-emerald-400 hover:text-emerald-300 font-medium\"\n                    >\n                      {t.unlock8Langs}\n                    </button>\n                  )}\n                </div>\n                <select\n                  id=\"target-lang-selector\"\n                  value={canOverrideTargetLang ? targetLang : uiLang}\n                  onChange={(e) => {\n                    const nextLang = e.target.value\n                    if (!canOverrideTargetLang && nextLang !== uiLang) {\n                      setShowMultilangUpsell(true)\n                      return\n                    }\n                    setTargetLang(nextLang)\n                  }}\n                  className=\"w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n                  style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n                >\n                  {VSE_LANGUAGES.map((l) => {\n                    const locked = !canOverrideTargetLang && l.code !== uiLang\n                    return (\n                      <option key={l.code} value={l.code}>\n                        {l.label} ({l.short}){locked ? t.lockedSuffix : ''}\n                      </option>\n                    )\n                  })}\n                </select>\n              </div>\n            </div>\n\n            {/* Upsell Banner for Multi-Language Add-on (+29 PLN/mo) or Pro */}\n            {showMultilangUpsell && !hasMultilangAddon && (\n              <div className=\"mb-5 p-4 bg-gradient-to-r from-violet-950/70 via-gray-900 to-emerald-950/50 border border-violet-500/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4\">\n                <div>\n                  <div className=\"flex items-center gap-2 mb-1\">\n                    <span className=\"text-sm font-semibold text-white\">{t.upsellTitle}</span>\n                    <span className=\"text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30\">\n                      {userPlan === 'free' ? 'Starter 49 zł + Add-on 29 zł' : '+29 PLN / mo'}\n                    </span>\n                  </div>\n                  <p className=\"text-xs text-gray-300 leading-relaxed\">\n                    {t.upsellDesc}\n                  </p>\n                </div>\n                <div className=\"flex flex-wrap items-center gap-2 flex-shrink-0\">\n                  {userPlan === 'free' ? (\n                    <>\n                      <button\n                        type=\"button\"\n                        onClick={() => handleCheckoutPlan('starter_multilang')}\n                        disabled={addonCheckoutLoading}\n                        className=\"px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap\"\n                      >\n                        {addonCheckoutLoading ? t.loading : '🚀 Wybierz Starter + Pakiet 8 Języków (78 zł/mies.)'}\n                      </button>\n                      <button\n                        type=\"button\"\n                        onClick={() => handleCheckoutPlan('pro')}\n                        disabled={addonCheckoutLoading}\n                        className=\"px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap\"\n                      >\n                        💎 Wybierz Plan Pro — 8 Języków W CENIE (149 zł/mies.)\n                      </button>\n                    </>\n                  ) : (\n                    <>\n                      <button\n                        type=\"button\"\n                        onClick={() => handleCheckoutPlan('multilang_addon')}\n                        disabled={addonCheckoutLoading}\n                        className=\"px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap\"\n                      >\n                        {addonCheckoutLoading ? t.loading : '🌐 Dokup Pakiet Wielojęzyczny (+29 zł/mies.)'}\n                      </button>\n                      <button\n                        type=\"button\"\n                        onClick={() => handleCheckoutPlan('pro')}\n                        disabled={addonCheckoutLoading}\n                        className=\"px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap\"\n                      >\n                        💎 Upgrade do Pro (149 zł/mies.)\n                      </button>\n                    </>\n                  )}\n                  <button\n                    type=\"button\"\n                    onClick={() => setShowMultilangUpsell(false)}\n                    className=\"text-xs text-gray-400 hover:text-white px-2 py-1\"\n                  >\n                    ✕\n                  </button>\n                </div>\n              </div>\n            )}\n\n            {/* Input Mode Selector */}\n            <div className=\"flex gap-2 mb-3\">\n              <button\n                type=\"button\"\n                onClick={() => { setInputMode('url'); setError('') }}\n                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1.5 ${\n                  inputMode === 'url'\n                    ? 'bg-violet-600/20 text-violet-300 border-violet-500/50 shadow-sm'\n                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'\n                }`}\n              >\n                {t.modeYoutube}\n              </button>\n              <button\n                type=\"button\"\n                onClick={() => { setInputMode('audio'); setError('') }}\n                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1.5 ${\n                  inputMode === 'audio'\n                    ? 'bg-violet-600/20 text-violet-300 border-violet-500/50 shadow-sm'\n                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'\n                }`}\n              >\n                {t.modeAudio}\n              </button>\n            </div>\n\n            {/* URL / Audio Form */}\n            <form onSubmit={handleGenerate} className=\"mb-8\">\n              <div className=\"flex gap-3\">\n                {inputMode === 'url' ? (\n                  <input\n                    id=\"youtube-url-input\"\n                    type=\"text\"\n                    value={url}\n                    onChange={(e) => setUrl(e.target.value)}\n                    placeholder={t.urlPlaceholder}\n                    className=\"flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors\"\n                  />\n                ) : (\n                  <div className=\"flex-1 flex items-center\">\n                    <label\n                      onDragOver={(e) => {\n                        e.preventDefault()\n                        e.currentTarget.style.borderColor = '#a855f7'\n                      }}\n                      onDragLeave={(e) => {\n                        e.currentTarget.style.borderColor = ''\n                      }}\n                      onDrop={(e) => {\n                        e.preventDefault()\n                        e.currentTarget.style.borderColor = ''\n                        const file = e.dataTransfer.files?.[0]\n                        if (file) setAudioFile(file)\n                      }}\n                      className=\"w-full flex items-center justify-between bg-gray-900 border border-dashed border-gray-700 hover:border-violet-500 rounded-xl px-4 py-3 cursor-pointer transition-colors group\"\n                    >\n                      <div className=\"flex items-center gap-3 truncate\">\n                        <span className=\"text-xl\">🎙️</span>\n                        <div className=\"truncate\">\n                          <p className=\"text-sm text-white font-medium truncate\">\n                            {audioFile ? audioFile.name : t.audioDropTitle}\n                          </p>\n                          <p className=\"text-xs text-gray-500\">\n                            {audioFile ? `${(audioFile.size / (1024 * 1024)).toFixed(2)} MB` : t.audioDropFormats}\n                          </p>\n                        </div>\n                      </div>\n                      <span className=\"text-xs bg-gray-800 group-hover:bg-violet-600 text-gray-300 group-hover:text-white px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ml-2\">\n                        {audioFile ? t.changeFile : t.chooseFile}\n                      </span>\n                      <input\n                        type=\"file\"\n                        accept=\".mp3,.wav,.m4a,.ogg,.aac,.flac,.wma,.mp4,audio/*\"\n                        className=\"hidden\"\n                        onChange={(e) => {\n                          const f = e.target.files?.[0]\n                          if (f) setAudioFile(f)\n                        }}\n                      />\n                    </label>\n                  </div>\n                )}\n                <button\n                  id=\"generate-btn\"\n                  type=\"submit\"\n                  disabled={loading || (inputMode === 'url' ? !url.trim() : !audioFile)}\n                  className=\"px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap\"\n                >\n                  {loading ? (\n                    <><span className=\"animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full\" /> {inputMode === 'audio' ? t.generatingAudioBtn : t.generatingBtn}</>\n                  ) : (\n                    <>{t.generateBtn}</>\n                  )}\n                </button>\n              </div>\n\n              {loading && (\n                <div className=\"mt-3 flex items-center gap-2 text-sm text-gray-400\">\n                  <span className=\"animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full\" />\n                  {inputMode === 'audio'\n                    ? t.loadingAudioMsg\n                    : t.loadingVideoMsg}\n                </div>\n              )}\n\n              {error && (\n                <div className=\"mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2\">\n                  <span className=\"flex-shrink-0 mt-0.5\">⚠️</span>\n                  <div>\n                    <p className=\"font-medium mb-0.5\">{t.errorTitle}</p>\n                    <p className=\"text-red-300/80\">{error}</p>\n                  </div>\n                </div>\n              )}\n            </form>\n\n            {!result && !loading && (\n              <>\n                <div className=\"grid grid-cols-3 gap-4 mb-6\">\n                  {[\n                    {\n                      label: t.statMonthly,\n                      value: `${usageUsed}/${usageQuota === -1 ? '∞' : usageQuota}`,\n                      sub: extraQuotaBalance > 0 ? `Plan ${planLabel} • ⚡ +${extraQuotaBalance} Top-Up` : `Plan ${planLabel}`,\n                    },\n                    { label: t.statBenchmark, value: '8/10', sub: t.statBenchmarkSub },\n                    { label: t.statSchema, value: 'v5.3', sub: 'Google 2026' },\n                  ].map((stat) => (\n                    <div key={stat.label} className=\"bg-gray-900 border border-gray-800 rounded-xl p-5\">\n                      <p className=\"text-gray-400 text-sm mb-1\">{stat.label}</p>\n                      <p className=\"text-2xl font-bold text-white\">{stat.value}</p>\n                      <p className=\"text-xs text-gray-500 mt-1\">{stat.sub}</p>\n                    </div>\n                  ))}\n                </div>\n                <WpQuickPanel />\n              </>\n            )}\n\n            {/* Results */}\n            {result && (\n              <div>\n                <div className=\"flex flex-wrap items-center justify-between gap-3 mb-5\">\n                  <div>\n                    <div className=\"flex items-center gap-2.5 flex-wrap\">\n                      <h2 className=\"text-lg font-semibold text-white\">{t.resultsHeading}</h2>\n                      <span className=\"inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-xs text-violet-300\">\n                        🌐 {t.sourceLabel}: {sourceLangMeta ? `${sourceLangMeta.flag} ${sourceLangMeta.short}` : (result.sourceLang || 'AUTO').toUpperCase()} → {t.outputLabel}: {targetLangMeta.flag} {targetLangMeta.label} ({targetLangMeta.short})\n                      </span>\n                    </div>\n                    <p className=\"text-xs text-gray-500 mt-0.5\">\n                      {t.sourceLabel}: <span className=\"font-mono\">{result.videoId}</span>\n                      {result.time && <> • {result.time.toFixed(1)}s</>}\n                    </p>\n                  </div>\n                  <div className=\"flex items-center gap-2\">\n                    <span className=\"px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20\">\n                      {t.generatedBadge}\n                    </span>\n                    {isPro && (\n                      <button\n                        onClick={() => setShowInjectModal(true)}\n                        className=\"px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5\"\n                      >\n                        {t.sendToPortalBtn}\n                      </button>\n                    )}\n                    {ytChannels.length > 0 && !result?.inputUrl?.startsWith('audio://') && !result?.videoId?.startsWith('audio_') && (\n                      <button\n                        onClick={() => setYtModalOpen(true)}\n                        className=\"px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2\"\n                      >\n                        {t.sendToYoutubeBtn}\n                      </button>\n                    )}\n                  </div>\n                </div>\n\n                {/* Global Package Translation Bar (Translate ALL tabs at once) */}\n                <div className=\"mb-3 p-3 bg-gradient-to-r from-violet-950/50 via-gray-900 to-fuchsia-950/30 border border-violet-500/30 rounded-xl flex flex-wrap items-center justify-between gap-2.5\">\n                  <div className=\"flex items-center gap-2\">\n                    <span className=\"text-xs font-semibold text-violet-200 flex items-center gap-1.5\">\n                      🌐 {uiLang === 'pl' ? 'Przetłumacz cały pakiet (wszystkie zakładki) na:' : 'Translate entire package (all tabs) to:'}\n                    </span>\n                  </div>\n                  <div className=\"flex flex-wrap items-center gap-1.5\">\n                    {VSE_LANGUAGES.map((l) => {\n                      const allCached = ['article', 'youtube', 'chapters', 'schema'].every(\n                        (tKey) => Boolean(materialTranslations[tKey]?.[l.code])\n                      )\n                      const allActive = ['article', 'youtube', 'chapters', 'schema'].every(\n                        (tKey) => (activeTabLang[tKey] || result?.targetLang || 'pl') === l.code\n                      )\n                      const isLocked = !canAdaptPerMaterial && !allActive\n                      const isAdaptingThisAll = adaptingAllLang === l.code\n                      return (\n                        <button\n                          key={`all-${l.code}`}\n                          type=\"button\"\n                          disabled={Boolean(adaptingLang)}\n                          onClick={() => handleAdaptAllMaterials(l.code)}\n                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1 ${\n                            allActive\n                              ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border-violet-400 shadow-sm'\n                              : allCached\n                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'\n                              : 'bg-gray-800/90 text-gray-200 border-gray-700 hover:border-violet-400 hover:text-white'\n                          }`}\n                          title={`${l.label} (${l.short})`}\n                        >\n                          <span>{l.flag}</span>\n                          <span>{l.short}</span>\n                          {isAdaptingThisAll && (\n                            <span className=\"animate-spin inline-block w-3 h-3 border border-white/40 border-t-white rounded-full ml-0.5\" />\n                          )}\n                          {!isAdaptingThisAll && allCached && (\n                            <span className=\"text-[10px] text-emerald-300\">✓</span>\n                          )}\n                          {isLocked && <span className=\"text-[10px] opacity-80\">🔒</span>}\n                        </button>\n                      )\n                    })}\n                  </div>\n                </div>\n\n                <TabBar\n                  active={activeTab}\n                  onChange={setActiveTab}\n                  chaptersCount={chapters.length}\n                  faqCount={faq.length}\n                  uiLang={uiLang}\n                />\n\n                {/* Per-Material Language Switcher Bar (\"Złoty Środek\") */}\n                {activeTab !== 'shorts' && (\n                  <div className=\"mb-4 p-3 bg-gray-900/90 border border-gray-800 rounded-xl\">\n                    <div className=\"flex flex-wrap items-center justify-between gap-2\">\n                      <span className=\"text-xs font-medium text-gray-400 flex items-center gap-1.5\">\n                        🌐 {t.materialLangLabel}\n                      </span>\n                      <div className=\"flex flex-wrap items-center gap-1.5\">\n                        {VSE_LANGUAGES.map((l) => {\n                          const isCurrent = currentTabLang === l.code\n                          const isCached = Boolean(materialTranslations[activeTab]?.[l.code])\n                          const isLocked = !canAdaptPerMaterial && !isCurrent\n                          const isAdaptingThis = adaptingLang === l.code && !adaptingAllLang\n                          return (\n                            <button\n                              key={l.code}\n                              type=\"button\"\n                              disabled={Boolean(adaptingLang)}\n                              onClick={() => handleAdaptMaterial(activeTab, l.code)}\n                              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center gap-1 ${\n                                isCurrent\n                                  ? 'bg-violet-600 text-white border-violet-500 shadow-sm'\n                                  : isCached\n                                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'\n                                  : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:border-violet-500/50 hover:text-white'\n                              }`}\n                              title={`${l.label} (${l.short})`}\n                            >\n                              <span>{l.flag}</span>\n                              <span>{l.short}</span>\n                              {isAdaptingThis && (\n                                <span className=\"animate-spin inline-block w-3 h-3 border border-white/40 border-t-white rounded-full ml-0.5\" />\n                              )}\n                              {!isAdaptingThis && isCached && !isCurrent && (\n                                <span className=\"text-[10px] text-emerald-400\">✓</span>\n                              )}\n                              {isLocked && <span className=\"text-[10px] opacity-80\">🔒</span>}\n                            </button>\n                          )\n                        })}\n                        {!['article', 'youtube', 'chapters', 'schema'].every((tKey) => Boolean(materialTranslations[tKey]?.[currentTabLang])) && (\n                          <button\n                            type=\"button\"\n                            disabled={Boolean(adaptingLang)}\n                            onClick={() => handleAdaptAllMaterials(currentTabLang)}\n                            className=\"ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/40 transition-all flex items-center gap-1\"\n                          >\n                            ⚡ {uiLang === 'pl' ? `Przetłumacz wszystkie zakładki na ${targetLangMeta.short}` : `Translate all tabs to ${targetLangMeta.short}`}\n                          </button>\n                        )}\n                      </div>\n                    </div>\n\n                    {adaptingLang && (\n                      <div className=\"mt-2.5 flex items-center gap-2 text-xs text-violet-300\">\n                        <span className=\"animate-spin inline-block w-3 h-3 border border-violet-400/30 border-t-violet-400 rounded-full\" />\n                        {adaptingAllLang\n                          ? (uiLang === 'pl' ? 'Tłumaczenie całego pakietu (wszystkich zakładek) na:' : 'Translating entire package (all tabs) to:')\n                          : t.adaptingMsg}{' '}\n                        <strong>{VSE_LANGUAGES.find((x) => x.code === adaptingLang)?.label}</strong>... {t.adaptingNoQuota}\n                      </div>\n                    )}\n\n                    {adaptError && (\n                      <div className=\"mt-2.5 text-xs text-red-400\">\n                        ⚠️ {adaptError}\n                      </div>\n                    )}\n                  </div>\n                )}\n\n                {/* Tab: Schemat */}\n                {activeTab === 'schema' && (\n                  <SchemaTab schema={schema} copiedKey={copiedKey} onCopy={handleCopy} />\n                )}\n\n                {/* Tab: Artykuł */}\n                {activeTab === 'article' && (\n                  <ArticleTab\n                    schema={schema}\n                    faq={faq}\n                    quotes={quotes}\n                    copiedKey={copiedKey}\n                    onCopy={handleCopy}\n                  />\n                )}\n\n                {/* Tab: Rozdziały */}\n                {activeTab === 'chapters' && (\n                  <ChaptersTab chapters={chapters} copiedKey={copiedKey} onCopy={handleCopy} />\n                )}\n\n                {/* Tab: Opis YouTube */}\n                {activeTab === 'youtube' && (\n                  <YouTubeTab ytDescription={ytDescription} copiedKey={copiedKey} onCopy={handleCopy} />\n                )}\n\n                {/* Tab: ShortMachine */}\n                {activeTab === 'shorts' && (\n                  (userPlan === 'agency' || userProfile?.is_admin) ? (\n                    <ShortMachineTab\n                      ytChannels={ytChannels}\n                      initialYoutubeId={result?.videoId || extractVideoId(url) || extractVideoId(result?.inputUrl || '')}\n                      accessToken={accessToken}\n                      session={session}\n                      source={(result?.raw?.source as string) || (result?.inputUrl?.startsWith('audio://') || result?.videoId?.startsWith('audio_') ? 'audio' : 'youtube')}\n                      isAudio={result?.raw?.source === 'audio' || result?.inputUrl?.startsWith('audio://') || result?.videoId?.startsWith('audio_')}\n                    />\n                  ) : (\n                    <div className=\"bg-gray-900 border border-violet-500/30 rounded-2xl p-6 md:p-8\">\n                      <div className=\"flex flex-wrap items-center justify-between gap-3 mb-4\">\n                        <div className=\"flex items-center gap-2.5\">\n                          <span className=\"px-3 py-1 rounded-full text-xs font-bold bg-violet-500/20 text-violet-300 border border-violet-500/40 uppercase tracking-wider\">\n                            🎬 Moduł Specjalistyczny · Plan Agency / Add-on\n                          </span>\n                        </div>\n                        <Link\n                          href=\"/shortmachine\"\n                          className=\"text-xs text-violet-400 hover:text-violet-300 underline underline-offset-2\"\n                        >\n                          Dowiedz się więcej o ShortMachine →\n                        </Link>\n                      </div>\n                      <h3 className=\"text-xl font-bold text-white mb-2\">\n                        ShortMachine AI — Automatyczne rolki 9:16 i markery montażowe NLE\n                      </h3>\n                      <p className=\"text-sm text-gray-300 leading-relaxed mb-5\">\n                        Moduł <strong className=\"text-white\">ShortMachine</strong> automatycznie wybiera najbardziej wiralowe fragmenty z długiego wideo lub nagrania audio, generuje scenariusze Shorts / Reels / TikTok, eksportuje markery XML/EDL do <strong className=\"text-white\">Premiere Pro / DaVinci Resolve</strong> oraz wycina gotowe klipy MP4 9:16 przez lokalny <strong className=\"text-white\">VSE Desktop Runner</strong>.\n                      </p>\n                      <div className=\"grid grid-cols-1 md:grid-cols-3 gap-3 mb-6\">\n                        <div className=\"bg-gray-800/60 border border-gray-700/60 rounded-xl p-3.5\">\n                          <p className=\"text-xs font-semibold text-white mb-1\">🎯 AI Viral Hooks</p>\n                          <p className=\"text-xs text-gray-400\">Automatyczna detekcja najmocniejszych 30–60s momentów z transkrypcji.</p>\n                        </div>\n                        <div className=\"bg-gray-800/60 border border-gray-700/60 rounded-xl p-3.5\">\n                          <p className=\"text-xs font-semibold text-white mb-1\">🎞️ Premiere &amp; DaVinci</p>\n                          <p className=\"text-xs text-gray-400\">Eksport gotowej osi czasu i markerów dla montażystów wideo.</p>\n                        </div>\n                        <div className=\"bg-gray-800/60 border border-gray-700/60 rounded-xl p-3.5\">\n                          <p className=\"text-xs font-semibold text-white mb-1\">✂️ Auto-Cutter 9:16</p>\n                          <p className=\"text-xs text-gray-400\">Lokalne wycinanie pionowych klipów MP4 przez VSE Desktop Runner.</p>\n                        </div>\n                      </div>\n                      <div className=\"flex flex-wrap items-center gap-3\">\n                        <Link\n                          href=\"/cennik\"\n                          className=\"px-5 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-90 rounded-xl text-xs font-semibold text-white transition-all\"\n                        >\n                          💎 Odblokuj w planie Agency →\n                        </Link>\n                        <Link\n                          href=\"/shortmachine\"\n                          className=\"px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-xs font-medium text-gray-200 transition-colors\"\n                        >\n                          Zobacz stronę modułu ShortMachine\n                        </Link>\n                      </div>\n                    </div>\n                  )\n                )}\n              </div>\n            )}\n          </div>\n        </main>\n\n        {/* Inject Modal */}\n        {showInjectModal && result && (() => {\n          const selectedPortal = portals.find((p) => p.id === selectedPortalId)\n          return (\n            <InjectModal\n              schemaData={activeSchema || result.raw}\n              videoUrl={result.inputUrl}\n              accessToken={accessToken}\n              onClose={() => setShowInjectModal(false)}\n              selectedPortalId={selectedPortalId}\n              portalName={selectedPortal?.name}\n              portalUrl={selectedPortal?.url}\n              ytChannels={ytChannels}\n              jobId={activeJobId}\n            />\n          )\n        })()}\n\n        {ytModalOpen && result && (() => {\n          const wpUrl = (activeSchema || result.raw)?.wp_article_url || (activeSchema || result.raw)?.published_url || \"\"\n          const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''\n\n          return (\n            <YouTubePublishModal\n              overrideDescription={ytDescription}\n              isOpen={ytModalOpen}\n              onClose={() => setYtModalOpen(false)}\n              videoId={result?.videoId || result?.raw?.video_id || extractVideoId(result?.inputUrl || \"\") || \"\"}\n              schemaData={activeSchema ?? result.raw ?? {}}\n              wpUrl={wpUrl}\n              channels={ytChannels}\n              accessToken={accessToken || \"\"}\n              apiUrl={apiUrl}\n            />\n          )\n        })()}\n\n        {showAddPortalModal && (\n          <AddPortalModal\n            onClose={() => setShowAddPortalModal(false)}\n            onSuccess={(portalId) => {\n              setShowAddPortalModal(false)\n              setSelectedPortalId(portalId)\n            }}\n          />\n        )}\n      </div>\n    </ErrorBoundary>\n  )\n}\n
+      .then((data) => setYtChannels(Array.isArray(data) ? data : []))
+      .catch(() => setYtChannels([]))
+  }, [])
+
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if ((window as any).YT) return
+    const tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+  }, [])
+
+  // Portals hook
+  const { portals, loading: portalsLoading } = usePortals()
+  const [selectedPortalId, setSelectedPortalId] = useState<string>('')
+  const [publicationType, setPublicationType] = useState<string>('full_analysis')
+  const [showAddPortalModal, setShowAddPortalModal] = useState(false)
+
+  useEffect(() => {
+    if (portals.length > 0 && !selectedPortalId) {
+      const defaultPortal = portals.find((p) => p.is_default) ?? portals[0]
+      if (defaultPortal) {
+        setSelectedPortalId(defaultPortal.id)
+      }
+    }
+  }, [portals, selectedPortalId])
+
+  const accessToken = (session as any)?.accessToken as string | undefined
+  const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken)
+
+  useEffect(() => {
+    if (jobId) {
+      setActiveJobId(jobId)
+    }
+  }, [jobId])
+
+  useEffect(() => {
+    if (jobData?.schema_data) {
+      const videoId = jobData.video_id || ''
+      const sData = jobData.schema_data as SchemaData
+      const initTarget = (sData.target_lang as string) || 'pl'
+      const initSource = (sData.source_lang as string) || 'pl'
+      setResult({
+        raw: sData,
+        videoId,
+        inputUrl: jobData.video_url,
+        sourceLang: initSource,
+        targetLang: initTarget,
+      })
+      if (jobId) {
+        setActiveJobId(jobId)
+      } else if (jobData.id) {
+        setActiveJobId(jobData.id)
+      }
+      setMaterialTranslations(buildTranslationsState(sData, initTarget))
+      setActiveTabLang({
+        article: initTarget,
+        youtube: initTarget,
+        chapters: initTarget,
+        schema: initTarget,
+      })
+      setUrl(jobData.video_url)
+      setActiveTab('article')
+    }
+  }, [jobData, jobId, buildTranslationsState])
+
+  useEffect(() => {
+    if (status === 'unauthenticated') router.push('/login')
+  }, [status, router])
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        if (typeof window !== 'undefined' && (window.location.search.includes('upgraded=1') || window.location.search.includes('payment=topup_success'))) {
+          try {
+            const sessionId = new URLSearchParams(window.location.search).get('session_id') || undefined
+            await apiPost('/v1/payments/verify-session', { session_id: sessionId })
+          } catch {
+            // ignore
+          }
+        }
+        const data = await apiGet<UserProfile>('/v1/users/me')
+        setUserProfile(data)
+      } catch {
+        // silent
+      }
+    }
+    fetchProfile()
+  }, [])
+
+  const userPlan = userProfile?.plan?.id ?? 'free'
+
+  const isPro =
+    (userProfile != null && ['pro', 'agency'].includes(userProfile.plan.id)) ||
+    (userProfile == null && ['pro', 'agency'].includes((session?.user as any)?.plan ?? ''))
+
+  const hasMultilangAddon =
+    isPro ||
+    Boolean(userProfile?.is_admin) ||
+    Boolean(userProfile?.has_multilang_addon) ||
+    Boolean(userProfile?.multilang?.has_multilang_addon)
+
+  const canOverrideTargetLang =
+    hasMultilangAddon || Boolean(userProfile?.multilang?.allow_target_override)
+
+  const canAdaptPerMaterial =
+    hasMultilangAddon || Boolean(userProfile?.multilang?.allow_per_material_adapt)
+
+  const handleUiLangChange = (newLang: string) => {
+    setUiLang(newLang)
+    setTargetLang(newLang)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('vse_ui_lang', newLang)
+      window.dispatchEvent(new CustomEvent('vse-lang-change', { detail: newLang }))
+    }
+  }
+
+  const handleCheckoutPlan = async (planId: string) => {
+    setAddonCheckoutLoading(true)
+    try {
+      const res = await apiPost<{ session_url?: string; checkout_url?: string }>(
+        '/v1/payments/create-checkout-session',
+        { plan_id: planId }
+      )
+      const redirectUrl = res?.session_url || res?.checkout_url
+      if (redirectUrl) {
+        window.location.href = redirectUrl
+      }
+    } catch (err: unknown) {
+      setAdaptError(err instanceof Error ? err.message : 'Nie udało się utworzyć sesji płatności Stripe')
+    } finally {
+      setAddonCheckoutLoading(false)
+    }
+  }
+
+  const handleBuyMultilangAddon = async () => {
+    await handleCheckoutPlan(userPlan === 'free' ? 'starter_multilang' : 'multilang_addon')
+  }
+
+  const getCurrentJobIdParam = () => {
+    if (activeJobId) return activeJobId
+    if (jobId) return jobId
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('job_id') || undefined
+    }
+    return undefined
+  }
+
+  const handleAdaptMaterial = async (tab: TabKey, langCode: string) => {
+    if (!result?.raw) return
+    setAdaptError('')
+
+    if (!canAdaptPerMaterial) {
+      setShowMultilangUpsell(true)
+      return
+    }
+
+    // Instant cache hit (0ms)
+    const cached = materialTranslations[tab]?.[langCode]
+    if (cached) {
+      setActiveTabLang((prev) => ({
+        ...prev,
+        [tab]: langCode,
+        ...(tab === 'youtube' || tab === 'chapters' ? { youtube: langCode, chapters: langCode } : {}),
+      }))
+      return
+    }
+
+    const materialTypeMap: Record<string, string> = {
+      article: 'article',
+      youtube: 'youtube',
+      chapters: 'youtube',
+      schema: 'schema',
+    }
+    const materialType = materialTypeMap[tab] || 'article'
+
+    setAdaptingLang(langCode)
+    try {
+      const resp = await apiPost<{
+        status: string
+        material_type: string
+        target_lang: string
+        adapted_data: Record<string, unknown>
+      }>('/v1/adapt-material', {
+        material_type: materialType,
+        target_lang: langCode,
+        source_data: result.raw,
+        youtube_id: result.videoId,
+        job_id: getCurrentJobIdParam(),
+      })
+
+      if (resp?.adapted_data) {
+        const mergedSchema: SchemaData = {
+          ...result.raw,
+          ...resp.adapted_data,
+          target_lang: langCode,
+        }
+        setMaterialTranslations((prev) => {
+          const next = { ...prev }
+          next[tab] = { ...(next[tab] || {}), [langCode]: mergedSchema }
+          if (tab === 'youtube' || tab === 'chapters') {
+            next.youtube = { ...(next.youtube || {}), [langCode]: mergedSchema }
+            next.chapters = { ...(next.chapters || {}), [langCode]: mergedSchema }
+          }
+          return next
+        })
+        setActiveTabLang((prev) => ({
+          ...prev,
+          [tab]: langCode,
+          ...(tab === 'youtube' || tab === 'chapters' ? { youtube: langCode, chapters: langCode } : {}),
+        }))
+      }
+    } catch (err: unknown) {
+      setAdaptError(err instanceof Error ? err.message : 'Błąd tłumaczenia materiału')
+    } finally {
+      setAdaptingLang(null)
+    }
+  }
+
+  const handleAdaptAllMaterials = async (langCode: string) => {
+    if (!result?.raw) return
+    setAdaptError('')
+
+    if (!canAdaptPerMaterial) {
+      setShowMultilangUpsell(true)
+      return
+    }
+
+    const allTabsCached = ['article', 'youtube', 'chapters', 'schema'].every(
+      (tKey) => Boolean(materialTranslations[tKey]?.[langCode])
+    )
+    if (allTabsCached) {
+      setActiveTabLang({
+        article: langCode,
+        youtube: langCode,
+        chapters: langCode,
+        schema: langCode,
+      })
+      return
+    }
+
+    setAdaptingAllLang(langCode)
+    setAdaptingLang(langCode)
+    try {
+      const resp = await apiPost<{
+        status: string
+        material_type: string
+        target_lang: string
+        adapted_data: Record<string, unknown>
+      }>('/v1/adapt-material', {
+        material_type: 'all',
+        target_lang: langCode,
+        source_data: result.raw,
+        youtube_id: result.videoId,
+        job_id: getCurrentJobIdParam(),
+      })
+
+      if (resp?.adapted_data) {
+        const mergedSchema: SchemaData = {
+          ...result.raw,
+          ...resp.adapted_data,
+          target_lang: langCode,
+        }
+        setMaterialTranslations((prev) => ({
+          ...prev,
+          article: { ...(prev.article || {}), [langCode]: mergedSchema },
+          youtube: { ...(prev.youtube || {}), [langCode]: mergedSchema },
+          chapters: { ...(prev.chapters || {}), [langCode]: mergedSchema },
+          schema: { ...(prev.schema || {}), [langCode]: mergedSchema },
+        }))
+        setActiveTabLang({
+          article: langCode,
+          youtube: langCode,
+          chapters: langCode,
+          schema: langCode,
+        })
+      }
+    } catch (err: unknown) {
+      setAdaptError(err instanceof Error ? err.message : 'Błąd tłumaczenia całego pakietu')
+    } finally {
+      setAdaptingAllLang(null)
+      setAdaptingLang(null)
+    }
+  }
+
+  const handleCopy = useCallback(async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(id)
+      setTimeout(() => setCopiedKey(null), 2000)
+    } catch {
+      // silent
+    }
+  }, [])
+
+  const currentTabLang = activeTabLang[activeTab] || result?.targetLang || (result?.raw?.target_lang as string) || targetLang || 'pl'
+  const activeSchema: SchemaData | null =
+    (result && materialTranslations[activeTab]?.[currentTabLang]) || result?.raw || null
+
+  useEffect(() => {
+    if (activeSchema) {
+      const wpLink = activeSchema?.wp_url as string | undefined
+      setYtDescription(buildYtDescription(activeSchema, wpLink))
+    }
+  }, [activeSchema])
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (inputMode === 'url' && !url.trim()) return
+    if (inputMode === 'audio' && !audioFile) return
+
+    setLoading(true)
+    setError('')
+    setAdaptError('')
+    setShowMultilangUpsell(false)
+    setResult(null)
+    setActiveJobId(null)
+
+    const effectiveTargetLang = canOverrideTargetLang ? targetLang : uiLang
+
+    try {
+      let data: GenerateResponse | null = null
+      const portalIdParam =
+        selectedPortalId === '__manual__' || selectedPortalId === '__add__' || !selectedPortalId
+          ? undefined
+          : selectedPortalId.trim()
+
+      if (inputMode === 'audio' && audioFile) {
+        const formData = new FormData()
+        formData.append('file', audioFile)
+        formData.append('publication_type', publicationType)
+        if (portalIdParam) {
+          formData.append('portal_id', portalIdParam)
+        }
+        formData.append('lang', effectiveTargetLang)
+        formData.append('target_lang', effectiveTargetLang)
+        formData.append('ui_lang', uiLang)
+        formData.append('llm_provider', 'claude')
+
+        data = await apiPostForm<GenerateResponse>('/v1/audio/generate', formData)
+      } else {
+        try {
+          data = await apiPost<GenerateResponse>('/v1/generate', {
+            video_url: url.trim(),
+            llm_provider: 'claude',
+            lang: effectiveTargetLang,
+            target_lang: effectiveTargetLang,
+            ui_lang: uiLang,
+            publication_type: publicationType,
+            portal_id: portalIdParam,
+          })
+        } catch (genErr: unknown) {
+          const msg = genErr instanceof Error ? genErr.message : String(genErr)
+          if (msg.includes('504') || msg.includes('524') || msg.includes('502') || msg.includes('Gateway')) {
+            const vid = extractVideoId(url.trim())
+            if (vid) {
+              for (let attempt = 0; attempt < 25; attempt++) {
+                await new Promise((r) => setTimeout(r, 4000))
+                try {
+                  const hist = await apiGet<Array<{ id: string; video_id?: string; video_url?: string; status: string; has_schema?: boolean }>>('/v1/jobs/history?limit=10')
+                  const match = Array.isArray(hist)
+                    ? hist.find((j) => (j.video_id === vid || (j.video_url && j.video_url.includes(vid))) && (j.status === 'done' || j.has_schema))
+                    : undefined
+                  if (match?.id) {
+                    const fullJob = await apiGet<{ id: string; video_id?: string; video_url: string; schema_data?: SchemaData }>(`/v1/jobs/${match.id}`)
+                    if (fullJob?.schema_data) {
+                      data = {
+                        status: 'ok',
+                        job_id: fullJob.id || match.id,
+                        video_id: fullJob.video_id || vid,
+                        processing_time_s: 0,
+                        schema_data: fullJob.schema_data,
+                        source_lang: (fullJob.schema_data.source_lang as string) || 'pl',
+                        target_lang: (fullJob.schema_data.target_lang as string) || effectiveTargetLang,
+                      }
+                      break
+                    }
+                  }
+                } catch {
+                  // continue polling
+                }
+              }
+            }
+          }
+          if (!data) throw genErr
+        }
+      }
+
+      if (!data) throw new Error('Pusta odpowiedź serwera')
+      if (data.error) throw new Error(data.error)
+
+      if (data.job_id) {
+        setActiveJobId(data.job_id)
+      }
+
+      const schema = data.schema_data ?? null
+      if (!schema) throw new Error('Serwer nie zwrócił schema_data')
+
+      const detectedSourceLang = (data.source_lang || schema.source_lang || 'pl') as string
+      const detectedTargetLang = (data.target_lang || schema.target_lang || effectiveTargetLang) as string
+      const effectiveInputUrl = inputMode === 'audio' ? `audio://${data.video_id}` : url.trim()
+
+      setResult({
+        raw: schema,
+        videoId: data.video_id,
+        time: data.processing_time_s,
+        inputUrl: effectiveInputUrl,
+        sourceLang: detectedSourceLang,
+        targetLang: detectedTargetLang,
+      })
+      setMaterialTranslations(buildTranslationsState(schema, detectedTargetLang))
+      setActiveTabLang({
+        article: detectedTargetLang,
+        youtube: detectedTargetLang,
+        chapters: detectedTargetLang,
+        schema: detectedTargetLang,
+      })
+      setActiveTab('article')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Nieznany błąd')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-500" />
+      </div>
+    )
+  }
+
+  const schema = activeSchema
+  const chapters = extractChapters(schema)
+  const faq = extractFaq(schema)
+  const quotes = (schema?.quotes as QuoteItem[] | undefined) ?? []
+  const planLabel =
+    userProfile?.plan_badge ||
+    (userProfile?.has_multilang_addon && (userPlan === 'starter' || userPlan === 'free')
+      ? 'Starter + 🌐 8 Jęz.'
+      : (userProfile?.plan?.display_name ?? 'Free'))
+  const usageUsed = userProfile?.usage?.used_this_month ?? userProfile?.used_this_month ?? 0
+  const usageQuota = userProfile?.usage?.quota ?? userProfile?.monthly_quota ?? 5
+  const extraQuotaBalance = userProfile?.extra_quota_balance ?? userProfile?.usage?.extra_quota_balance ?? 0
+  const customMonthlyQuota = userProfile?.custom_monthly_quota ?? userProfile?.usage?.custom_monthly_quota ?? null
+  const usagePercent = usageQuota === -1 ? 15 : usageQuota > 0 ? Math.min(100, (usageUsed / usageQuota) * 100) : 0
+
+  const sourceLangMeta = VSE_LANGUAGES.find((l) => l.code === (result?.sourceLang || result?.raw?.source_lang || 'pl'))
+  const targetLangMeta = VSE_LANGUAGES.find((l) => l.code === currentTabLang) || VSE_LANGUAGES[0]
+  const t = getTranslations(uiLang)
+
+  return (
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gray-950 text-white">
+        {/* Sidebar */}
+        <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-20">
+          <div className="p-5 border-b border-gray-800">
+            <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <span className="font-bold text-white block">PressAI VSE</span>
+                <span className="text-xs text-gray-500">Video SEO Engine</span>
+              </div>
+            </Link>
+          </div>
+
+          <nav className="flex-1 p-4 space-y-1">
+            <NavItem icon="grid" label={t.navDashboard} href="/dashboard" active />
+            <NavItem icon="clock" label={t.navHistory} href="/historia" />
+            <NavItem icon="settings" label={t.navSettings} href="/ustawienia" />
+            <NavItem icon="grid" label={t.navPricing} href="/cennik" />
+          </nav>
+
+          {/* User info + plan + UI language */}
+          <div className="p-4 border-t border-gray-800">
+            <div className="mb-3">
+              <div className="flex justify-between items-center text-xs text-gray-400 mb-1">
+                <span>{t.navUsed}</span>
+                <span className="font-mono text-gray-200">
+                  {usageUsed}/{usageQuota === -1 ? '∞' : usageQuota}
+                  {customMonthlyQuota !== null && (
+                    <span className="ml-1 text-[10px] text-amber-400 font-semibold">(VIP)</span>
+                  )}
+                </span>
+              </div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all"
+                  style={{ width: `${usagePercent}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-1.5">
+                {extraQuotaBalance > 0 ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    ⚡ +{extraQuotaBalance} Top-Up
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-500">Top-Up: 0 filmów</span>
+                )}
+                <a
+                  href="/cennik#topup"
+                  className="text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                >
+                  + Dokup pakiet Top-Up
+                </a>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                {session?.user?.email?.[0]?.toUpperCase() || 'U'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{session?.user?.email}</p>
+                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                  <span
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                      userPlan !== 'free' || hasMultilangAddon
+                        ? 'bg-gradient-to-r from-violet-600/30 to-emerald-600/30 text-emerald-300 border-emerald-500/40'
+                        : 'bg-gray-800 text-gray-300 border-gray-700'
+                    }`}
+                  >
+                    Plan {planLabel}
+                  </span>
+                  {userProfile?.desktop_runner_active && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      💻 Runner
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1 mb-3">
+              <a
+                href="/cennik"
+                className="text-xs text-gray-400 hover:text-violet-300 transition-colors py-0.5"
+              >
+                {t.navChangePlan}
+              </a>
+              {!hasMultilangAddon && (
+                <button
+                  type="button"
+                  onClick={handleBuyMultilangAddon}
+                  disabled={addonCheckoutLoading}
+                  className="text-left text-xs text-emerald-400 hover:text-emerald-300 transition-colors py-0.5"
+                >
+                  {t.navBuyAddon}
+                </button>
+              )}
+              {(userProfile?.plan?.id !== 'free' || hasMultilangAddon) && (
+                <ManageSubscriptionLink accessToken={(session as { accessToken?: string })?.accessToken} />
+              )}
+            </div>
+
+            {/* Compact UI Language Switcher at the bottom of Sidebar */}
+            <div className="mb-3 pt-2.5 border-t border-gray-800/80">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="sidebar-ui-lang" className="text-[11px] text-gray-400 truncate">
+                  🌐 {t.uiLangLabel}:
+                </label>
+                <select
+                  id="sidebar-ui-lang"
+                  aria-label={t.uiLangLabel}
+                  value={uiLang}
+                  onChange={(e) => handleUiLangChange(e.target.value)}
+                  className="w-28 flex-shrink-0 bg-gray-950 border border-gray-800 hover:border-gray-600 text-xs text-gray-200 rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:border-violet-500"
+                >
+                  {VSE_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label} ({l.short})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="w-full text-left text-sm text-gray-400 hover:text-white transition-colors py-1"
+            >
+              → {t.navSignOut}
+            </button>
+          </div>
+        </aside>
+
+        {/* Main content */}
+        <main className="ml-64 p-8">
+          <div className="max-w-4xl">
+
+            <EmailVerificationBanner
+              isVerified={userProfile?.is_verified}
+              accessToken={(session as { accessToken?: string })?.accessToken}
+            />
+
+            <div className="flex flex-wrap items-start justify-between gap-4 mb-1">
+              <h1 className="text-2xl font-bold text-white">{t.heading}</h1>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300">
+                {t.crossLangBadge}
+              </span>
+            </div>
+            <p className="text-gray-400 mb-8">
+              {t.subheading}
+            </p>
+
+            {jobLoading && (
+              <div className="mb-6 flex items-center gap-3 p-4 bg-violet-500/5 border border-violet-500/20 rounded-xl">
+                <span className="animate-spin inline-block w-4 h-4 border-2 border-violet-300/30 border-t-violet-400 rounded-full" />
+                <span className="text-sm text-violet-300">{t.historyLoading}</span>
+              </div>
+            )}
+
+            {jobError && (
+              <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
+                ⚠️ {jobError}
+              </div>
+            )}
+
+            {jobId && result && (
+              <div className="mb-6 flex items-center gap-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+                <span className="text-xs text-blue-400">{t.historyLoaded}</span>
+                <Link href="/historia" className="text-xs text-gray-500 hover:text-white ml-auto transition-colors">
+                  {t.historyBack}
+                </Link>
+              </div>
+            )}
+
+            {/* Portal, Publication Type & Target Language Selector */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">{t.targetPortal}</label>
+                {portalsLoading ? (
+                  <div className="flex items-center gap-2 h-[42px] text-sm text-gray-500">
+                    <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
+                    {t.loading}
+                  </div>
+                ) : portals.length === 0 ? (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val === '__add__') {
+                        setShowAddPortalModal(true)
+                      } else if (val === '__manual__') {
+                        setSelectedPortalId('__manual__')
+                      }
+                    }}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                  >
+                    <option value="" disabled>{t.noPortals}</option>
+                    <option value="__add__">{t.addPortal}</option>
+                    <option value="__manual__">{t.manualPortal}</option>
+                  </select>
+                ) : (
+                  <select
+                    id="portal-selector"
+                    value={selectedPortalId}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val === '__add__') {
+                        setShowAddPortalModal(true)
+                      } else if (val === '__manual__') {
+                        setSelectedPortalId('__manual__')
+                      } else {
+                        setSelectedPortalId(val)
+                      }
+                    }}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                  >
+                    {portals.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.is_plugin_connected || p.auth_mode === 'plugin_token' ? `🔌 ${p.name} (Wtyczka v3.0)` : p.name}
+                      </option>
+                    ))}
+                    <option value="__add__">{t.addPortal}</option>
+                    <option value="__manual__">{t.manualPortal}</option>
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">{t.publicationType}</label>
+                <select
+                  id="publication-type-selector"
+                  value={publicationType}
+                  onChange={(e) => setPublicationType(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                >
+                  <option value="full_analysis">{t.pubFullAnalysis}</option>
+                  <option value="news">{t.pubNews}</option>
+                  <option value="explainer">{t.pubExplainer}</option>
+                  <option value="wywiad">{t.pubInterview}</option>
+                  <option value="poradnik">{t.pubGuide}</option>
+                  <option value="felieton">{t.pubColumn}</option>
+                  <option value="reportaz">{t.pubReportage}</option>
+                  <option value="watching_page">{t.pubVideoPage}</option>
+                  <option value="discover">{t.pubDiscover}</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs text-gray-400">
+                    {t.targetLangLabel}{' '}
+                    <span className="text-[10px] text-violet-400">({t.targetLangDefaultHint})</span>
+                  </label>
+                  {!canOverrideTargetLang && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMultilangUpsell(true)}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium"
+                    >
+                      {t.unlock8Langs}
+                    </button>
+                  )}
+                </div>
+                <select
+                  id="target-lang-selector"
+                  value={canOverrideTargetLang ? targetLang : uiLang}
+                  onChange={(e) => {
+                    const nextLang = e.target.value
+                    if (!canOverrideTargetLang && nextLang !== uiLang) {
+                      setShowMultilangUpsell(true)
+                      return
+                    }
+                    setTargetLang(nextLang)
+                  }}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+                  style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+                >
+                  {VSE_LANGUAGES.map((l) => {
+                    const locked = !canOverrideTargetLang && l.code !== uiLang
+                    return (
+                      <option key={l.code} value={l.code}>
+                        {l.label} ({l.short}){locked ? t.lockedSuffix : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+            </div>
+
+            {/* Upsell Banner for Multi-Language Add-on (+29 PLN/mo) or Pro */}
+            {showMultilangUpsell && !hasMultilangAddon && (
+              <div className="mb-5 p-4 bg-gradient-to-r from-violet-950/70 via-gray-900 to-emerald-950/50 border border-violet-500/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-white">{t.upsellTitle}</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      {userPlan === 'free' ? 'Starter 49 zł + Add-on 29 zł' : '+29 PLN / mo'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    {t.upsellDesc}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                  {userPlan === 'free' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('starter_multilang')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        {addonCheckoutLoading ? t.loading : '🚀 Wybierz Starter + Pakiet 8 Języków (78 zł/mies.)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('pro')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        💎 Wybierz Plan Pro — 8 Języków W CENIE (149 zł/mies.)
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('multilang_addon')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        {addonCheckoutLoading ? t.loading : '🌐 Dokup Pakiet Wielojęzyczny (+29 zł/mies.)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCheckoutPlan('pro')}
+                        disabled={addonCheckoutLoading}
+                        className="px-3.5 py-2 bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        💎 Upgrade do Pro (149 zł/mies.)
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowMultilangUpsell(false)}
+                    className="text-xs text-gray-400 hover:text-white px-2 py-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Input Mode Selector */}
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => { setInputMode('url'); setError('') }}
+                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1.5 ${
+                  inputMode === 'url'
+                    ? 'bg-violet-600/20 text-violet-300 border-violet-500/50 shadow-sm'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+              >
+                {t.modeYoutube}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setInputMode('audio'); setError('') }}
+                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1.5 ${
+                  inputMode === 'audio'
+                    ? 'bg-violet-600/20 text-violet-300 border-violet-500/50 shadow-sm'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+              >
+                {t.modeAudio}
+              </button>
+            </div>
+
+            {/* URL / Audio Form */}
+            <form onSubmit={handleGenerate} className="mb-8">
+              <div className="flex gap-3">
+                {inputMode === 'url' ? (
+                  <input
+                    id="youtube-url-input"
+                    type="text"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder={t.urlPlaceholder}
+                    className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                ) : (
+                  <div className="flex-1 flex items-center">
+                    <label
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.style.borderColor = '#a855f7'
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.style.borderColor = ''
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.style.borderColor = ''
+                        const file = e.dataTransfer.files?.[0]
+                        if (file) setAudioFile(file)
+                      }}
+                      className="w-full flex items-center justify-between bg-gray-900 border border-dashed border-gray-700 hover:border-violet-500 rounded-xl px-4 py-3 cursor-pointer transition-colors group"
+                    >
+                      <div className="flex items-center gap-3 truncate">
+                        <span className="text-xl">🎙️</span>
+                        <div className="truncate">
+                          <p className="text-sm text-white font-medium truncate">
+                            {audioFile ? audioFile.name : t.audioDropTitle}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {audioFile ? `${(audioFile.size / (1024 * 1024)).toFixed(2)} MB` : t.audioDropFormats}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs bg-gray-800 group-hover:bg-violet-600 text-gray-300 group-hover:text-white px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ml-2">
+                        {audioFile ? t.changeFile : t.chooseFile}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".mp3,.wav,.m4a,.ogg,.aac,.flac,.wma,.mp4,audio/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) setAudioFile(f)
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+                <button
+                  id="generate-btn"
+                  type="submit"
+                  disabled={loading || (inputMode === 'url' ? !url.trim() : !audioFile)}
+                  className="px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 whitespace-nowrap"
+                >
+                  {loading ? (
+                    <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> {inputMode === 'audio' ? t.generatingAudioBtn : t.generatingBtn}</>
+                  ) : (
+                    <>{t.generateBtn}</>
+                  )}
+                </button>
+              </div>
+
+              {loading && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-gray-400">
+                  <span className="animate-spin inline-block w-3 h-3 border border-gray-500 border-t-violet-400 rounded-full" />
+                  {inputMode === 'audio'
+                    ? t.loadingAudioMsg
+                    : t.loadingVideoMsg}
+                </div>
+              )}
+
+              {error && (
+                <div className="mt-3 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-start gap-2">
+                  <span className="flex-shrink-0 mt-0.5">⚠️</span>
+                  <div>
+                    <p className="font-medium mb-0.5">{t.errorTitle}</p>
+                    <p className="text-red-300/80">{error}</p>
+                  </div>
+                </div>
+              )}
+            </form>
+
+            {!result && !loading && (
+              <>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  {[
+                    {
+                      label: t.statMonthly,
+                      value: `${usageUsed}/${usageQuota === -1 ? '∞' : usageQuota}`,
+                      sub: extraQuotaBalance > 0 ? `Plan ${planLabel} • ⚡ +${extraQuotaBalance} Top-Up` : `Plan ${planLabel}`,
+                    },
+                    { label: t.statBenchmark, value: '8/10', sub: t.statBenchmarkSub },
+                    { label: t.statSchema, value: 'v5.3', sub: 'Google 2026' },
+                  ].map((stat) => (
+                    <div key={stat.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                      <p className="text-gray-400 text-sm mb-1">{stat.label}</p>
+                      <p className="text-2xl font-bold text-white">{stat.value}</p>
+                      <p className="text-xs text-gray-500 mt-1">{stat.sub}</p>
+                    </div>
+                  ))}
+                </div>
+                <WpQuickPanel />
+              </>
+            )}
+
+            {/* Results */}
+            {result && (
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                  <div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h2 className="text-lg font-semibold text-white">{t.resultsHeading}</h2>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-xs text-violet-300">
+                        🌐 {t.sourceLabel}: {sourceLangMeta ? `${sourceLangMeta.flag} ${sourceLangMeta.short}` : (result.sourceLang || 'AUTO').toUpperCase()} → {t.outputLabel}: {targetLangMeta.flag} {targetLangMeta.label} ({targetLangMeta.short})
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {t.sourceLabel}: <span className="font-mono">{result.videoId}</span>
+                      {result.time && <> • {result.time.toFixed(1)}s</>}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm rounded-full border border-emerald-500/20">
+                      {t.generatedBadge}
+                    </span>
+                    {isPro && (
+                      <button
+                        onClick={() => setShowInjectModal(true)}
+                        className="px-4 py-1.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5"
+                      >
+                        {t.sendToPortalBtn}
+                      </button>
+                    )}
+                    {ytChannels.length > 0 && !result?.inputUrl?.startsWith('audio://') && !result?.videoId?.startsWith('audio_') && (
+                      <button
+                        onClick={() => setYtModalOpen(true)}
+                        className="px-4 py-1.5 bg-gradient-to-r from-red-600 to-red-500 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all flex items-center gap-1.5 ml-2"
+                      >
+                        {t.sendToYoutubeBtn}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Global Package Translation Bar (Translate ALL tabs at once) */}
+                <div className="mb-3 p-3 bg-gradient-to-r from-violet-950/50 via-gray-900 to-fuchsia-950/30 border border-violet-500/30 rounded-xl flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-violet-200 flex items-center gap-1.5">
+                      🌐 {uiLang === 'pl' ? 'Przetłumacz cały pakiet (wszystkie zakładki) na:' : 'Translate entire package (all tabs) to:'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {VSE_LANGUAGES.map((l) => {
+                      const allCached = ['article', 'youtube', 'chapters', 'schema'].every(
+                        (tKey) => Boolean(materialTranslations[tKey]?.[l.code])
+                      )
+                      const allActive = ['article', 'youtube', 'chapters', 'schema'].every(
+                        (tKey) => (activeTabLang[tKey] || result?.targetLang || 'pl') === l.code
+                      )
+                      const isLocked = !canAdaptPerMaterial && !allActive
+                      const isAdaptingThisAll = adaptingAllLang === l.code
+                      return (
+                        <button
+                          key={`all-${l.code}`}
+                          type="button"
+                          disabled={Boolean(adaptingLang)}
+                          onClick={() => handleAdaptAllMaterials(l.code)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1 ${
+                            allActive
+                              ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border-violet-400 shadow-sm'
+                              : allCached
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
+                              : 'bg-gray-800/90 text-gray-200 border-gray-700 hover:border-violet-400 hover:text-white'
+                          }`}
+                          title={`${l.label} (${l.short})`}
+                        >
+                          <span>{l.flag}</span>
+                          <span>{l.short}</span>
+                          {isAdaptingThisAll && (
+                            <span className="animate-spin inline-block w-3 h-3 border border-white/40 border-t-white rounded-full ml-0.5" />
+                          )}
+                          {!isAdaptingThisAll && allCached && (
+                            <span className="text-[10px] text-emerald-300">✓</span>
+                          )}
+                          {isLocked && <span className="text-[10px] opacity-80">🔒</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <TabBar
+                  active={activeTab}
+                  onChange={setActiveTab}
+                  chaptersCount={chapters.length}
+                  faqCount={faq.length}
+                  uiLang={uiLang}
+                />
+
+                {/* Per-Material Language Switcher Bar ("Złoty Środek") */}
+                {activeTab !== 'shorts' && (
+                  <div className="mb-4 p-3 bg-gray-900/90 border border-gray-800 rounded-xl">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-gray-400 flex items-center gap-1.5">
+                        🌐 {t.materialLangLabel}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {VSE_LANGUAGES.map((l) => {
+                          const isCurrent = currentTabLang === l.code
+                          const isCached = Boolean(materialTranslations[activeTab]?.[l.code])
+                          const isLocked = !canAdaptPerMaterial && !isCurrent
+                          const isAdaptingThis = adaptingLang === l.code && !adaptingAllLang
+                          return (
+                            <button
+                              key={l.code}
+                              type="button"
+                              disabled={Boolean(adaptingLang)}
+                              onClick={() => handleAdaptMaterial(activeTab, l.code)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center gap-1 ${
+                                isCurrent
+                                  ? 'bg-violet-600 text-white border-violet-500 shadow-sm'
+                                  : isCached
+                                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                                  : 'bg-gray-800/80 text-gray-300 border-gray-700 hover:border-violet-500/50 hover:text-white'
+                              }`}
+                              title={`${l.label} (${l.short})`}
+                            >
+                              <span>{l.flag}</span>
+                              <span>{l.short}</span>
+                              {isAdaptingThis && (
+                                <span className="animate-spin inline-block w-3 h-3 border border-white/40 border-t-white rounded-full ml-0.5" />
+                              )}
+                              {!isAdaptingThis && isCached && !isCurrent && (
+                                <span className="text-[10px] text-emerald-400">✓</span>
+                              )}
+                              {isLocked && <span className="text-[10px] opacity-80">🔒</span>}
+                            </button>
+                          )
+                        })}
+                        {!['article', 'youtube', 'chapters', 'schema'].every((tKey) => Boolean(materialTranslations[tKey]?.[currentTabLang])) && (
+                          <button
+                            type="button"
+                            disabled={Boolean(adaptingLang)}
+                            onClick={() => handleAdaptAllMaterials(currentTabLang)}
+                            className="ml-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/40 transition-all flex items-center gap-1"
+                          >
+                            ⚡ {uiLang === 'pl' ? `Przetłumacz wszystkie zakładki na ${targetLangMeta.short}` : `Translate all tabs to ${targetLangMeta.short}`}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {adaptingLang && (
+                      <div className="mt-2.5 flex items-center gap-2 text-xs text-violet-300">
+                        <span className="animate-spin inline-block w-3 h-3 border border-violet-400/30 border-t-violet-400 rounded-full" />
+                        {adaptingAllLang
+                          ? (uiLang === 'pl' ? 'Tłumaczenie całego pakietu (wszystkich zakładek) na:' : 'Translating entire package (all tabs) to:')
+                          : t.adaptingMsg}{' '}
+                        <strong>{VSE_LANGUAGES.find((x) => x.code === adaptingLang)?.label}</strong>... {t.adaptingNoQuota}
+                      </div>
+                    )}
+
+                    {adaptError && (
+                      <div className="mt-2.5 text-xs text-red-400">
+                        ⚠️ {adaptError}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab: Schemat */}
+                {activeTab === 'schema' && (
+                  <SchemaTab schema={schema} copiedKey={copiedKey} onCopy={handleCopy} />
+                )}
+
+                {/* Tab: Artykuł */}
+                {activeTab === 'article' && (
+                  <ArticleTab
+                    schema={schema}
+                    faq={faq}
+                    quotes={quotes}
+                    copiedKey={copiedKey}
+                    onCopy={handleCopy}
+                  />
+                )}
+
+                {/* Tab: Rozdziały */}
+                {activeTab === 'chapters' && (
+                  <ChaptersTab chapters={chapters} copiedKey={copiedKey} onCopy={handleCopy} />
+                )}
+
+                {/* Tab: Opis YouTube */}
+                {activeTab === 'youtube' && (
+                  <YouTubeTab ytDescription={ytDescription} copiedKey={copiedKey} onCopy={handleCopy} />
+                )}
+
+                {/* Tab: ShortMachine */}
+                {activeTab === 'shorts' && (
+                  (userPlan === 'agency' || userProfile?.is_admin) ? (
+                    <ShortMachineTab
+                      ytChannels={ytChannels}
+                      initialYoutubeId={result?.videoId || extractVideoId(url) || extractVideoId(result?.inputUrl || '')}
+                      accessToken={accessToken}
+                      session={session}
+                      source={(result?.raw?.source as string) || (result?.inputUrl?.startsWith('audio://') || result?.videoId?.startsWith('audio_') ? 'audio' : 'youtube')}
+                      isAudio={result?.raw?.source === 'audio' || result?.inputUrl?.startsWith('audio://') || result?.videoId?.startsWith('audio_')}
+                    />
+                  ) : (
+                    <div className="bg-gray-900 border border-violet-500/30 rounded-2xl p-6 md:p-8">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-2.5">
+                          <span className="px-3 py-1 rounded-full text-xs font-bold bg-violet-500/20 text-violet-300 border border-violet-500/40 uppercase tracking-wider">
+                            🎬 Moduł Specjalistyczny · Plan Agency / Add-on
+                          </span>
+                        </div>
+                        <Link
+                          href="/shortmachine"
+                          className="text-xs text-violet-400 hover:text-violet-300 underline underline-offset-2"
+                        >
+                          Dowiedz się więcej o ShortMachine →
+                        </Link>
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2">
+                        ShortMachine AI — Automatyczne rolki 9:16 i markery montażowe NLE
+                      </h3>
+                      <p className="text-sm text-gray-300 leading-relaxed mb-5">
+                        Moduł <strong className="text-white">ShortMachine</strong> automatycznie wybiera najbardziej wiralowe fragmenty z długiego wideo lub nagrania audio, generuje scenariusze Shorts / Reels / TikTok, eksportuje markery XML/EDL do <strong className="text-white">Premiere Pro / DaVinci Resolve</strong> oraz wycina gotowe klipy MP4 9:16 przez lokalny <strong className="text-white">VSE Desktop Runner</strong>.
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                        <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3.5">
+                          <p className="text-xs font-semibold text-white mb-1">🎯 AI Viral Hooks</p>
+                          <p className="text-xs text-gray-400">Automatyczna detekcja najmocniejszych 30–60s momentów z transkrypcji.</p>
+                        </div>
+                        <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3.5">
+                          <p className="text-xs font-semibold text-white mb-1">🎞️ Premiere &amp; DaVinci</p>
+                          <p className="text-xs text-gray-400">Eksport gotowej osi czasu i markerów dla montażystów wideo.</p>
+                        </div>
+                        <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl p-3.5">
+                          <p className="text-xs font-semibold text-white mb-1">✂️ Auto-Cutter 9:16</p>
+                          <p className="text-xs text-gray-400">Lokalne wycinanie pionowych klipów MP4 przez VSE Desktop Runner.</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Link
+                          href="/cennik"
+                          className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-90 rounded-xl text-xs font-semibold text-white transition-all"
+                        >
+                          💎 Odblokuj w planie Agency →
+                        </Link>
+                        <Link
+                          href="/shortmachine"
+                          className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-xs font-medium text-gray-200 transition-colors"
+                        >
+                          Zobacz stronę modułu ShortMachine
+                        </Link>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* Inject Modal */}
+        {showInjectModal && result && (() => {
+          const selectedPortal = portals.find((p) => p.id === selectedPortalId)
+          return (
+            <InjectModal
+              schemaData={activeSchema || result.raw}
+              videoUrl={result.inputUrl}
+              accessToken={accessToken}
+              onClose={() => setShowInjectModal(false)}
+              selectedPortalId={selectedPortalId}
+              portalName={selectedPortal?.name}
+              portalUrl={selectedPortal?.url}
+              ytChannels={ytChannels}
+              jobId={activeJobId || jobId || undefined}
+            />
+          )
+        })()}
+
+        {ytModalOpen && result && (() => {
+          const wpUrl = (activeSchema || result.raw)?.wp_article_url || (activeSchema || result.raw)?.published_url || ""
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+
+          return (
+            <YouTubePublishModal
+              overrideDescription={ytDescription}
+              isOpen={ytModalOpen}
+              onClose={() => setYtModalOpen(false)}
+              videoId={result?.videoId || result?.raw?.video_id || extractVideoId(result?.inputUrl || "") || ""}
+              schemaData={activeSchema ?? result.raw ?? {}}
+              wpUrl={wpUrl}
+              channels={ytChannels}
+              accessToken={accessToken || ""}
+              apiUrl={apiUrl}
+            />
+          )
+        })()}
+
+        {showAddPortalModal && (
+          <AddPortalModal
+            onClose={() => setShowAddPortalModal(false)}
+            onSuccess={(portalId) => {
+              setShowAddPortalModal(false)
+              setSelectedPortalId(portalId)
+            }}
+          />
+        )}
+      </div>
+    </ErrorBoundary>
+  )
+}
