@@ -1132,6 +1132,8 @@ class VSE_Video_SEO {
         $schema_json      = $request->get_param( 'schema_json' );
         $chapters_json    = $request->get_param( 'chapters_json' );
         $seo_score        = absint( $request->get_param( 'seo_score' ) ?: 96 );
+        $thumbnail_url    = esc_url_raw( (string) $request->get_param( 'thumbnail_url' ) );
+        $image_meta       = $request->get_param( 'image_meta' );
 
         if ( '' === $post_title ) {
             $post_title = '' !== $seo_title ? $seo_title : 'Artykuł Wideo VSE';
@@ -1189,12 +1191,66 @@ class VSE_Video_SEO {
 
         VSE_SEO_Adapter::update_seo_meta( $post_id, $seo_title, $meta_description, $focus_keyword );
 
+        // T1: Sideload thumbnail and set as WP featured image
+        $thumbnail_id = 0;
+        if ( ! empty( $thumbnail_url ) && ( ! has_post_thumbnail( $post_id ) || $request->get_param( 'force_thumbnail' ) ) ) {
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+
+            $descs = is_array( $image_meta ) ? $image_meta : array();
+            if ( isset( $descs['descriptions'] ) && is_array( $descs['descriptions'] ) ) {
+                $descs = $descs['descriptions'];
+            }
+
+            $img_title   = ! empty( $descs['title'] ) ? sanitize_text_field( $descs['title'] ) : $post_title;
+            $img_alt     = ! empty( $descs['alt_text'] ) ? sanitize_text_field( $descs['alt_text'] ) : ( ! empty( $focus_keyword ) ? $focus_keyword : $post_title );
+            $img_caption = ! empty( $descs['caption'] ) ? sanitize_text_field( $descs['caption'] ) : '';
+            $img_desc    = ! empty( $descs['description'] ) ? sanitize_textarea_field( $descs['description'] ) : '';
+
+            $custom_fn = ! empty( $descs['filename'] ) ? sanitize_file_name( $descs['filename'] ) : '';
+            if ( empty( $custom_fn ) ) {
+                $url_path = parse_url( $thumbnail_url, PHP_URL_PATH );
+                $custom_fn = $url_path ? basename( $url_path ) : 'vse-thumbnail.jpg';
+            }
+            if ( ! preg_match( '/\.(jpg|jpeg|png|webp)$/i', $custom_fn ) ) {
+                $custom_fn .= '.jpg';
+            }
+
+            $tmp = download_url( $thumbnail_url, 30 );
+            if ( ! is_wp_error( $tmp ) ) {
+                $file_array = array(
+                    'name'     => $custom_fn,
+                    'tmp_name' => $tmp,
+                );
+
+                $attachment_post_data = array(
+                    'post_title'   => $img_title,
+                    'post_excerpt' => $img_caption,
+                    'post_content' => $img_desc,
+                );
+
+                $attach_id = media_handle_sideload( $file_array, $post_id, $img_title, $attachment_post_data );
+
+                if ( ! is_wp_error( $attach_id ) ) {
+                    if ( ! empty( $img_alt ) ) {
+                        update_post_meta( $attach_id, '_wp_attachment_image_alt', $img_alt );
+                    }
+                    set_post_thumbnail( $post_id, $attach_id );
+                    $thumbnail_id = (int) $attach_id;
+                } else {
+                    @unlink( $tmp );
+                }
+            }
+        }
+
         return new WP_REST_Response( array(
             'ok'             => true,
             'post_id'        => $post_id,
             'post_url'       => get_permalink( $post_id ),
             'edit_url'       => get_edit_post_link( $post_id, 'raw' ),
             'status'         => $post_status,
+            'thumbnail_id'   => $thumbnail_id > 0 ? $thumbnail_id : (int) get_post_thumbnail_id( $post_id ),
             'plugin_version' => VSE_VIDEO_SEO_VERSION,
         ), 200 );
     }
