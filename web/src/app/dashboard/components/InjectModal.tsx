@@ -13,6 +13,7 @@ export function InjectModal({
   accessToken,
   onClose,
   ytChannels,
+  jobId,
 }: {
   schemaData: SchemaData
   videoUrl: string
@@ -22,6 +23,7 @@ export function InjectModal({
   accessToken?: string
   onClose: () => void
   ytChannels?: any[]
+  jobId?: string | null
 }) {
   const initialCreds = loadWpCredentials()
   const [wpUrl, setWpUrl] = useState(initialCreds.wpUrl)
@@ -110,6 +112,7 @@ export function InjectModal({
         schema_data: schemaData,
         post_status: postStatus,
         post_format: postFormat,
+        job_id: jobId || undefined,
       }
 
       if (selectedYtChannelIds.length > 0) {

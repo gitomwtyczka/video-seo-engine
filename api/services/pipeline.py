@@ -84,6 +84,9 @@ K4 (2026-10-21, vse-dev-k4):
   - Tworzenie job_id (status=processing, wiersz per kliknięcie) na początku run_generate().
   - Scoping user_id (R1/R2) w _get_cached_transcript_from_db: nigdy nie czytaj transkryptu innego usera.
   - run_inject rezolwuje profile_id/schema z req.portal_id lub req.job_id, usuwając ślepe zapytanie o ostatni job.
+
+K4.1 (2026-10-24, vse-dev-k4-1):
+  - Local runner reuse existing_job_id in _create_transcript_job to eliminate duplicate rows.
 """
 import asyncio
 import logging
@@ -235,8 +238,12 @@ async def _get_cached_transcript_from_db(
     return None
 
 
-async def _create_transcript_job(video_url: str, user_id: Optional[str] = None) -> str:
-    """Tworzy job transkrypcji w DB i zwraca jego ID."""
+async def _create_transcript_job(
+    video_url: str,
+    user_id: Optional[str] = None,
+    existing_job_id: Optional[str] = None,
+) -> str:
+    """Tworzy lub aktualizuje job transkrypcji w DB i zwraca jego ID."""
     uid = None
     if user_id:
         try:
@@ -245,6 +252,21 @@ async def _create_transcript_job(video_url: str, user_id: Optional[str] = None) 
             pass
 
     async with AsyncSessionLocal() as db:
+        if existing_job_id:
+            try:
+                j_uuid = uuid.UUID(str(existing_job_id))
+                job = await db.get(TranscriptJob, j_uuid)
+                if job:
+                    job.status = "pending"
+                    job.updated_at = datetime.now(timezone.utc)
+                    if uid is not None and job.user_id is None:
+                        job.user_id = uid
+                    await db.commit()
+                    logger.info("[pipeline] Reusing existing transcript job %s (user_id=%s) for %s", existing_job_id, uid, video_url)
+                    return str(job.id)
+            except (ValueError, TypeError) as exc:
+                logger.warning("[pipeline] Invalid existing_job_id %s: %s", existing_job_id, exc)
+
         job = TranscriptJob(video_url=video_url, status="pending", user_id=uid)
         db.add(job)
         await db.commit()
@@ -324,16 +346,20 @@ async def _wait_for_transcript(job_id: str) -> str:
     )
 
 
-async def _fetch_transcript_local_runner(video_url: str, user_id: Optional[str] = None) -> str:
+async def _fetch_transcript_local_runner(
+    video_url: str,
+    user_id: Optional[str] = None,
+    existing_job_id: Optional[str] = None,
+) -> str:
     """Pełny flow pobrania transkryptu przez Local Runner (z uprzednim sprawdzeniem DB Cache)."""
     video_id = _extract_video_id(video_url)
     cached = await _get_cached_transcript_from_db(video_id, user_id=user_id)
     if cached:
         return cached
 
-    job_id = await _create_transcript_job(video_url, user_id=user_id)
+    job_id = await _create_transcript_job(video_url, user_id=user_id, existing_job_id=existing_job_id)
     logger.info(
-        "[pipeline] LOCAL_RUNNER_MODE: job %s created (user_id=%s), waiting up to %ds for runner...",
+        "[pipeline] LOCAL_RUNNER_MODE: job %s created/reused (user_id=%s), waiting up to %ds for runner...",
         job_id,
         user_id,
         LOCAL_RUNNER_POLL_TIMEOUT,
@@ -1020,6 +1046,7 @@ async def run_generate(
                             transcript_text = await _fetch_transcript_local_runner(
                                 f"https://www.youtube.com/watch?v={video_id}",
                                 user_id=user_id,
+                                existing_job_id=job_id,
                             )
 
                             vtt_path = str(pathlib.Path(tmp_dir) / f"{video_id}.vtt")

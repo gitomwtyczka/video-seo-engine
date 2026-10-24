@@ -30,6 +30,7 @@ export interface MultilangEntitlements {
 
 export interface GenerateResponse {
   status: string
+  job_id?: string
   video_id: string
   processing_time_s?: number
   schema_data?: SchemaData | null

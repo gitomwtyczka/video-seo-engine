@@ -19,6 +19,7 @@ interface HistoryJob {
   video_url: string
   video_id: string | null
   status: string
+  publication_type?: string | null
   error: string | null
   has_vtt: boolean
   has_schema: boolean
@@ -74,6 +75,29 @@ export default function HistoriaPage() {
     )
   }
 
+  const publicationTypeBadge = (type?: string | null, hasSchema?: boolean) => {
+    const effectiveType = type || (hasSchema ? 'full_analysis' : null)
+    if (!effectiveType) return null
+
+    const map: Record<string, { bg: string; text: string; label: string }> = {
+      watching_page: { bg: 'bg-indigo-500/10 border-indigo-500/20', text: 'text-indigo-400', label: '🎬 Strona filmu' },
+      discover: { bg: 'bg-amber-500/10 border-amber-500/20', text: 'text-amber-400', label: '🔥 Discover' },
+      full_analysis: { bg: 'bg-purple-500/10 border-purple-500/20', text: 'text-purple-400', label: '📰 Pełna analiza' },
+      news: { bg: 'bg-sky-500/10 border-sky-500/20', text: 'text-sky-400', label: '⚡ News' },
+      explainer: { bg: 'bg-teal-500/10 border-teal-500/20', text: 'text-teal-400', label: '💡 Explainer' },
+      wywiad: { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: '🎙️ Wywiad' },
+      poradnik: { bg: 'bg-blue-500/10 border-blue-500/20', text: 'text-blue-400', label: '📘 Poradnik' },
+      felieton: { bg: 'bg-rose-500/10 border-rose-500/20', text: 'text-rose-400', label: '✍️ Felieton' },
+      reportaz: { bg: 'bg-fuchsia-500/10 border-fuchsia-500/20', text: 'text-fuchsia-400', label: '🎥 Reportaż' },
+    }
+    const style = map[effectiveType] || { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-400', label: effectiveType }
+    return (
+      <span className={`px-2 py-0.5 text-xs rounded-full border ${style.bg} ${style.text}`}>
+        {style.label}
+      </span>
+    )
+  }
+
   const handleDownloadVtt = async (jobId: string, videoId: string | null) => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
@@ -122,7 +146,7 @@ export default function HistoriaPage() {
           <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             </div>
             <div>
@@ -215,6 +239,7 @@ export default function HistoriaPage() {
                           )}
                           <div className="flex items-center gap-2 mt-1">
                             {statusBadge(job.status)}
+                            {publicationTypeBadge(job.publication_type, job.has_schema)}
                             {job.has_vtt && (
                               <button
                                 onClick={() => handleDownloadVtt(job.id, job.video_id)}

@@ -77,6 +77,7 @@ export default function DashboardInner() {
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [result, setResult] = useState<{
     raw: SchemaData
     videoId: string
@@ -179,6 +180,12 @@ export default function DashboardInner() {
   const { jobId, jobData, jobLoading, jobError } = useJobLoader(accessToken)
 
   useEffect(() => {
+    if (jobId) {
+      setActiveJobId(jobId)
+    }
+  }, [jobId])
+
+  useEffect(() => {
     if (jobData?.schema_data) {
       const videoId = jobData.video_id || ''
       const sData = jobData.schema_data as SchemaData
@@ -191,6 +198,11 @@ export default function DashboardInner() {
         sourceLang: initSource,
         targetLang: initTarget,
       })
+      if (jobId) {
+        setActiveJobId(jobId)
+      } else if (jobData.id) {
+        setActiveJobId(jobData.id)
+      }
       setMaterialTranslations(buildTranslationsState(sData, initTarget))
       setActiveTabLang({
         article: initTarget,
@@ -201,7 +213,7 @@ export default function DashboardInner() {
       setUrl(jobData.video_url)
       setActiveTab('article')
     }
-  }, [jobData, buildTranslationsState])
+  }, [jobData, jobId, buildTranslationsState])
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login')
@@ -277,6 +289,7 @@ export default function DashboardInner() {
   }
 
   const getCurrentJobIdParam = () => {
+    if (activeJobId) return activeJobId
     if (jobId) return jobId
     if (typeof window !== 'undefined') {
       return new URLSearchParams(window.location.search).get('job_id') || undefined
@@ -452,6 +465,7 @@ export default function DashboardInner() {
     setAdaptError('')
     setShowMultilangUpsell(false)
     setResult(null)
+    setActiveJobId(null)
 
     const effectiveTargetLang = canOverrideTargetLang ? targetLang : uiLang
 
@@ -503,6 +517,7 @@ export default function DashboardInner() {
                     if (fullJob?.schema_data) {
                       data = {
                         status: 'ok',
+                        job_id: fullJob.id || match.id,
                         video_id: fullJob.video_id || vid,
                         processing_time_s: 0,
                         schema_data: fullJob.schema_data,
@@ -524,6 +539,10 @@ export default function DashboardInner() {
 
       if (!data) throw new Error('Pusta odpowiedź serwera')
       if (data.error) throw new Error(data.error)
+
+      if (data.job_id) {
+        setActiveJobId(data.job_id)
+      }
 
       const schema = data.schema_data ?? null
       if (!schema) throw new Error('Serwer nie zwrócił schema_data')
@@ -1356,6 +1375,7 @@ export default function DashboardInner() {
               portalName={selectedPortal?.name}
               portalUrl={selectedPortal?.url}
               ytChannels={ytChannels}
+              jobId={activeJobId || jobId || undefined}
             />
           )
         })()}
