@@ -1,13 +1,15 @@
 {
-  "callsign": "vse-dev-t1",
+  "callsign": "vse-dev-w1",
   "status": "done",
-  "current_task": "T1 — Przywrócenie miniatur WP, PressAI Vision (D11) i ImageObject JSON-LD",
-  "timestamp": "2026-10-24T21:55:00+02:00",
+  "current_task": "W1 — Format wpisu WP (video) oraz wymogi Google Watch Page 2026 i HCU (TASK-01..06)",
+  "timestamp": "2026-10-24T22:47:00+02:00",
   "last_completed": [
-    "PR #8 (fix/t1-thumbnails-pressai-imageobject): T1 thumbnails WP Featured Image, PressAI Vision image descriptions, ImageObject schema — merge commit 9613090 / 3c0fad0",
-    "Deploy TAG=20261024-195131 na VPS oracle-crimson (pytest 37/37 PASS, HTTP 200/200 PASS, PressAI Vision verified)"
+    "PR #9 (feat/w1-watch-page-post-format): merge commit f0167fe / 921b9b5 (api/routers/inject.py, tests/test_w1_watch_page.py)",
+    "W1 Core Sync: commit 75bb6c2 (api/services/pipeline.py), commit 8583625 (core/generator.py), commit f40f9b6 (core/injector.py)",
+    "W1 Deploy & Verification: testy 49/49 PASS, format=video, Article, BreadcrumbList, SeekToAction, responsive embed 16:9, fallback internal links box, prompt watching_page 300-450 słów",
+    "PR #8 (fix/t1-thumbnails-pressai-imageobject): T1 thumbnails WP Featured Image, PressAI Vision image descriptions, ImageObject schema"
   ],
   "pending": [
-    "W1 — Format wpisu WP (video) oraz wymogi Watch Page (TASK-01 do TASK-06)"
+    "Audyt techniczny i walidacja GSC / PageSpeed posta przez shadow-analyst-01"
   ]
 }
