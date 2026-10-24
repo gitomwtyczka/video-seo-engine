@@ -4,18 +4,6 @@ import { useState, useEffect, useRef } from 'react'
 import type { SchemaData, InjectResult } from '../types'
 import { loadWpCredentials, saveWpCredentials } from '../utils'
 
-export interface InjectModalProps {
-  schemaData: SchemaData
-  videoUrl: string
-  selectedPortalId: string
-  portalName?: string
-  portalUrl?: string
-  accessToken?: string
-  onClose: () => void
-  ytChannels?: any[]
-  jobId?: string | null
-}
-
 export function InjectModal({
   schemaData,
   videoUrl,
@@ -26,7 +14,17 @@ export function InjectModal({
   onClose,
   ytChannels,
   jobId,
-}: InjectModalProps) {
+}: {
+  schemaData: SchemaData
+  videoUrl: string
+  selectedPortalId: string
+  portalName?: string
+  portalUrl?: string
+  accessToken?: string
+  onClose: () => void
+  ytChannels?: any[]
+  jobId?: string | null
+}) {
   const initialCreds = loadWpCredentials()
   const [wpUrl, setWpUrl] = useState(initialCreds.wpUrl)
   const [wpUser, setWpUser] = useState(initialCreds.wpUser)
@@ -214,4 +212,247 @@ export function InjectModal({
             <p className="text-sm font-medium text-white truncate">
               {schemaData.post_title ?? '(brak tytułu)'}
             </p>
-            {schemaData.meta_description && (\n              <p className=\"text-xs text-gray-400 mt-1 line-clamp-2\">\n                {schemaData.meta_description}\n              </p>\n            )}\n          </div>\n\n          {!isManual && portalName && (\n            <div className=\"flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4\">\n              <span className=\"text-xs text-violet-400\">🚀</span>\n              <span className=\"text-sm text-gray-200\">Publikujesz na: <span className=\"font-semibold\">{portalName}</span></span>\n              <span className=\"text-xs text-gray-500 ml-auto\">{portalUrl}</span>\n            </div>\n          )}\n\n          {isManual && (\n            <>\n              <div>\n                <label className=\"block text-xs text-gray-400 mb-1.5\">URL portalu WordPress</label>\n                <input\n                  type=\"text\"\n                  value={wpUrl}\n                  onChange={(e) => setWpUrl(e.target.value)}\n                  placeholder=\"https://twojportal.pl\"\n                  className=\"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors\"\n                />\n              </div>\n\n              <div className=\"grid grid-cols-2 gap-3\">\n                <div>\n                  <label className=\"block text-xs text-gray-400 mb-1.5\">Użytkownik WP</label>\n                  <input\n                    type=\"text\"\n                    value={wpUser}\n                    onChange={(e) => setWpUser(e.target.value)}\n                    placeholder=\"admin\"\n                    className=\"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors\"\n                  />\n                </div>\n                <div>\n                  <label className=\"block text-xs text-gray-400 mb-1.5\">Application Password</label>\n                  <input\n                    type=\"password\"\n                    value={wpPassword}\n                    onChange={(e) => setWpPassword(e.target.value)}\n                    placeholder=\"xxxx xxxx xxxx xxxx\"\n                    className=\"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors\"\n                  />\n                </div>\n              </div>\n            </>\n          )}\n\n          <div className=\"mb-4\">\n            <label className=\"block text-xs text-gray-400 mb-1.5\">Dodatkowo: Opublikuj opis na YouTube</label>\n            {ytChannels && ytChannels.length > 0 ? (\n              <div className=\"space-y-2 max-h-32 overflow-y-auto bg-gray-800/50 p-2 rounded-lg border border-gray-700\">\n                {ytChannels.map(ch => {\n                  const isOwner = videoOwnerChannelId && ch.channel_id === videoOwnerChannelId\n                  return (\n                    <label key={ch.channel_id} className=\"flex items-center gap-2 cursor-pointer\">\n                      <input\n                        type=\"checkbox\"\n                        checked={selectedYtChannelIds.includes(ch.channel_id)}\n                        onChange={(e) => {\n                          if (e.target.checked) setSelectedYtChannelIds(p => [...p, ch.channel_id])\n                          else setSelectedYtChannelIds(p => p.filter(id => id !== ch.channel_id))\n                        }}\n                        className=\"accent-violet-500 rounded\"\n                      />\n                      <span className=\"text-sm text-gray-300\">{ch.channel_title}</span>\n                      {isOwner && (\n                        <span className=\"text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30\">\n                          Właściciel wideo\n                        </span>\n                      )}\n                    </label>\n                  )\n                })}\n              </div>\n            ) : (\n              <div className=\"p-3 bg-gray-800/50 rounded-lg border border-gray-700\">\n                <p className=\"text-xs text-amber-500/90 flex items-center gap-1.5\">\n                  ⚠️ Brak podłączonych kanałów YouTube.\n                  <a href=\"/ustawienia\" target=\"_blank\" rel=\"noreferrer\" className=\"underline hover:text-amber-400 transition-colors ml-1\">\n                    Przejdź do ustawień\n                  </a>\n                </p>\n              </div>\n            )}\n\n            {selectedYtChannelIds.length > 0 && ytChannels && ytChannels.length > 0 && (\n              <div className=\"mt-3\">\n                {!showYtPreview ? (\n                  <button\n                    onClick={() => setShowYtPreview(true)}\n                    className=\"text-xs text-violet-400 hover:text-violet-300 underline\"\n                  >\n                    Pokaż edytowalny podgląd opisu YT\n                  </button>\n                ) : (\n                  <div className=\"mt-2 animate-in slide-in-from-top-2\">\n                    <label className=\"block text-xs text-gray-400 mb-1\">\n                      Podgląd opisu YouTube <span className=\"text-gray-600\">(edytowalny)</span>\n                    </label>\n                    <textarea\n                      value={ytDescPreview}\n                      onChange={(e) => setYtDescPreview(e.target.value)}\n                      rows={6}\n                      className=\"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-violet-500 resize-y font-mono\"\n                    />\n                    <button\n                      onClick={() => setShowYtPreview(false)}\n                      className=\"mt-1 text-xs text-gray-500 hover:text-gray-400\"\n                    >\n                      Ukryj podgląd\n                    </button>\n                  </div>\n                )}\n              </div>\n            )}\n          </div>\n\n          <div className=\"grid grid-cols-2 gap-3\">\n            <div>\n              <label className=\"block text-xs text-gray-400 mb-1.5\">\n                ID posta WP <span className=\"text-gray-600\">(puste = nowy post)</span>\n              </label>\n              <input\n                type=\"number\"\n                value={wpPostId}\n                onChange={(e) => setWpPostId(e.target.value)}\n                placeholder=\"Puste = nowy artykuł\"\n                className=\"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors\"\n              />\n            </div>\n            <div>\n              <label className=\"block text-xs text-gray-400 mb-1.5\">Status publikacji</label>\n              <div className=\"flex gap-4 h-[42px] items-center\">\n                <label className=\"flex items-center gap-2 cursor-pointer\">\n                  <input\n                    type=\"radio\"\n                    name=\"modal_post_status\"\n                    value=\"draft\"\n                    checked={postStatus === 'draft'}\n                    onChange={() => setPostStatus('draft')}\n                    className=\"accent-violet-500\"\n                  />\n                  <span className=\"text-sm text-gray-300\">Szkic</span>\n                </label>\n                <label className=\"flex items-center gap-2 cursor-pointer\">\n                  <input\n                    type=\"radio\"\n                    name=\"modal_post_status\"\n                    value=\"publish\"\n                    checked={postStatus === 'publish'}\n                    onChange={() => setPostStatus('publish')}\n                    className=\"accent-violet-500\"\n                  />\n                  <span className=\"text-sm text-gray-300\">Publikuj</span>\n                </label>\n              </div>\n            </div>\n          </div>\n\n          <div>\n            <label className=\"block text-xs text-gray-400 mb-1.5\">Format wpisu WordPress</label>\n            <select\n              value={postFormat}\n              onChange={(e) => setPostFormat(e.target.value)}\n              className=\"w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer\"\n              style={{ backgroundImage: 'url(\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 20 20\\'%3E%3Cpath stroke=\\'%236b7280\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'1.5\\' d=\\'M6 8l4 4 4-4\\'/%3E%3C/svg%3E\")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}\n            >\n              <option value=\"video\">🎬 Film (video)</option>\n              <option value=\"standard\">📄 Standard</option>\n              <option value=\"gallery\">🖼️ Galeria (gallery)</option>\n              <option value=\"quote\">💬 Cytat (quote)</option>\n            </select>\n            <p className=\"text-xs text-gray-600 mt-1\">Domyślnie: Film — optymalny dla treści video SEO</p>\n          </div>\n\n          <button\n            onClick={handlePublish}\n            disabled={publishing || (!isManual && !selectedPortalId && selectedYtChannelIds.length === 0) || (isManual && !wpUrl && selectedYtChannelIds.length === 0)}\n            className=\"w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2\"\n          >\n            {publishing ? (\n              <><span className=\"animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full\" /> Publikowanie...</>\n            ) : (\n              <>🚀 Opublikuj na portalu</>\n            )}\n          </button>\n\n          {publishResult && (\n            <div\n              className={`p-4 rounded-xl text-sm ${\n                publishResult.error\n                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'\n                  : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'\n              }`}\n            >\n              {publishResult.error ? (\n                <><span className=\"font-medium\">⚠️ Błąd:</span> {publishResult.error}</>\n              ) : (\n                <div className=\"space-y-1\">\n                  <p><span className=\"font-medium\">✔️ Sukces!</span>\n                    {publishResult.created ? ' Utworzono nowy artykuł' : ' Zaktualizowano artykuł'}\n                    {publishResult.wp_post_id && ` (ID: ${publishResult.wp_post_id})`}\n                  </p>\n                  {publishResult.post_url && (\n                    <a\n                      href={publishResult.post_url}\n                      target=\"_blank\"\n                      rel=\"noopener noreferrer\"\n                      className=\"inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200 underline underline-offset-2\"\n                    >\n                      Otwórz artykuł na portalu →\n                    </a>\n                  )}\n                  {publishResult.ytError && (\n                    <div className=\"mt-2 pt-2 border-t border-emerald-500/20 text-amber-300 text-xs\">\n                      ⚠️ Portal OK, ale wystąpił błąd YouTube: <span className=\"font-mono text-amber-200\">{publishResult.ytError}</span>\n                    </div>\n                  )}\n                  {publishResult.youtube_updated && !publishResult.ytError && selectedYtChannelIds.length > 0 && (\n                    <p className=\"text-xs text-emerald-300 mt-1\">\n                      🎬 Opis na kanale YouTube został pomyślnie zaktualizowany.\n                    </p>\n                  )}\n                </div>\n              )}\n            </div>\n          )}\n\n          <p className=\"text-xs text-gray-600 text-center\">\n            {isManual ? 'Dane logowania zapamiętane w przeglądarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}\n          </p>\n        </div>\n      </div>\n    </div>\n  )\n}\n\nexport default InjectModal\n
+            {schemaData.meta_description && (
+              <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                {schemaData.meta_description}
+              </p>
+            )}
+          </div>
+
+          {!isManual && portalName && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/5 border border-violet-500/15 rounded-lg mb-4">
+              <span className="text-xs text-violet-400">🚀</span>
+              <span className="text-sm text-gray-200">Publikujesz na: <span className="font-semibold">{portalName}</span></span>
+              <span className="text-xs text-gray-500 ml-auto">{portalUrl}</span>
+            </div>
+          )}
+
+          {isManual && (
+            <>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">URL portalu WordPress</label>
+                <input
+                  type="text"
+                  value={wpUrl}
+                  onChange={(e) => setWpUrl(e.target.value)}
+                  placeholder="https://twojportal.pl"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Użytkownik WP</label>
+                  <input
+                    type="text"
+                    value={wpUser}
+                    onChange={(e) => setWpUser(e.target.value)}
+                    placeholder="admin"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Application Password</label>
+                  <input
+                    type="password"
+                    value={wpPassword}
+                    onChange={(e) => setWpPassword(e.target.value)}
+                    placeholder="xxxx xxxx xxxx xxxx"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="mb-4">
+            <label className="block text-xs text-gray-400 mb-1.5">Dodatkowo: Opublikuj opis na YouTube</label>
+            {ytChannels && ytChannels.length > 0 ? (
+              <div className="space-y-2 max-h-32 overflow-y-auto bg-gray-800/50 p-2 rounded-lg border border-gray-700">
+                {ytChannels.map(ch => {
+                  const isOwner = videoOwnerChannelId && ch.channel_id === videoOwnerChannelId
+                  return (
+                    <label key={ch.channel_id} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedYtChannelIds.includes(ch.channel_id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedYtChannelIds(p => [...p, ch.channel_id])
+                          else setSelectedYtChannelIds(p => p.filter(id => id !== ch.channel_id))
+                        }}
+                        className="accent-violet-500 rounded"
+                      />
+                      <span className="text-sm text-gray-300">{ch.channel_title}</span>
+                      {isOwner && (
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                          Właściciel wideo
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                <p className="text-xs text-amber-500/90 flex items-center gap-1.5">
+                  ⚠️ Brak podłączonych kanałów YouTube.
+                  <a href="/ustawienia" target="_blank" rel="noreferrer" className="underline hover:text-amber-400 transition-colors ml-1">
+                    Przejdź do ustawień
+                  </a>
+                </p>
+              </div>
+            )}
+
+            {selectedYtChannelIds.length > 0 && ytChannels && ytChannels.length > 0 && (
+              <div className="mt-3">
+                {!showYtPreview ? (
+                  <button
+                    onClick={() => setShowYtPreview(true)}
+                    className="text-xs text-violet-400 hover:text-violet-300 underline"
+                  >
+                    Pokaż edytowalny podgląd opisu YT
+                  </button>
+                ) : (
+                  <div className="mt-2 animate-in slide-in-from-top-2">
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Podgląd opisu YouTube <span className="text-gray-600">(edytowalny)</span>
+                    </label>
+                    <textarea
+                      value={ytDescPreview}
+                      onChange={(e) => setYtDescPreview(e.target.value)}
+                      rows={6}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-violet-500 resize-y font-mono"
+                    />
+                    <button
+                      onClick={() => setShowYtPreview(false)}
+                      className="mt-1 text-xs text-gray-500 hover:text-gray-400"
+                    >
+                      Ukryj podgląd
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">
+                ID posta WP <span className="text-gray-600">(puste = nowy post)</span>
+              </label>
+              <input
+                type="number"
+                value={wpPostId}
+                onChange={(e) => setWpPostId(e.target.value)}
+                placeholder="Puste = nowy artykuł"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Status publikacji</label>
+              <div className="flex gap-4 h-[42px] items-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modal_post_status"
+                    value="draft"
+                    checked={postStatus === 'draft'}
+                    onChange={() => setPostStatus('draft')}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-gray-300">Szkic</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="modal_post_status"
+                    value="publish"
+                    checked={postStatus === 'publish'}
+                    onChange={() => setPostStatus('publish')}
+                    className="accent-violet-500"
+                  />
+                  <span className="text-sm text-gray-300">Publikuj</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Format wpisu WordPress</label>
+            <select
+              value={postFormat}
+              onChange={(e) => setPostFormat(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors appearance-none cursor-pointer"
+              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%236b7280\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'M6 8l4 4 4-4\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.5em 1.5em', paddingRight: '2.5rem' }}
+            >
+              <option value="video">🎬 Film (video)</option>
+              <option value="standard">📄 Standard</option>
+              <option value="gallery">🖼️ Galeria (gallery)</option>
+              <option value="quote">💬 Cytat (quote)</option>
+            </select>
+            <p className="text-xs text-gray-600 mt-1">Domyślnie: Film — optymalny dla treści video SEO</p>
+          </div>
+
+          <button
+            onClick={handlePublish}
+            disabled={publishing || (!isManual && !selectedPortalId && selectedYtChannelIds.length === 0) || (isManual && !wpUrl && selectedYtChannelIds.length === 0)}
+            className="w-full py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-xl font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+          >
+            {publishing ? (
+              <><span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> Publikowanie...</>
+            ) : (
+              <>🚀 Opublikuj na portalu</>
+            )}
+          </button>
+
+          {publishResult && (
+            <div
+              className={`p-4 rounded-xl text-sm ${
+                publishResult.error
+                  ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+                  : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+              }`}
+            >
+              {publishResult.error ? (
+                <><span className="font-medium">⚠️ Błąd:</span> {publishResult.error}</>
+              ) : (
+                <div className="space-y-1">
+                  <p><span className="font-medium">✔️ Sukces!</span>
+                    {publishResult.created ? ' Utworzono nowy artykuł' : ' Zaktualizowano artykuł'}
+                    {publishResult.wp_post_id && ` (ID: ${publishResult.wp_post_id})`}
+                  </p>
+                  {publishResult.post_url && (
+                    <a
+                      href={publishResult.post_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200 underline underline-offset-2"
+                    >
+                      Otwórz artykuł na portalu →
+                    </a>
+                  )}
+                  {publishResult.ytError && (
+                    <div className="mt-2 pt-2 border-t border-emerald-500/20 text-amber-300 text-xs">
+                      ⚠️ Portal OK, ale wystąpił błąd YouTube: <span className="font-mono text-amber-200">{publishResult.ytError}</span>
+                    </div>
+                  )}
+                  {publishResult.youtube_updated && !publishResult.ytError && selectedYtChannelIds.length > 0 && (
+                    <p className="text-xs text-emerald-300 mt-1">
+                      🎬 Opis na kanale YouTube został pomyślnie zaktualizowany.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-xs text-gray-600 text-center">
+            {isManual ? 'Dane logowania zapamiętane w przeglądarce (localStorage)' : 'Credentials pobrane z zapisanego portalu'}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default InjectModal
