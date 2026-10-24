@@ -870,7 +870,7 @@ async def run_generate(
         if wp_internal:
             internal_links = wp_internal
             logger.info(
-                "[generate] D8 internal links fallback: %d links from WP API",
+                "[pipeline] D8 internal links fallback: %d links from WP API",
                 len(internal_links),
             )
 
@@ -1424,6 +1424,7 @@ async def run_process(video_url: str, site_config: dict, options: dict,
                 False,
                 None,
                 saas_data,
+                "video",
             )
             injected = inject_result.get("ok", False)
             youtube_updated = inject_result.get("yt_update_ok", False)
@@ -1517,6 +1518,7 @@ def _create_wp_post(
         False,
         profile_config,
         saas_data,
+        post_format,
     )
 
     return {
@@ -1620,6 +1622,7 @@ async def run_inject(
             False,
             profile_config,
             saas_data,
+            post_format,
         )
         final_result = {
             "status": "ok" if raw_result.get("ok") else "error",
