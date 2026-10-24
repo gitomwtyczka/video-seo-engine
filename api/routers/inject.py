@@ -386,13 +386,21 @@ async def inject_endpoint(
                             new_title=job_result.get("yt_title") or job_result.get("post_title"),
                         )
                 except Exception as yt_err:
-                    logger.error("[/v1/inject] YouTube update failed: %s", yt_err)
-                    yt_results = {"error": str(yt_err)}
+                    err_msg = str(yt_err)[:200]
+                    logger.error("[/v1/inject] YouTube update failed for video %s: %s", video_id, yt_err)
+                    yt_results = {ch_id: f"error: {err_msg}" for ch_id in req.yt_channel_ids}
             else:
-                yt_results = {"error": "video_id not found in job result"}
+                logger.error("[/v1/inject] YouTube update failed: video_id could not be extracted from %s", req.video_url)
+                yt_results = {ch_id: "error: video_id not found in url" for ch_id in req.yt_channel_ids}
 
+            # Log errors if any
+            for ch_id, status_val in yt_results.items():
+                if status_val != "ok" and not str(status_val).startswith("warning"):
+                    logger.error("[/v1/inject] YouTube update failed for channel %s: %s", ch_id, status_val)
+
+            all_ok = len(yt_results) > 0 and all(v == "ok" for v in yt_results.values())
             result["yt_channels"] = [{"channel_id": k, "status": v} for k, v in yt_results.items()]
-            result["youtube_updated"] = True
+            result["youtube_updated"] = all_ok
 
         return InjectResponse(**result)
     except HTTPException:

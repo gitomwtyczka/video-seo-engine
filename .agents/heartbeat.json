@@ -1,12 +1,11 @@
 {
-  "callsign": "vse-dev-quotes",
-  "status": "working",
-  "current_task": "NAPRAW brak sekcji Cytaty w panelu wyników dashboardu (branch fix/dashboard-quotes)",
-  "timestamp": "2026-10-21T08:51:00+02:00",
+  "callsign": "vse-diag-yt",
+  "status": "done",
+  "current_task": "Wdrożenie Y1: YouTube publish fix — owner channel preselect, visible errors, clean snippet",
+  "timestamp": "2026-10-21T20:04:00Z",
   "last_completed": [
-    "471d0a8a6caf7eb2e3e17ff4b3ab30e41d23c4c4: Merge PR #3 - N1: shared PublicHeader, 404 page, logo links home [vse-dev-n1]"
+    "PR #6 (y1-youtube-publish): Y1 YouTube publish fix — commit d07e3ebb80cdd13d7bdc09db49deb96067f57cca",
+    "Deploy TAG=20261021-195852 na VPS oracle-crimson (smoke testy: IMPORT OK, /docs, /dashboard, / = 200)"
   ],
-  "pending": [
-    "Naprawa sekcji Cytaty w panelu wyników dashboard-inner.tsx"
-  ]
+  "pending": []
 }

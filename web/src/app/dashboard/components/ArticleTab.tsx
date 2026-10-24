@@ -2,17 +2,22 @@
 
 import { ResultSection } from './ResultSection'
 import { CopyButton } from './CopyButton'
-import type { SchemaData, FaqItem } from '../types'
+import type { SchemaData, FaqItem, QuoteItem } from '../types'
 import { articleToText, faqToHtml } from '../utils'
 
 interface ArticleTabProps {
   schema: SchemaData | null
   faq: FaqItem[]
+  quotes?: QuoteItem[]
   copiedKey: string | null
   onCopy: (text: string, id: string) => void
 }
 
-export function ArticleTab({ schema, faq, copiedKey, onCopy }: ArticleTabProps) {
+export function ArticleTab({ schema, faq, quotes, copiedKey, onCopy }: ArticleTabProps) {
+  const quotesList = (quotes ?? (schema?.quotes as QuoteItem[] | undefined) ?? []).filter(
+    (q) => Boolean(q && (q.text || q.speaker || q.author))
+  )
+
   return (
     <div>
       <div className="flex justify-end mb-4">
@@ -48,6 +53,36 @@ export function ArticleTab({ schema, faq, copiedKey, onCopy }: ArticleTabProps) 
           {schema?.article_body ?? '(brak treści)'}
         </div>
       </ResultSection>
+
+      {quotesList.length > 0 && (
+        <ResultSection
+          title={`Cytaty (${quotesList.length})`}
+          copyText={quotesList
+            .map((q) => {
+              const author = q.speaker || q.author
+              return author ? `"${q.text ?? ''}" — ${author}` : `"${q.text ?? ''}"`
+            })
+            .join('\n')}
+          copyId="art_quotes"
+          copiedKey={copiedKey}
+          onCopy={onCopy}
+          badge={`${quotesList.length}`}
+        >
+          <div className="space-y-3">
+            {quotesList.map((q, i) => {
+              const author = q.speaker || q.author
+              return (
+                <blockquote key={i} className="border-l-2 border-violet-500/50 pl-4">
+                  <p className="text-gray-200 text-sm italic">"{q.text ?? ''}"</p>
+                  {author && (
+                    <footer className="text-xs text-gray-500 mt-1">— {author}</footer>
+                  )}
+                </blockquote>
+              )
+            })}
+          </div>
+        </ResultSection>
+      )}
 
       {faq.length > 0 && (
         <ResultSection

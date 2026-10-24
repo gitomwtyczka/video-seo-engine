@@ -1252,6 +1252,9 @@ async def run_generate(
             except Exception as tr_err:
                 logger.warning("[generate] Could not persist transcript to job %s: %s", job_id, tr_err)
 
+        if meta and meta.get("channel_id"):
+            seo["channel_id"] = meta["channel_id"]
+
         return {
             "job_id": str(job_id),
             "video_id": video_id,
