@@ -1,14 +1,13 @@
 {
   "callsign": "vse-dev-t1",
-  "status": "working",
+  "status": "done",
   "current_task": "T1 — Przywrócenie miniatur WP, PressAI Vision (D11) i ImageObject JSON-LD",
-  "timestamp": "2026-10-24T21:28:00+02:00",
+  "timestamp": "2026-10-24T21:55:00+02:00",
   "last_completed": [
-    "PR #7 (fix/k4-1-gaps): K4.1 local runner reuse job_id, publication_type badge w /historia, job_id w InjectModal — merge commit 7943870",
-    "Deploy TAG=20261024-184707 na VPS oracle-crimson (pytest 20/20 PASS, HTTP 200/307 PASS, transcript_jobs status OK)"
+    "PR #8 (fix/t1-thumbnails-pressai-imageobject): T1 thumbnails WP Featured Image, PressAI Vision image descriptions, ImageObject schema — merge commit 9613090 / 3c0fad0",
+    "Deploy TAG=20261024-195131 na VPS oracle-crimson (pytest 37/37 PASS, HTTP 200/200 PASS, PressAI Vision verified)"
   ],
   "pending": [
-    "T1 — Przywrócenie miniatur WP, PressAI Vision (D11) i ImageObject JSON-LD",
     "W1 — Format wpisu WP (video) oraz wymogi Watch Page (TASK-01 do TASK-06)"
   ]
 }
