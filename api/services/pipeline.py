@@ -87,6 +87,11 @@ K4 (2026-10-21, vse-dev-k4):
 
 K4.1 (2026-10-24, vse-dev-k4-1):
   - Local runner reuse existing_job_id in _create_transcript_job to eliminate duplicate rows.
+
+T1 (2026-10-24, vse-dev-t1):
+  - D11 PressAI Vision env aliases (PRESSAI_API_URL, PRESSAI_EXTERNAL_TOKEN).
+  - Opisywanie obrazów przeniesione ZA generate_schema (pełne focus_keyphrases i post_title).
+  - image_data i thumbnail_url zawsze zapisywane w seo.
 """
 import asyncio
 import logging
@@ -518,7 +523,7 @@ async def _fetch_wp_internal_links(
 
 
 # ============================================================
-# D11: SAAS Vision API — image description via GPT-4o Vision
+# D11: SAAS / PressAI Vision API — image description via GPT-4o Vision
 # ============================================================
 
 async def _describe_image_via_saas(
@@ -527,11 +532,20 @@ async def _describe_image_via_saas(
     focus_keywords: list[str],
     site_brand: str = "",
 ) -> Optional[dict]:
-    """Call SAAS Vision API to get SEO-optimized image description."""
-    saas_url = os.environ.get("SAAS_API_URL", "").strip().rstrip("/")
-    token = os.environ.get("EXTERNAL_API_TOKEN", "").strip()
+    """Call SAAS / PressAI Vision API to get SEO-optimized image description."""
+    saas_url = (
+        os.environ.get("SAAS_API_URL")
+        or os.environ.get("PRESSAI_API_URL")
+        or ""
+    ).strip().rstrip("/")
+    token = (
+        os.environ.get("EXTERNAL_API_TOKEN")
+        or os.environ.get("PRESSAI_EXTERNAL_TOKEN")
+        or os.environ.get("SAAS_API_TOKEN")
+        or ""
+    ).strip()
     if not saas_url or not token:
-        logger.debug("[pipeline] D11 SAAS Vision: URL or token not set — skipping")
+        logger.debug("[pipeline] D11 PressAI Vision: URL or token not set — skipping")
         return None
 
     endpoint = f"{saas_url}/api/external/describe-image"
@@ -543,6 +557,10 @@ async def _describe_image_via_saas(
             "site_brand": site_brand,
         }
     }
+    logger.info(
+        "[pipeline] D11 PressAI Vision calling %s: title=%r focus_keywords=%r site_brand=%r",
+        endpoint, article_title[:60], focus_keywords, site_brand,
+    )
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -555,19 +573,23 @@ async def _describe_image_via_saas(
             descriptions = data.get("descriptions")
             if descriptions:
                 logger.info(
-                    "[pipeline] D11 SAAS Vision OK: alt=%r",
+                    "[pipeline] D11 PressAI Vision OK: filename=%r alt=%r title=%r caption=%r desc_len=%d",
+                    descriptions.get("filename"),
                     descriptions.get("alt_text", "?")[:60],
+                    descriptions.get("title", "?")[:60],
+                    descriptions.get("caption", "?")[:60],
+                    len(descriptions.get("description", "")),
                 )
                 return descriptions
-            logger.warning("[pipeline] D11 SAAS Vision: 200 but no descriptions in response")
+            logger.warning("[pipeline] D11 PressAI Vision: 200 but no descriptions in response: %s", data)
             return None
         logger.warning(
-            "[pipeline] D11 SAAS Vision: HTTP %d from %s",
-            resp.status_code, endpoint,
+            "[pipeline] D11 PressAI Vision: HTTP %d from %s: %s",
+            resp.status_code, endpoint, resp.text[:200],
         )
         return None
     except Exception as exc:
-        logger.warning("[pipeline] D11 SAAS Vision failed: %s — using LLM fallback", exc)
+        logger.warning("[pipeline] D11 PressAI Vision failed: %s — using LLM fallback", exc)
         return None
 
 
@@ -587,7 +609,6 @@ async def fetch_yt_description_from_pressai(
     youtube_credits, youtube_hashtags.
     Zwraca None jeśli PressAI niedostępny (fallback do generatora).
     """
-    import httpx
     saas_url = (os.environ.get("SAAS_API_URL") or os.environ.get("PRESSAI_API_URL") or "").strip().rstrip("/")
     saas_token = (os.environ.get("SAAS_API_TOKEN") or os.environ.get("PRESSAI_EXTERNAL_TOKEN") or os.environ.get("EXTERNAL_API_TOKEN") or "").strip()
     if not saas_url or not saas_token:
@@ -1128,48 +1149,6 @@ async def run_generate(
                     len(thumbnails), video_id, num_screenshots,
                 )
 
-                image_data = []
-                post_title_for_desc = post_title_override or meta.get("title", video_id)
-                keyphrases_for_desc = priority_keywords[:3] if priority_keywords else []
-
-                for idx, thumb in enumerate(thumbnails):
-                    yt_thumb_url = thumb.get("url", "")
-                    if not yt_thumb_url:
-                        continue
-
-                    saas_desc = await _describe_image_via_saas(
-                        yt_thumb_url,
-                        post_title_for_desc,
-                        keyphrases_for_desc,
-                        site_brand or "",
-                    )
-                    if saas_desc:
-                        image_data.append({
-                            "path": thumb["path"],
-                            "url": yt_thumb_url,
-                            "width": thumb.get("width", 1280),
-                            "height": thumb.get("height", 720),
-                            "source": thumb.get("source", "youtube"),
-                            "descriptions": saas_desc,
-                            "description_source": "saas_vision",
-                        })
-                        logger.info(
-                            "[generate] D11 image[%d]: SAAS Vision description OK", idx,
-                        )
-                    else:
-                        image_data.append({
-                            "path": thumb["path"],
-                            "url": yt_thumb_url,
-                            "width": thumb.get("width", 1280),
-                            "height": thumb.get("height", 720),
-                            "source": thumb.get("source", "youtube"),
-                            "descriptions": None,
-                            "description_source": "pending_llm_fallback",
-                        })
-                        logger.info(
-                            "[generate] D11 image[%d]: SAAS Vision unavailable — LLM fallback pending", idx,
-                        )
-
                 post_title = post_title_override or meta.get("title", video_id)
                 yt_url = meta.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}")
                 wp_id_placeholder = 0
@@ -1194,37 +1173,109 @@ async def run_generate(
                     source_lang,
                 )
 
+                # D11: PressAI Vision descriptions AFTER generate_schema
+                # so we can use LLM-generated post_title and focus_keyphrase
+                post_title_for_desc = post_title_override or seo.get("post_title") or meta.get("title", video_id)
+                keyphrases_for_desc: list[str] = []
+                seen_kw: set[str] = set()
+
+                primary_kp = (seo.get("focus_keyphrase") or "").strip()
+                if primary_kp:
+                    keyphrases_for_desc.append(primary_kp)
+                    seen_kw.add(primary_kp.lower())
+
+                for kp in seo.get("focus_keyphrases") or []:
+                    kp_str = str(kp).strip()
+                    if kp_str and kp_str.lower() not in seen_kw:
+                        keyphrases_for_desc.append(kp_str)
+                        seen_kw.add(kp_str.lower())
+
+                for pk in priority_keywords or []:
+                    pk_str = str(pk).strip()
+                    if pk_str and pk_str.lower() not in seen_kw:
+                        keyphrases_for_desc.append(pk_str)
+                        seen_kw.add(pk_str.lower())
+
+                keyphrases_for_desc = keyphrases_for_desc[:5]
+                logger.info(
+                    "[generate] D11 PressAI Vision input: post_title=%r, keyphrases=%r",
+                    post_title_for_desc[:60], keyphrases_for_desc,
+                )
+
+                image_data = []
                 llm_img_descs = seo.get("image_descriptions", [])
-                for idx, img in enumerate(image_data):
-                    if img["descriptions"] is None and idx < len(llm_img_descs):
+
+                for idx, thumb in enumerate(thumbnails):
+                    yt_thumb_url = thumb.get("url", "")
+                    if not yt_thumb_url:
+                        continue
+
+                    saas_desc = await _describe_image_via_saas(
+                        yt_thumb_url,
+                        post_title_for_desc,
+                        keyphrases_for_desc,
+                        site_brand or "",
+                    )
+                    if saas_desc:
+                        image_data.append({
+                            "path": thumb["path"],
+                            "url": yt_thumb_url,
+                            "width": thumb.get("width", 1280),
+                            "height": thumb.get("height", 720),
+                            "source": thumb.get("source", "youtube"),
+                            "descriptions": saas_desc,
+                            "description_source": "saas_vision",
+                        })
+                        logger.info(
+                            "[generate] D11 image[%d]: PressAI Vision description OK", idx,
+                        )
+                    elif idx < len(llm_img_descs):
                         llm_desc = llm_img_descs[idx]
-                        img["descriptions"] = {
-                            "alt_text": llm_desc.get("alt_text", ""),
-                            "title": llm_desc.get("alt_text", "")[:100],
-                            "caption": llm_desc.get("caption", ""),
-                            "description": llm_desc.get("caption", ""),
-                            "filename": None,
-                        }
-                        img["description_source"] = "llm_fallback"
+                        image_data.append({
+                            "path": thumb["path"],
+                            "url": yt_thumb_url,
+                            "width": thumb.get("width", 1280),
+                            "height": thumb.get("height", 720),
+                            "source": thumb.get("source", "youtube"),
+                            "descriptions": {
+                                "alt_text": llm_desc.get("alt_text", ""),
+                                "title": llm_desc.get("alt_text", "")[:100],
+                                "caption": llm_desc.get("caption", ""),
+                                "description": llm_desc.get("caption", ""),
+                                "filename": None,
+                            },
+                            "description_source": "llm_fallback",
+                        })
                         logger.info(
                             "[generate] D11 image[%d]: filled from LLM fallback alt=%r",
-                            idx, img["descriptions"]["alt_text"][:60],
+                            idx, llm_desc.get("alt_text", "")[:60],
                         )
-                    elif img["descriptions"] is None:
+                    else:
                         focus_kp = seo.get("focus_keyphrase", "")
-                        img["descriptions"] = {
-                            "alt_text": f"{focus_kp} — kadr z materiału wideo" if focus_kp else "Kadr z materiału wideo",
-                            "title": seo.get("post_title", "")[:100],
-                            "caption": f"Kadr z nagrania: {seo.get('post_title', '')[:80]}",
-                            "description": "",
-                            "filename": None,
-                        }
-                        img["description_source"] = "generic_fallback"
+                        image_data.append({
+                            "path": thumb["path"],
+                            "url": yt_thumb_url,
+                            "width": thumb.get("width", 1280),
+                            "height": thumb.get("height", 720),
+                            "source": thumb.get("source", "youtube"),
+                            "descriptions": {
+                                "alt_text": f"{focus_kp} — kadr z materiału wideo" if focus_kp else "Kadr z materiału wideo",
+                                "title": seo.get("post_title", "")[:100],
+                                "caption": f"Kadr z nagrania: {seo.get('post_title', '')[:80]}",
+                                "description": "",
+                                "filename": None,
+                            },
+                            "description_source": "generic_fallback",
+                        })
                         logger.warning(
-                            "[generate] D11 image[%d]: using generic fallback (no SAAS, no LLM desc)", idx,
+                            "[generate] D11 image[%d]: using generic fallback (no PressAI, no LLM desc)", idx,
                         )
 
                 seo["image_data"] = image_data
+                if image_data:
+                    seo["thumbnail_url"] = image_data[0].get("url")
+                elif not seo.get("thumbnail_url"):
+                    seo["thumbnail_url"] = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
 
                 # --- PressAI YT Description ---
                 vtt_content = ""
@@ -1410,7 +1461,7 @@ def _create_wp_post(
     saas_data: Optional[dict] = None,
 ) -> dict:
     """Create a brand-new WordPress post via REST API and inject SEO schema."""
-    from core.injector import inject_video, _make_auth, _strip_html
+    from core.injector import inject_video, _make_auth
 
     auth = _make_auth(wp_user, wp_app_pass)
 
@@ -1433,8 +1484,6 @@ def _create_wp_post(
     }
     if categories:
         create_payload["categories"] = categories
-
-    # excerpt removed — lead is displayed in post_content only (fix lead-excerpt 2026-07-23)
 
     create_url = f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/posts"
     try:
@@ -1583,8 +1632,6 @@ async def run_inject(
             "error": None if raw_result.get("ok") else "Injection failed — check logs",
         }
 
-    post_url = final_result.get("post_url")
     yt_results = []
-
     final_result["yt_channels"] = yt_results
     return final_result
