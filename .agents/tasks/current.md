@@ -1,4 +1,4 @@
-# Current Tasks (Stan na 24.10.2026 — K4.1 Deploy + T1 Priorytet)
+# Current Tasks (Stan na 24.10.2026 — K4.1 Deploy + T1 & W1 Priorytet)
 
 ## ✅ Zamknięte (Etap 1 + Faza 2B, 3.1-3.2, 4, 4.5/5.2, 5.1, WP Plugin v3.0 + Limity 5/30/110/250 + Top-Up 99/249/699 + Niezawodność Napisów & Blokada Anty-Konfabulacyjna + UX `/ustawienia` + K4 Job Per Click + K4.1 Gaps)
 - [x] **Zadanie K4.1 — Reużycie job_id w Local Runnerze, publication_type w /historia, job_id w InjectModal (PR #7, merge `7943870`, TAG `20261024-184707`):**
@@ -27,7 +27,9 @@
 
 ## 🔵 Następne (Master Roadmap v2.2)
 - [ ] **1. T1 — Przywrócenie miniatur WP, PressAI Vision (D11) i ImageObject JSON-LD.**
-- [ ] **2. Poprawki jakościowe generatora/layoutu:** `watching_page` (150–250 słów, 1–2 cytaty), `discover` (`<!--more-->` po leadzie).
+- [ ] **2. W1 — Format wpisu WP (`video` zamiast `standard`) oraz wymogi Watch Page (TASK-01 do TASK-06):**
+  - Rozwiązanie problemu formatu `standard` (wtyczka VSE 3.0, update_post).
+  - Wymogi Watch Page: zero CLS playera (aspect-ratio 16/9), schema Article/SeekToAction, rozbudowa tekstu watching_page (150–250 słów, cytaty), linkowanie wewnętrzne.
 - [ ] **3. K3'** — `POST /v1/generate` → 202 + `job_id`, background worker, polling `GET /v1/jobs/{id}`.
 - [ ] **4. K5' + SEC1** — jeden silnik publikacji WP + szyfrowany `publish_secret` HMAC, usunięcie hardcode `prawy.pl`.
 - [ ] **5. E2 + Komercjalizacja:** tabele `generations` + `transcript_cache`, synchronizacja dokumentacji, Stripe live, test polowy wtyczki.
