@@ -146,6 +146,7 @@ async def generate_audio_endpoint(
             status="fetched",
             transcript=vtt_text,
             portal_id=portal_id if portal_id and portal_id not in ("__manual__", "__add__") else None,
+            publication_type=publication_type,
             user_id=str(current_user.id),
         )
         db.add(new_job)
@@ -161,7 +162,7 @@ async def generate_audio_endpoint(
         if not title_to_use:
             title_to_use = f"Nagranie {media_id}"
 
-        # 7. Uruchom pipeline VSE
+        # 7. Uruchom pipeline VSE z przekazanym job_id
         portal_id_clean = (
             portal_id.strip()
             if portal_id and portal_id not in ("__manual__", "__add__")
@@ -176,6 +177,7 @@ async def generate_audio_endpoint(
             portal_id=portal_id_clean,
             user_id=str(current_user.id),
             target_lang=resolved_target_lang,
+            job_id=str(new_job.id),
         )
 
         schema_data = result["seo"]
@@ -199,6 +201,7 @@ async def generate_audio_endpoint(
         return GenerateResponse(
             status="ok",
             video_id=media_id,
+            job_id=str(new_job.id),
             processing_time_s=processing_time,
             schema_data=schema_data,
             transcript_available=True,
@@ -216,6 +219,7 @@ async def generate_audio_endpoint(
         return GenerateResponse(
             status="error",
             video_id=media_id,
+            job_id=str(new_job.id) if 'new_job' in locals() and hasattr(new_job, 'id') else None,
             processing_time_s=round(time.time() - start_time, 2),
             error=error_message,
             error_code=error_code,

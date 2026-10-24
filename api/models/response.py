@@ -41,10 +41,14 @@ class GenerateResponse(BaseModel):
     FIX A (2026-07-10, vse-dev-01):
       - transcript_available: True when transcript was used for generation.
       - partial_result: True when schema generated without transcript (degraded mode).
+
+    K4 (2026-10-21, vse-dev-k4):
+      - job_id: ID of the newly created TranscriptJob row in database.
     """
 
     status: str
     video_id: str
+    job_id: Optional[str] = None
     processing_time_s: float = 0.0
     schema_data: Optional[dict] = None
     error: Optional[str] = None

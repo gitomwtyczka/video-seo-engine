@@ -279,7 +279,10 @@ async def startup_event() -> None:
             await conn.execute(text("ALTER TABLE wp_portals ALTER COLUMN wp_app_password DROP NOT NULL;"))
             await conn.execute(text("ALTER TABLE wp_portals ADD COLUMN IF NOT EXISTS auth_mode VARCHAR(32) NOT NULL DEFAULT 'app_password';"))
             await conn.execute(text("ALTER TABLE wp_portals ADD COLUMN IF NOT EXISTS api_key_id UUID NULL REFERENCES api_keys(id) ON DELETE SET NULL;"))
-        logger.info("Database tables verified/created and usage_logs + api_keys + subscriptions + wp_portals columns migrated.")
+            # K4: Add publication_type column to transcript_jobs and backfill from schema_data
+            await conn.execute(text("ALTER TABLE transcript_jobs ADD COLUMN IF NOT EXISTS publication_type VARCHAR(50);"))
+            await conn.execute(text("UPDATE transcript_jobs SET publication_type = COALESCE(schema_data->>'publication_type', 'full_analysis') WHERE publication_type IS NULL;"))
+        logger.info("Database tables verified/created and usage_logs + api_keys + subscriptions + wp_portals + transcript_jobs columns migrated.")
         
         from sqlalchemy import delete
         from datetime import datetime, timezone

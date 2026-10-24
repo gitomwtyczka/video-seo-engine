@@ -9,7 +9,7 @@ które ma normalne IP domowe/biurowe. Ta tabela to szyna komunikacji
 między VPS (API) a lokalnym PC (runner).
 
 JAK:
-- VPS tworzy job ze statusem 'pending'
+- VPS tworzy job ze statusem 'pending' lub 'processing'
 - Local Runner polluje /v1/jobs/pending, pobiera transkrypt, POST-uje wynik
 - Pipeline czeka na status 'fetched', potem kontynuuje
 - Po generowaniu schema zapisywana jest do kolumny schema_data (JSONB)
@@ -58,6 +58,7 @@ class TranscriptJob(Base):
     )  # NULL do czasu generowania; potem pełny dict z pipeline.run_generate()
     error = Column(Text, nullable=True)  # NULL jeśli OK
     portal_id = Column(String(50), nullable=True)  # zapisane podczas Generate do użytku w Inject
+    publication_type = Column(String(50), nullable=True, default="full_analysis")  # watching_page | discover | full_analysis
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
