@@ -129,6 +129,20 @@ async def _inject_via_plugin_endpoint(
     ).strip()
     chapters = seo.get("chapters") or []
 
+    # T1: Extract thumbnail_url, image_meta and image_data for VSE WP Plugin featured image
+    image_data = seo.get("image_data") or []
+    primary_meta = None
+    if image_data:
+        primary_meta = image_data[0].get("descriptions") if isinstance(image_data[0].get("descriptions"), dict) else image_data[0]
+    elif seo.get("image_meta"):
+        primary_meta = seo.get("image_meta")
+
+    thumbnail_url = (
+        seo.get("thumbnail_url")
+        or (image_data[0].get("url") if image_data and image_data[0].get("url") else None)
+        or f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+    )
+
     publish_url = f"{portal.url.rstrip('/')}/wp-json/vse/v1/publish"
     payload = {
         "post_id": req.wp_post_id,
@@ -143,6 +157,9 @@ async def _inject_via_plugin_endpoint(
         "schema_json": json.dumps(schemas, ensure_ascii=False),
         "chapters_json": json.dumps(chapters, ensure_ascii=False),
         "seo_score": 96,
+        "thumbnail_url": thumbnail_url,
+        "image_meta": primary_meta,
+        "image_data": image_data,
     }
     headers = {
         "X-VSE-Key-Hash": api_key_obj.key_hash,
@@ -170,9 +187,10 @@ async def _inject_via_plugin_endpoint(
     wp_post_id = wp_data.get("post_id") or req.wp_post_id
     post_url = wp_data.get("post_url") or wp_data.get("link")
 
+    thumb_id = wp_data.get("thumbnail_id")
     logger.info(
-        "[/v1/inject] Published via VSE WP Plugin v3.0 to %s: post_id=%s url=%s",
-        portal.url, wp_post_id, post_url,
+        "[/v1/inject] Published via VSE WP Plugin v3.0 to %s: post_id=%s url=%s thumb_id=%s",
+        portal.url, wp_post_id, post_url, thumb_id,
     )
     return {
         "status": "ok" if wp_data.get("ok", True) else "error",

@@ -72,6 +72,12 @@ Fix lead-excerpt (2026-07-23, vse-dev-fix):
          User chce lead TYLKO w treści (pod filmem), NIE pod tytułem.
   JAK: Usunięto excerpt z payloadu update_post(). WP post_excerpt = pusty.
 
+T1 (2026-10-24, vse-dev-t1):
+  - _upload_image_to_wp pobiera obrazek przez HTTP image_url gdy brak pliku lokalnego.
+  - set_youtube_thumbnail obsługuje PressAI Vision image_meta (5 pól) oraz wp_base_url.rstrip('/').
+  - build_schema_jsonld zawsze generuje pełną listę @type: ImageObject (uploaded_images, image_data, YT fallback).
+  - inject_video ustawia featured_media także z pierwszego wgranego screenshotu.
+
 Dependencies:
   pip install requests python-dotenv
 """
@@ -386,11 +392,11 @@ def update_rankmath_meta(
             logger.error("  [DEBUG] WP Error Payload: %s", json.dumps(payload))
             logger.error("  [DEBUG] WP Error Response: %s", resp.text)
         resp.raise_for_status()
-        
+
         if not resp.text.strip():
             logger.warning("  RankMath update returned empty body (HTTP %s) for WP#%s", resp.status_code, wp_id)
             return True
-            
+
         data = resp.json()
         if resp.status_code == 200 and data.get("slug") is True:
             logger.info(
@@ -427,7 +433,7 @@ def get_post_date(wp_id: int, wp_base_url: str, auth: HTTPBasicAuth) -> str:
         ISO 8601 datetime string with timezone, e.g. '2026-01-15T10:00:00+01:00'.
         Falls back to '2024-01-01T00:00:00+00:00' on error.
     """
-    url = f"{wp_base_url}/wp-json/wp/v2/posts/{wp_id}"
+    url = f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/posts/{wp_id}"
     try:
         resp = requests.get(url, auth=auth, timeout=15)
         if resp.status_code == 200:
@@ -496,7 +502,7 @@ def _set_media_alt(
         payload["description"] = description
     try:
         resp = requests.post(
-            f"{wp_base_url}/wp-json/wp/v2/media/{media_id}",
+            f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/media/{media_id}",
             json=payload,
             auth=auth,
             timeout=10,
@@ -519,49 +525,75 @@ def set_youtube_thumbnail(
     wp_base_url: str,
     auth: HTTPBasicAuth,
     alt_text: str = "",
+    image_meta: Optional[dict] = None,
 ) -> Optional[int]:
     """Download YouTube thumbnail and set it as the WP post's featured image.
 
     Tries maxresdefault → hqdefault → mqdefault. Deduplicates uploads
     by checking if a media item with the same filename already exists.
+    Supports PressAI Vision image_meta (filename, alt_text, title, caption, description).
 
     Args:
         wp_id: WordPress post ID.
         yt_id: YouTube video ID.
-        post_title: Post title (used for logging only).
+        post_title: Post title (used for logging and fallback).
         wp_base_url: Base URL of the WordPress site.
         auth: HTTPBasicAuth instance.
-        alt_text: ALT text for the thumbnail image (focus keyphrase + portal name).
+        alt_text: Fallback ALT text for the thumbnail image.
+        image_meta: Optional PressAI Vision metadata dict (filename, alt_text, title, caption, description).
 
     Returns:
         WP media ID (int) on success, or None on failure.
     """
+    wp_base_url = wp_base_url.rstrip("/")
+
     img_resp = None
     for quality in ["maxresdefault", "hqdefault", "mqdefault"]:
         thumb_url = f"https://img.youtube.com/vi/{yt_id}/{quality}.jpg"
-        r = requests.get(thumb_url, timeout=15)
-        if r.status_code == 200 and len(r.content) > 5000:
-            img_resp = r
-            logger.info("  THUMB: downloaded %s (%s)", quality, yt_id)
-            break
+        try:
+            r = requests.get(thumb_url, timeout=15)
+            if r.status_code == 200 and len(r.content) > 5000:
+                img_resp = r
+                logger.info("  THUMB: downloaded %s (%s)", quality, yt_id)
+                break
+        except Exception as e:
+            logger.debug("  THUMB: %s download error for %s: %s", quality, yt_id, e)
 
     if not img_resp:
         logger.warning("  THUMB: could not download for %s", yt_id)
         return None
 
-    # Dynamic filename based on domain
+    # Handle image_meta from PressAI Vision
+    descs = {}
+    if image_meta:
+        if isinstance(image_meta.get("descriptions"), dict):
+            descs = image_meta["descriptions"]
+        elif isinstance(image_meta, dict):
+            descs = image_meta
+
     from urllib.parse import urlparse
     domain = urlparse(wp_base_url).netloc.replace('www.', '').replace('.', '-')
     if not domain:
         domain = "vse-media"
-    filename = f"{domain}-{yt_id}.jpg"
+
+    custom_fn = descs.get("filename")
+    if custom_fn:
+        custom_fn = re.sub(r'[^a-zA-Z0-9_.-]', '-', custom_fn)
+        if not custom_fn.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            custom_fn += ".jpg"
+        filename = custom_fn
+    else:
+        filename = f"{domain}-{yt_id}.jpg"
+
+    final_alt = (descs.get("alt_text") or alt_text or post_title).strip()
+    final_title = (descs.get("title") or post_title or f"Thumbnail {yt_id}").strip()
+    caption = (descs.get("caption") or f"Miniatura wideo: {post_title}").strip()
+    description = (descs.get("description") or f"Zdjęcie miniatury wideo dla artykułu: {post_title} ({yt_id})").strip()
 
     # Dedup: check if already uploaded
-    search_url = f"{wp_base_url}/wp-json/wp/v2/media?search={domain}-{yt_id}&per_page=1"
-    
-    caption = f"Miniatura wideo: {post_title}"
-    description = f"Zdjęcie miniatury wideo dla artykułu: {post_title} ({yt_id})"
-    
+    search_term = filename.replace('.jpg', '').replace('.png', '').replace('.webp', '')
+    search_url = f"{wp_base_url}/wp-json/wp/v2/media?search={search_term}&per_page=1"
+
     try:
         existing = requests.get(search_url, auth=auth, timeout=10)
         if existing.status_code == 200 and existing.json():
@@ -572,7 +604,7 @@ def set_youtube_thumbnail(
                 auth=auth,
                 timeout=15,
             )
-            _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth, caption, description)
+            _set_media_alt(media_id, final_alt, final_title, wp_base_url, auth, caption, description)
             logger.info("  THUMB: reuse existing media #%s", media_id)
             return media_id
     except Exception as exc:
@@ -599,8 +631,8 @@ def set_youtube_thumbnail(
                 auth=auth,
                 timeout=15,
             )
-            if set_resp.status_code == 200:
-                _set_media_alt(media_id, alt_text, post_title, wp_base_url, auth, caption, description)
+            if set_resp.status_code in (200, 201):
+                _set_media_alt(media_id, final_alt, final_title, wp_base_url, auth, caption, description)
                 logger.info("  THUMB: uploaded + set as featured (media #%s)", media_id)
                 return media_id
         logger.warning("  THUMB: upload failed HTTP %s", upload_resp.status_code)
@@ -619,6 +651,7 @@ def _upload_image_to_wp(
     wp_base_url: str,
     wp_user: str,
     wp_app_password: str,
+    image_url: Optional[str] = None,
 ) -> Optional[dict]:
     """Upload an image to WordPress Media Library with SEO descriptions.
 
@@ -628,37 +661,57 @@ def _upload_image_to_wp(
     żeby Google je indeksował. Alt text z keyphrase podnosi Image SEO.
     WP Media Library daje pełną kontrolę nad metadanymi obrazu.
 
-    JAK: POST /wp/v2/media z multipart/form-data. Po uplaodzie PATCH media
-    item aby ustawić alt_text, title, caption, description.
+    JAK: POST /wp/v2/media z pliku lokalnego lub pobranego przez HTTP z image_url.
+    Ustawia w WP Media Library 5 pól: filename, alt_text, title, caption, description.
     Zwraca dict z id, url, width, height lub None na błąd.
 
     Args:
-        image_path: Local path to the image file.
+        image_path: Local path to the image file (optional if image_url provided).
         descriptions: Dict with alt_text, title, caption, description, filename keys.
         wp_base_url: WordPress site base URL.
         wp_user: WordPress username.
         wp_app_password: WordPress Application Password.
+        image_url: Optional remote URL to download image if image_path doesn't exist.
 
     Returns:
         Dict with id, url, width, height keys, or None on failure.
     """
     auth = _make_auth(wp_user, wp_app_password)
+    wp_base_url = wp_base_url.rstrip("/")
 
-    if not os.path.isfile(image_path):
-        logger.warning("  D11 upload: file not found: %s", image_path)
+    image_data: Optional[bytes] = None
+
+    if image_path and os.path.isfile(image_path):
+        try:
+            with open(image_path, "rb") as f:
+                image_data = f.read()
+        except Exception as e:
+            logger.warning("  D11 upload: error reading %s: %s", image_path, e)
+
+    if (not image_data or len(image_data) < 1000) and image_url:
+        try:
+            r = requests.get(image_url, timeout=20)
+            if r.status_code == 200 and len(r.content) >= 1000:
+                image_data = r.content
+                logger.info("  D11 upload: downloaded image from HTTP %s (%d bytes)", image_url, len(image_data))
+            else:
+                logger.warning(
+                    "  D11 upload: HTTP fetch from %s failed: status=%s len=%d",
+                    image_url, r.status_code, len(r.content) if r.content else 0,
+                )
+        except Exception as exc:
+            logger.warning("  D11 upload: could not fetch image_url %s: %s", image_url, exc)
+
+    if not image_data or len(image_data) < 1000:
+        logger.warning("  D11 upload: no valid image bytes (file=%s, url=%s)", image_path, image_url)
         return None
 
     # Determine filename
-    filename = descriptions.get("filename") or os.path.basename(image_path)
-    if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-        filename = filename + ".jpg"
-
-    with open(image_path, "rb") as f:
-        image_data = f.read()
-
-    if len(image_data) < 1000:
-        logger.warning("  D11 upload: file too small (%d bytes): %s", len(image_data), image_path)
-        return None
+    raw_fn = descriptions.get("filename") or (os.path.basename(image_path) if image_path else "vse-image.jpg")
+    raw_fn = re.sub(r'[^a-zA-Z0-9_.-]', '-', raw_fn)
+    if not raw_fn.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+        raw_fn = raw_fn + ".jpg"
+    filename = raw_fn
 
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
@@ -667,7 +720,7 @@ def _upload_image_to_wp(
 
     try:
         upload_resp = requests.post(
-            f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/media",
+            f"{wp_base_url}/wp-json/wp/v2/media",
             headers=headers,
             data=image_data,
             auth=auth,
@@ -675,8 +728,8 @@ def _upload_image_to_wp(
         )
         if upload_resp.status_code not in (200, 201):
             logger.warning(
-                "  D11 upload: HTTP %s for %s",
-                upload_resp.status_code, filename,
+                "  D11 upload: HTTP %s for %s: %s",
+                upload_resp.status_code, filename, upload_resp.text[:200],
             )
             return None
 
@@ -702,7 +755,7 @@ def _upload_image_to_wp(
 
         if meta_payload:
             resp_meta = requests.post(
-                f"{wp_base_url.rstrip('/')}/wp-json/wp/v2/media/{media_id}",
+                f"{wp_base_url}/wp-json/wp/v2/media/{media_id}",
                 json=meta_payload,
                 auth=auth,
                 timeout=10,
@@ -752,8 +805,11 @@ def build_schema_jsonld(
     Produces: VideoObject (with optional interactionStatistic + hasPart clips),
     FAQPage (if faq present), Quotation per polished quote.
 
-    D11: Adds "image" field with ImageObject array to VideoObject schema
-    when uploaded_images data is available in seo dict.
+    D11: Adds "image" field with ImageObject array to VideoObject schema.
+    Always includes ImageObject objects with robust fallbacks:
+      1) uploaded_images (from WP Media Library)
+      2) image_data (from PressAI Vision / LLM)
+      3) YouTube maxresdefault thumbnail
 
     Note: Quotation schema is kept for completeness; Google does not render it.
     Do NOT add new Quotation items — preserve existing if already injected.
@@ -832,23 +888,67 @@ def build_schema_jsonld(
             "userInteractionCount": int(view_count),
         }
 
-    # D11: ImageObject from uploaded screenshots
+    # D11: ImageObject — ALWAYS ensure full ImageObject list
+    image_objects: list[dict] = []
+    post_title_val = (seo.get("post_title") or seo.get("seo_title") or f"Wideo {yt_id}").strip()
+    focus_kp_val = (seo.get("focus_keyphrase") or "").strip()
+
+    # Source 1: uploaded_images from WP Media Library
     uploaded_images = seo.get("uploaded_images", [])
     if uploaded_images:
-        image_objects = []
         for img in uploaded_images:
+            img_url = img.get("wp_url") or img.get("url", "")
+            if not img_url:
+                continue
+            caption = img.get("caption") or img.get("alt_text") or post_title_val
+            name = img.get("title") or img.get("alt_text") or focus_kp_val or post_title_val
             img_obj = {
                 "@type": "ImageObject",
-                "url": img.get("url", ""),
-                "width": img.get("width", 1280),
-                "height": img.get("height", 720),
+                "url": img_url,
+                "width": int(img.get("width") or 1280),
+                "height": int(img.get("height") or 720),
             }
-            caption = img.get("caption", "")
             if caption:
                 img_obj["caption"] = caption
+            if name:
+                img_obj["name"] = name
             image_objects.append(img_obj)
-        video_schema["image"] = image_objects
-        logger.info("  D11 schema: %d ImageObject(s) added to VideoObject", len(image_objects))
+
+    # Source 2: fallback to image_data from pipeline (PressAI Vision / LLM descriptions)
+    if not image_objects and seo.get("image_data"):
+        for img in seo["image_data"]:
+            img_url = img.get("url") or img.get("path", "")
+            if not img_url or not str(img_url).startswith("http"):
+                continue
+            descs = img.get("descriptions") or {}
+            caption = descs.get("caption") or descs.get("alt_text") or img.get("caption") or img.get("alt_text") or post_title_val
+            name = descs.get("title") or descs.get("alt_text") or img.get("title") or focus_kp_val or post_title_val
+            img_obj = {
+                "@type": "ImageObject",
+                "url": img_url,
+                "width": int(img.get("width") or 1280),
+                "height": int(img.get("height") or 720),
+            }
+            if caption:
+                img_obj["caption"] = caption
+            if name:
+                img_obj["name"] = name
+            image_objects.append(img_obj)
+
+    # Source 3: ultimate fallback when both empty — YouTube thumbnail
+    if not image_objects:
+        fallback_thumb = seo.get("thumbnail_url") or f"https://img.youtube.com/vi/{yt_id}/maxresdefault.jpg"
+        image_objects.append({
+            "@type": "ImageObject",
+            "url": fallback_thumb,
+            "width": 1280,
+            "height": 720,
+            "caption": post_title_val,
+            "name": focus_kp_val or post_title_val,
+        })
+
+    video_schema["image"] = image_objects
+    logger.info("  D11 schema: %d ImageObject(s) added to VideoObject", len(image_objects))
 
     schemas: list[dict] = [video_schema]
 
@@ -951,7 +1051,7 @@ def _build_figure_blocks(uploaded_images: list[dict]) -> list[str]:
             continue
 
         fig_html = (
-            f'<!-- wp:image {"sizeSlug":"large"} -->\n'
+            f'<!-- wp:image {{"sizeSlug":"large"}} -->\n'
             f'<figure class="wp-block-image size-large">'
             f'<img src="{url}" alt="{alt}" '
             f'width="{width}" height="{height}" loading="lazy" />'
@@ -1049,7 +1149,7 @@ def build_post_content(
     embed_block = (
         f'<!-- wp:embed {embed_json} -->\n'
         f'<figure class="wp-block-embed is-type-video is-provider-youtube '
-        f'wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">'
+        f'wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">\n'
         f'<div class="wp-block-embed__wrapper">\n{yt_url}\n</div></figure>\n'
         f"<!-- /wp:embed -->"
     )
@@ -1175,6 +1275,7 @@ def update_post(
     Returns:
         Tuple of (http_status_code, post_url_or_message).
     """
+    wp_base_url = wp_base_url.rstrip("/")
     upload_date = get_post_date(wp_id, wp_base_url, auth)
     logger.info("  uploadDate: %s", upload_date)
 
@@ -1193,7 +1294,6 @@ def update_post(
     url = f"{wp_base_url}/wp-json/wp/v2/posts/{wp_id}"
     # NOTE: WP REST 'meta' field silently ignores rank_math_* keys —
     # use update_rankmath_meta() separately for the correct endpoint.
-    # excerpt removed — lead is displayed in post_content only (fix lead-excerpt 2026-07-23)
     payload: dict = {"content": content}
 
     # Post title — update only if provided by generator
@@ -1253,6 +1353,9 @@ def inject_video(
     D6a (vse-dev-20): YT update gated by profile['yt_update_enabled'] flag.
     Default: False — no YT update unless explicitly enabled in portal profile.
 
+    T1 (vse-dev-t1): Supports PressAI Vision image_meta in set_youtube_thumbnail
+    and ensures image_url HTTP download when local file doesn't exist.
+
     Args:
         wp_id: WordPress post ID.
         yt_id: YouTube video ID.
@@ -1271,6 +1374,7 @@ def inject_video(
         thumbnail_media_id, rankmath_ok, yt_desc_ok, images_uploaded.
     """
     auth = _make_auth(wp_user, wp_app_pass)
+    wp_base_url = wp_base_url.rstrip("/")
     logger.info("Injecting WP#%s | YT:%s", wp_id, yt_id)
 
     # ALT text: focus keyphrase + portal brand for SEO
@@ -1279,15 +1383,20 @@ def inject_video(
         site_brand = profile.get("site_brand", "Portal")
     elif saas_data and saas_data.get("site_brand"):
         site_brand = saas_data.get("site_brand")
-        
+
     focus_kw = seo.get("focus_keyphrase", "").strip()
     img_alt = f"{focus_kw} | {site_brand}" if focus_kw else seo.get("seo_title", "")[:80]
 
     media_id = None
     if not skip_thumbnail and not dry_run:
+        image_data = seo.get("image_data", [])
+        primary_meta = None
+        if image_data:
+            primary_meta = image_data[0].get("descriptions") if isinstance(image_data[0].get("descriptions"), dict) else image_data[0]
         media_id = set_youtube_thumbnail(
-            wp_id, yt_id, seo.get("original_title", ""), wp_base_url, auth,
+            wp_id, yt_id, seo.get("original_title", "") or seo.get("post_title", ""), wp_base_url, auth,
             alt_text=img_alt,
+            image_meta=primary_meta,
         )
 
     # D11: Upload screenshots to WP Media Library
@@ -1296,27 +1405,33 @@ def inject_video(
     if image_data and not dry_run:
         for idx, img in enumerate(image_data):
             img_path = img.get("path", "")
+            img_url = img.get("url", "")
             descs = img.get("descriptions", {}) or {}
 
-            if not img_path or not os.path.isfile(img_path):
-                logger.warning("  D11 inject: image[%d] path missing or invalid: %r", idx, img_path)
+            # Don't skip if img_path doesn't exist on disk, as long as img_url is available!
+            if (not img_path or not os.path.isfile(img_path)) and not img_url:
+                logger.warning("  D11 inject: image[%d] neither file nor url available", idx)
                 continue
 
             wp_media = _upload_image_to_wp(
-                img_path,
-                descs,
-                wp_base_url,
-                wp_user,
-                wp_app_pass,
+                image_path=img_path or "",
+                descriptions=descs,
+                wp_base_url=wp_base_url,
+                wp_user=wp_user,
+                wp_app_password=wp_app_pass,
+                image_url=img_url,
             )
             if wp_media:
                 uploaded_images.append({
                     "id": wp_media["id"],
                     "url": wp_media["url"],
+                    "wp_url": wp_media["url"],
                     "width": wp_media["width"],
                     "height": wp_media["height"],
                     "alt_text": descs.get("alt_text", ""),
+                    "title": descs.get("title", ""),
                     "caption": descs.get("caption", ""),
+                    "description": descs.get("description", ""),
                     "description_source": img.get("description_source", "unknown"),
                 })
 
@@ -1324,6 +1439,23 @@ def inject_video(
             "  D11 inject: %d/%d screenshots uploaded to WP",
             len(uploaded_images), len(image_data),
         )
+
+        # If featured_media was not set, but we uploaded an image, set the first one as featured
+        if not media_id and uploaded_images:
+            try:
+                first_media_id = uploaded_images[0]["id"]
+                set_resp = requests.post(
+                    f"{wp_base_url}/wp-json/wp/v2/posts/{wp_id}",
+                    json={"featured_media": first_media_id},
+                    auth=auth,
+                    timeout=15,
+                )
+                if set_resp.status_code in (200, 201):
+                    media_id = first_media_id
+                    logger.info("  D11 inject: set first uploaded screenshot as featured_media #%s", media_id)
+            except Exception as set_err:
+                logger.warning("  D11 inject: failed setting featured_media from uploaded screenshot: %s", set_err)
+
     elif dry_run and image_data:
         logger.info("  D11 DRY RUN: would upload %d screenshots", len(image_data))
 
@@ -1348,10 +1480,6 @@ def inject_video(
         )
 
     # D6a: YouTube title + description update — gated by yt_update_enabled flag
-    # CO: Aktualizuje tytuł i opis na YouTube po publikacji na portalu.
-    # PO CO: Portale bez OAuth (kurier365) generowały EnvironmentError przy każdej
-    #        publikacji. Flaga pozwala wyłączyć YT update per portal.
-    # JAK: Czyta profile['yt_update_enabled']. Domyślnie False.
     yt_update_ok = False
     yt_enabled = (profile or {}).get('yt_update_enabled', False)
     if yt_enabled and not dry_run and status == 200:
