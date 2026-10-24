@@ -859,9 +859,19 @@ def build_schema_jsonld(
     except Exception:
         watch_label = "Obejrzyj wideo"
 
+    post_url = (seo.get("post_url") or seo.get("link") or yt_url).strip()
+    video_id_uri = f"{post_url}#video" if post_url else f"{yt_url}#video"
+
+    seek_action = {
+        "@type": "SeekToAction",
+        "target": f"{yt_url}&t={{seek_to_second_number}}",
+        "startOffset-input": "required name=seek_to_second_number",
+    }
+
     video_schema: dict = {
         "@context": "https://schema.org",
         "@type": "VideoObject",
+        "@id": video_id_uri,
         "name": seo.get("seo_title", ""),
         "description": seo.get("video_description", ""),
         "thumbnailUrl": f"https://img.youtube.com/vi/{yt_id}/maxresdefault.jpg",
@@ -870,11 +880,14 @@ def build_schema_jsonld(
         "embedUrl": f"https://www.youtube.com/embed/{yt_id}",
         "duration": iso_dur,
         "inLanguage": resolved_lang,
-        "potentialAction": {
-            "@type": "WatchAction",
-            "name": watch_label,
-            "target": yt_url,
-        },
+        "potentialAction": [
+            {
+                "@type": "WatchAction",
+                "name": watch_label,
+                "target": yt_url,
+            },
+            seek_action,
+        ],
     }
     if clips:
         video_schema["hasPart"] = clips
@@ -950,7 +963,45 @@ def build_schema_jsonld(
     video_schema["image"] = image_objects
     logger.info("  D11 schema: %d ImageObject(s) added to VideoObject", len(image_objects))
 
-    schemas: list[dict] = [video_schema]
+    from urllib.parse import urlparse
+    parsed_url = urlparse(post_url)
+    wp_site_url = f"{parsed_url.scheme}://{parsed_url.netloc}" if parsed_url.netloc else "https://vse.impresjapr.pl"
+
+    article_schema = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "@id": f"{post_url}#article" if post_url else f"{yt_url}#article",
+        "headline": post_title_val,
+        "description": (seo.get("meta_description") or seo.get("lead") or seo.get("video_description", "")).strip(),
+        "datePublished": upload_date,
+        "dateModified": upload_date,
+        "mainEntityOfPage": post_url or yt_url,
+        "inLanguage": resolved_lang,
+        "video": {"@id": video_id_uri},
+    }
+    if image_objects:
+        article_schema["image"] = image_objects
+
+    breadcrumb_schema = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Strona główna",
+                "item": wp_site_url,
+            },
+            {
+                "@type": "ListItem",
+                "position": 2,
+                "name": (seo.get("seo_title") or seo.get("post_title") or "Wideo").strip(),
+                "item": post_url or yt_url,
+            },
+        ],
+    }
+
+    schemas: list[dict] = [video_schema, article_schema, breadcrumb_schema]
 
     # FAQPage
     faq_items = []
@@ -1069,6 +1120,57 @@ def _build_figure_blocks(uploaded_images: list[dict]) -> list[str]:
 # BUILD POST CONTENT — WP blocks + seekTo JS
 # ============================================================
 
+
+def _build_responsive_embed(yt_id: str, yt_url: str = "") -> str:
+    """Build responsive 16:9 YouTube iframe embed with inline styles (TASK-03)."""
+    url = yt_url or f"https://www.youtube.com/watch?v={yt_id}"
+    embed_json = json.dumps({
+        "url": url, "type": "video", "providerNameSlug": "youtube",
+        "responsive": True, "className": "wp-embed-aspect-16-9 wp-has-aspect-ratio",
+    })
+    return (
+        f'<!-- wp:embed {embed_json} -->\n'
+        f'<figure class="wp-block-embed is-type-video is-provider-youtube '
+        f'wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio" '
+        f'style="aspect-ratio:16/9;width:100%;max-width:100%;position:relative;overflow:hidden;">\n'
+        f'<div class="wp-block-embed__wrapper" style="position:relative;width:100%;padding-bottom:56.25%;height:0;overflow:hidden;">\n'
+        f'<iframe src="https://www.youtube.com/embed/{yt_id}?enablejsapi=1" '
+        f'title="YouTube video player" '
+        f'style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" '
+        f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" '
+        f'allowfullscreen loading="lazy"></iframe>\n'
+        f'</div></figure>\n'
+        f'<!-- /wp:embed -->'
+    )
+
+
+def _build_internal_links_block(seo: dict) -> str:
+    """TASK-06: Build deterministic internal links fallback box."""
+    internal_links = seo.get("internal_links") or []
+    if not internal_links or not isinstance(internal_links, list):
+        return ""
+    article_body = seo.get("article_body", "") or ""
+    unwoven = []
+    for link in internal_links:
+        if isinstance(link, dict) and link.get("url"):
+            u = link["url"].strip()
+            if u and u not in article_body:
+                unwoven.append(link)
+    if not unwoven:
+        return ""
+    items = unwoven[:3]
+    li_html = "".join(f'<li><a href="{l["url"]}">{l.get("anchor") or l.get("title") or l["url"]}</a></li>' for l in items)
+    return (
+        f'<!-- wp:html -->\n'
+        f'<div class="vse-related-links-box" style="margin:24px 0;padding:16px 20px;border-left:4px solid #2563eb;background:#f8fafc;border-radius:4px;">\n'
+        f'<h4 style="margin:0 0 10px 0;font-size:16px;color:#1e293b;">Warto również przeczytać:</h4>\n'
+        f'<ul style="margin:0;padding-left:20px;color:#334155;">\n'
+        f'{li_html}\n'
+        f'</ul>\n'
+        f'</div>\n'
+        f'<!-- /wp:html -->'
+    )
+
 def build_post_content(
     seo: dict,
     yt_id: str,
@@ -1141,18 +1243,8 @@ def build_post_content(
     # D11: First screenshot — after first paragraph, before embed
     screenshot_1_block = figure_blocks[0] if len(figure_blocks) >= 1 else ""
 
-    # YouTube embed
-    embed_json = json.dumps({
-        "url": yt_url, "type": "video", "providerNameSlug": "youtube",
-        "responsive": True, "className": "wp-embed-aspect-16-9 wp-has-aspect-ratio",
-    })
-    embed_block = (
-        f'<!-- wp:embed {embed_json} -->\n'
-        f'<figure class="wp-block-embed is-type-video is-provider-youtube '
-        f'wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">\n'
-        f'<div class="wp-block-embed__wrapper">\n{yt_url}\n</div></figure>\n'
-        f"<!-- /wp:embed -->"
-    )
+    # YouTube embed (TASK-03)
+    embed_block = _build_responsive_embed(yt_id, yt_url)
 
     # Chapters list with seekTo (uses profile chapter_class)
     ch_items = []
@@ -1233,12 +1325,14 @@ def build_post_content(
     player_js = _build_player_js(seek_fn=seek_fn, chapter_class=chapter_class)
     js_block = f"<!-- wp:html -->\n{player_js}\n<!-- /wp:html -->"
 
-    # D2+D4+D11: Article order
-    # lead → first_p → screenshot_1 → embed → chapters → rest_body → screenshot_2 →
+    internal_links_block = _build_internal_links_block(seo)
+
+    # D2+D4+D11+W1: Article order
+    # lead → first_p → screenshot_1 → embed → chapters → rest_body → internal_links → screenshot_2 →
     # external_link → quotes (Podsumowanie) → faq → schema → js
     parts = [
         lead_block, intro_block, screenshot_1_block, embed_block, chapters_block,
-        body_rest_block, screenshot_2_block, external_link_block, quotes_section,
+        body_rest_body := body_rest_block, internal_links_block, screenshot_2_block, external_link_block, quotes_section,
         faq_section, schema_block, js_block,
     ]
     return "\n\n".join(p for p in parts if p)
@@ -1258,6 +1352,7 @@ def update_post(
     dry_run: bool = False,
     profile: Optional[dict] = None,
     saas_data: Optional[dict] = None,
+    post_format: str = "video",
 ) -> tuple[int, str]:
     """Fetch uploadDate and inject full content to a WordPress post.
 
@@ -1294,7 +1389,10 @@ def update_post(
     url = f"{wp_base_url}/wp-json/wp/v2/posts/{wp_id}"
     # NOTE: WP REST 'meta' field silently ignores rank_math_* keys —
     # use update_rankmath_meta() separately for the correct endpoint.
-    payload: dict = {"content": content}
+    wp_format = (post_format or "video").strip().lower()
+    if wp_format in ("", "standard", "full_article", "article_only"):
+        wp_format = "video"
+    payload: dict = {"content": content, "format": wp_format}
 
     # Post title — update only if provided by generator
     post_title_val = seo.get("post_title", "").strip()
@@ -1334,6 +1432,7 @@ def inject_video(
     skip_thumbnail: bool = False,
     profile: Optional[dict] = None,
     saas_data: Optional[dict] = None,
+    post_format: str = "video",
 ) -> dict:
     """Run the full injection pipeline for a single video post.
 
@@ -1464,7 +1563,7 @@ def inject_video(
 
     status, link = update_post(
         wp_id, seo, yt_id, wp_base_url, auth, yt_api_key, dry_run,
-        profile=profile, saas_data=saas_data,
+        profile=profile, saas_data=saas_data, post_format=post_format,
     )
 
     # RankMath SEO meta — via dedicated rankmath/v1/updateMeta endpoint
@@ -1654,24 +1753,14 @@ def build_wp_article_sections(
     if first_p:
         full_parts.append(f"<!-- wp:html -->\n{first_p}\n<!-- /wp:html -->")
     if include_embed and yt_id and not str(yt_id).startswith("audio"):
-        embed_json = json.dumps({
-            "url": yt_url,
-            "type": "video",
-            "providerNameSlug": "youtube",
-            "responsive": True,
-            "className": "wp-embed-aspect-16-9 wp-has-aspect-ratio",
-        })
-        full_parts.append(
-            f"<!-- wp:embed {embed_json} -->\n"
-            '<figure class="wp-block-embed is-type-video is-provider-youtube '
-            'wp-block-embed-youtube wp-embed-aspect-16-9 wp-has-aspect-ratio">'
-            f'<div class="wp-block-embed__wrapper">\n{yt_url}\n</div></figure>\n'
-            "<!-- /wp:embed -->"
-        )
+        full_parts.append(_build_responsive_embed(yt_id, yt_url))
     if chapters_html:
         full_parts.append(chapters_html)
     if rest_body:
         full_parts.append(f"<!-- wp:html -->\n{rest_body}\n<!-- /wp:html -->")
+    internal_links_block = _build_internal_links_block(seo)
+    if internal_links_block:
+        full_parts.append(internal_links_block)
     if quotes_html:
         full_parts.append(quotes_html)
     if faq_html:
