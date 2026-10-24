@@ -19,6 +19,7 @@ interface HistoryJob {
   video_url: string
   video_id: string | null
   status: string
+  publication_type?: string | null
   error: string | null
   has_vtt: boolean
   has_schema: boolean
@@ -74,6 +75,29 @@ export default function HistoriaPage() {
     )
   }
 
+  const publicationTypeBadge = (type?: string | null, hasSchema?: boolean) => {
+    const effectiveType = type || (hasSchema ? 'full_analysis' : null)
+    if (!effectiveType) return null
+
+    const map: Record<string, { bg: string; text: string; label: string }> = {
+      watching_page: { bg: 'bg-indigo-500/10 border-indigo-500/20', text: 'text-indigo-400', label: '🎬 Strona filmu' },
+      discover: { bg: 'bg-amber-500/10 border-amber-500/20', text: 'text-amber-400', label: '🔥 Discover' },
+      full_analysis: { bg: 'bg-purple-500/10 border-purple-500/20', text: 'text-purple-400', label: '📰 Pełna analiza' },
+      news: { bg: 'bg-sky-500/10 border-sky-500/20', text: 'text-sky-400', label: '⚡ News' },
+      explainer: { bg: 'bg-teal-500/10 border-teal-500/20', text: 'text-teal-400', label: '💡 Explainer' },
+      wywiad: { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: '🎙️ Wywiad' },
+      poradnik: { bg: 'bg-blue-500/10 border-blue-500/20', text: 'text-blue-400', label: '📘 Poradnik' },
+      felieton: { bg: 'bg-rose-500/10 border-rose-500/20', text: 'text-rose-400', label: '✍️ Felieton' },
+      reportaz: { bg: 'bg-fuchsia-500/10 border-fuchsia-500/20', text: 'text-fuchsia-400', label: '🎥 Reportaż' },
+    }
+    const style = map[effectiveType] || { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-400', label: effectiveType }
+    return (
+      <span className={`px-2 py-0.5 text-xs rounded-full border ${style.bg} ${style.text}`}>
+        {style.label}
+      </span>
+    )
+  }
+
   const handleDownloadVtt = async (jobId: string, videoId: string | null) => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
@@ -122,7 +146,7 @@ export default function HistoriaPage() {
           <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
             </div>
             <div>
@@ -141,7 +165,7 @@ export default function HistoriaPage() {
             Historia
           </Link>
           <Link href="/ustawienia" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800 transition-colors">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z\" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d=\"M15 12a3 3 0 11-6 0 3 3 0 016 0z\" /></svg>
             Ustawienia
           </Link>
         </nav>
@@ -156,122 +180,4 @@ export default function HistoriaPage() {
           <h1 className="text-2xl font-bold text-white mb-1">Historia generacji</h1>
           <p className="text-gray-400 mb-8">Lista przetworzonych filmów YouTube z bazy danych.</p>
 
-          {loading && (
-            <div className="flex items-center gap-2 text-gray-400">
-              <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-500 border-t-violet-400 rounded-full" />
-              Ładowanie historii...
-            </div>
-          )}
-
-          {error && (
-            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
-              ⚠️ {error}
-            </div>
-          )}
-
-          {!loading && !error && jobs.length === 0 && (
-            <div className="text-center py-16 text-gray-500">
-              <p className="text-4xl mb-3">🎬</p>
-              <p className="text-lg font-medium">Brak historii</p>
-              <p className="text-sm mt-1">Przytwórz pierwszy film na <Link href="/dashboard" className="text-violet-400 hover:underline">Dashboardzie</Link>.</p>
-            </div>
-          )}
-
-          {!loading && jobs.length > 0 && (
-            <div className="space-y-2">
-              {jobs.map((job) => (
-                <div key={job.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1">
-                        {job.video_id && (
-                          <img
-                            src={`https://i.ytimg.com/vi/${job.video_id}/default.jpg`}
-                            alt=""
-                            className="w-16 h-12 rounded object-cover flex-shrink-0"
-                          />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          {/* Tytuł — klikalny link do YouTube jeśli video_url dostępny */}
-                          {job.video_url ? (
-                            <a
-                              href={job.video_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-medium text-white hover:text-violet-400 transition-colors truncate block"
-                              title={job.video_url}
-                            >
-                              {job.post_title || job.video_url}
-                            </a>
-                          ) : (
-                            <p className="text-sm font-medium text-white truncate">
-                              {job.post_title || '(brak tytułu)'}
-                            </p>
-                          )}
-                          {job.post_title && (
-                            <p className="text-xs text-gray-600 truncate mt-0.5">
-                              {job.video_url}
-                            </p>
-                          )}
-                          <div className="flex items-center gap-2 mt-1">
-                            {statusBadge(job.status)}
-                            {job.has_vtt && (
-                              <button
-                                onClick={() => handleDownloadVtt(job.id, job.video_id)}
-                                title="Pobierz transkrypt VTT"
-                                className="px-2 py-0.5 text-xs rounded-full border bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/40 hover:text-blue-300 transition-all cursor-pointer inline-flex items-center gap-1"
-                              >
-                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                VTT
-                              </button>
-                            )}
-                            <span className="text-xs text-gray-600">{formatDate(job.created_at)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      {job.error && (
-                        <p className="text-xs text-red-400 mt-1 ml-[76px]">{job.error}</p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-                      {/* Otwórz wyniki — widoczny gdy schema jest dostępna */}
-                      {job.has_schema && (
-                        <Link
-                          href={`/dashboard?job_id=${job.id}`}
-                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600/15 text-violet-400 border border-violet-500/25 hover:bg-violet-600/25 hover:border-violet-500/40 transition-all flex items-center gap-1.5"
-                        >
-                          🔍 Otwórz wyniki →
-                        </Link>
-                      )}
-                      {/* Generuj ponownie — gdy brak schema */}
-                      {!job.has_schema && (job.status === 'fetched' || job.status === 'done') && (
-                        <Link
-                          href={`/dashboard`}
-                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-800 text-gray-400 border border-gray-700 hover:text-white hover:border-gray-600 transition-all"
-                        >
-                          Generuj →
-                        </Link>
-                      )}
-                      {job.video_id && (
-                        <a
-                          href={`https://www.youtube.com/watch?v=${job.video_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-gray-500 hover:text-violet-400 transition-colors"
-                        >
-                          YT →
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
-    </div>
-  )
-}
+          {loading && (\n            <div className=\"flex items-center gap-2 text-gray-400\">\n              <span className=\"animate-spin inline-block w-4 h-4 border-2 border-gray-500 border-t-violet-400 rounded-full\" />\n              Ładowanie historii...\n            </div>\n          )}\n\n          {error && (\n            <div className=\"p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm\">\n              ⚠️ {error}\n            </div>\n          )}\n\n          {!loading && !error && jobs.length === 0 && (\n            <div className=\"text-center py-16 text-gray-500\">\n              <p className=\"text-4xl mb-3\">🎬</p>\n              <p className=\"text-lg font-medium\">Brak historii</p>\n              <p className=\"text-sm mt-1\">Przytwórz pierwszy film na <Link href=\"/dashboard\" className=\"text-violet-400 hover:underline\">Dashboardzie</Link>.</p>\n            </div>\n          )}\n\n          {!loading && jobs.length > 0 && (\n            <div className=\"space-y-2\">\n              {jobs.map((job) => (\n                <div key={job.id} className=\"bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors\">\n                  <div className=\"flex items-center justify-between\">\n                    <div className=\"flex-1 min-w-0\">\n                      <div className=\"flex items-center gap-3 mb-1\">\n                        {job.video_id && (\n                          <img\n                            src={`https://i.ytimg.com/vi/${job.video_id}/default.jpg`}\n                            alt=\"\"\n                            className=\"w-16 h-12 rounded object-cover flex-shrink-0\"\n                          />\n                        )}\n                        <div className=\"min-w-0 flex-1\">\n                          {/* Tytuł — klikalny link do YouTube jeśli video_url dostępny */}\n                          {job.video_url ? (\n                            <a\n                              href={job.video_url}\n                              target=\"_blank\"\n                              rel=\"noopener noreferrer\"\n                              className=\"text-sm font-medium text-white hover:text-violet-400 transition-colors truncate block\"\n                              title={job.video_url}\n                            >\n                              {job.post_title || job.video_url}\n                            </a>\n                          ) : (\n                            <p className=\"text-sm font-medium text-white truncate\">\n                              {job.post_title || '(brak tytułu)'}\n                            </p>\n                          )}\n                          {job.post_title && (\n                            <p className=\"text-xs text-gray-600 truncate mt-0.5\">\n                              {job.video_url}\n                            </p>\n                          )}\n                          <div className=\"flex items-center gap-2 mt-1\">\n                            {statusBadge(job.status)}\n                            {publicationTypeBadge(job.publication_type, job.has_schema)}\n                            {job.has_vtt && (\n                              <button\n                                onClick={() => handleDownloadVtt(job.id, job.video_id)}\n                                title=\"Pobierz transkrypt VTT\"\n                                className=\"px-2 py-0.5 text-xs rounded-full border bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/40 hover:text-blue-300 transition-all cursor-pointer inline-flex items-center gap-1\"\n                              >\n                                <svg className=\"w-3 h-3\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">\n                                  <path strokeLinecap=\"round\" strokeLinejoin=\"round\" strokeWidth={2} d=\"M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z\" />\n                                </svg>\n                                VTT\n                              </button>\n                            )}\n                            <span className=\"text-xs text-gray-600\">{formatDate(job.created_at)}</span>\n                          </div>\n                        </div>\n                      </div>\n                      {job.error && (\n                        <p className=\"text-xs text-red-400 mt-1 ml-[76px]\">{job.error}</p>\n                      )}\n                    </div>\n                    <div className=\"flex items-center gap-3 flex-shrink-0 ml-4\">\n                      {/* Otwórz wyniki — widoczny gdy schema jest dostępna */}\n                      {job.has_schema && (\n                        <Link\n                          href={`/dashboard?job_id=${job.id}`}\n                          className=\"px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600/15 text-violet-400 border border-violet-500/25 hover:bg-violet-600/25 hover:border-violet-500/40 transition-all flex items-center gap-1.5\"\n                        >\n                          🔍 Otwórz wyniki →\n                        </Link>\n                      )}\n                      {/* Generuj ponownie — gdy brak schema */}\n                      {!job.has_schema && (job.status === 'fetched' || job.status === 'done') && (\n                        <Link\n                          href={`/dashboard`}\n                          className=\"px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-800 text-gray-400 border border-gray-700 hover:text-white hover:border-gray-600 transition-all\"\n                        >\n                          Generuj →\n                        </Link>\n                      )}\n                      {job.video_id && (\n                        <a\n                          href={`https://www.youtube.com/watch?v=${job.video_id}`}\n                          target=\"_blank\"\n                          rel=\"noopener noreferrer\"\n                          className=\"text-xs text-gray-500 hover:text-violet-400 transition-colors\"\n                        >\n                          YT →\n                        </a>\n                      )}\n                    </div>\n                  </div>\n                </div>\n              ))}\n            </div>\n          )}\n        </div>\n      </main>\n    </div>\n  )\n}\n
