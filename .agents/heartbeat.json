@@ -1,12 +1,11 @@
 {
-  "callsign": "vse-reviewer",
+  "callsign": "vse-dev-t1",
   "status": "working",
-  "current_task": "Realizacja kolejki z handoffu: T1 -> W1 (TASK-01..06) -> K3' -> K5'",
-  "timestamp": "2026-10-24T21:03:00+02:00",
+  "current_task": "T1 — Przywrócenie miniatur WP, PressAI Vision (D11) i ImageObject JSON-LD",
+  "timestamp": "2026-10-24T21:28:00+02:00",
   "last_completed": [
     "PR #7 (fix/k4-1-gaps): K4.1 local runner reuse job_id, publication_type badge w /historia, job_id w InjectModal — merge commit 7943870",
-    "Deploy TAG=20261024-184707 na VPS oracle-crimson (pytest 20/20 PASS, HTTP 200/307 PASS, transcript_jobs status OK)",
-    "Handoff zaktualizowany na main (brain pointers, zasada testów maszynowych pkt 5, specyfikacja T1 i W1)"
+    "Deploy TAG=20261024-184707 na VPS oracle-crimson (pytest 20/20 PASS, HTTP 200/307 PASS, transcript_jobs status OK)"
   ],
   "pending": [
     "T1 — Przywrócenie miniatur WP, PressAI Vision (D11) i ImageObject JSON-LD",
