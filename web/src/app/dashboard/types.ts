@@ -8,7 +8,8 @@ export interface VseLanguage {
   short: string
 }
 
-export const VSE_LANGUAGES: VseLanguage[] = [\n  { code: 'pl', label: 'Polski', flag: '🇵🇱', short: 'PL' },
+export const VSE_LANGUAGES: VseLanguage[] = [
+  { code: 'pl', label: 'Polski', flag: '🇵🇱', short: 'PL' },
   { code: 'en', label: 'English', flag: '🇬🇧', short: 'EN' },
   { code: 'de', label: 'Deutsch', flag: '🇩🇪', short: 'DE' },
   { code: 'es', label: 'Español', flag: '🇪🇸', short: 'ES' },
