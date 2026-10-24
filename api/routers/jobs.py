@@ -43,7 +43,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db import AsyncSessionLocal
@@ -352,7 +352,12 @@ async def get_job_history(
     db: AsyncSession = Depends(_get_db),
 ) -> List[HistoryJobResponse]:
     """Zwraca historię jobów transkrypcji (wszystkie statusy)."""
-    query = select(TranscriptJob)
+    query = select(TranscriptJob).where(
+        or_(
+            TranscriptJob.schema_data.isnot(None),
+            TranscriptJob.status.in_(["done", "failed", "processing"]),
+        )
+    )
     if not current_user.is_admin:
         query = query.where(TranscriptJob.user_id == current_user.id)
 
