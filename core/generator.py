@@ -422,6 +422,7 @@ def _generate_article_fallback(
     target_words: int = 800,
     target_lang: str = "pl",
     source_lang: str = "auto",
+    internal_links: Optional[list[dict]] = None,
 ) -> str:
     """Fallback: generuj długi artykuł lokalnym LLM gdy PressAI niedostępny."""
     keyphrase = schema.get("focus_keyphrases", [""])[0] if schema.get("focus_keyphrases") else ""
@@ -433,13 +434,19 @@ def _generate_article_fallback(
     summary_heading = lang_cfg.get("summary_heading", "Podsumowanie")
     eeat_sources = lang_cfg["eeat_sources"]
 
+    internal_links_prompt = ""
+    if internal_links:
+        links_lines = "\n".join(f"- {l.get('url')} ({l.get('anchor') or l.get('title', '')})" for l in internal_links[:5] if isinstance(l, dict) and l.get("url"))
+        if links_lines:
+            internal_links_prompt = f"\nLINKI WEWNĘTRZNE DO WPLECENIA:\nJeśli pasują tematycznie, wpleć naturalnie 1-2 poniższe linki wewnętrzne w treść artykułu:\n{links_lines}\n"
+
     if publication_type == "watching_page":
-        prompt = f"""Jesteś doświadczonym redaktorem portalu. Napisz krótki opis wideo na stronę oglądania (watching page) na podstawie transkryptu.
+        prompt = f"""Jesteś doświadczonym redaktorem portalu. Napisz merytoryczny artykuł na stronę oglądania wideo (watching page, standard Google Watch Page 2026 i HCU) na podstawie transkryptu.
 
 KRYTYCZNA DYREKTYWA JĘZYKOWA (CROSS-LANGUAGE):
 - Język źródłowy transkryptu: {source_lang}
 - JĘZYK DOCELOWY ARTYKUŁU: **{lang_name} ({target_lang.upper()})**
-- Cały tekst (dokładnie 2 akapity <p>) MUSI być napisany w 100% w języku **{lang_name}**!
+- Cały tekst artykułu MUSI być napisany w 100% w języku **{lang_name}**!
 - Używaj naturalnej gramatyki, stylistyki i idiomów języka {lang_name}.
 
 KOREKTA BŁĘDÓW ASR:
@@ -449,18 +456,16 @@ KOREKTA BŁĘDÓW ASR:
 FRAZA KLUCZOWA: {keyphrase}
 TYTUŁ: {post_title}
 
-STRUKTURA I DŁUGOŚĆ:
-- Dokładnie 2 akapity <p>, łącznie 150-250 słów.
-- Akapit 1: o czym jest film, kto występuje / jaka jest główna teza (wpleć frazę kluczową: {keyphrase}).
-- Akapit 2: dlaczego warto obejrzeć ten materiał i czego widz się dowie.
-- ZAKAZ używania jakichkolwiek nagłówków (brak <h2>, brak <h3>).
-- ZAKAZ sekcji podsumowania.
+STRUKTURA I DŁUGOŚĆ (300-450 słów):
+- Akapit 1 <p>: o czym jest film, kto występuje, główna teza i kontekst (wpleć frazę kluczową: {keyphrase}).
+- Śródtytuły <h3>: 1-2 logiczne śródtytuły oddzielające kluczowe wątki.
+- Kolejne akapity <p>: konkretne argumenty, fakty i wnioski z nagrania oraz cytaty.
 - W atrybutach HTML (np. linki) ZAWSZE używaj apostrofów ('), NIE cudzysłowów.
-
+{internal_links_prompt}
 TRANSKRYPT:
-{vtt_text[:60000]}
+{vtt_text[:120000]}
 
-Zwróć TYLKO HTML artykułu w języku {lang_name} (dokładnie 2 akapity <p>, bez JSON, bez wyjaśnień):"""
+Zwróć TYLKO HTML artykułu w języku {lang_name} (bez JSON, bez wyjaśnień):"""
         logger.info(
             "_generate_article_fallback (watching_page): provider=%s target_lang=%s source_lang=%s",
             provider, target_lang, source_lang,
@@ -670,17 +675,16 @@ def _get_publication_type_override(publication_type: str) -> str:
 
 ## UWAGA — TYP PUBLIKACJI: WATCHING PAGE (SINGLE-PASS)
 
-To jest krótki artykuł typu "strona oglądania" z embedem wideo.
+To jest artykuł na stronę oglądania wideo (watching page, standard Google Watch Page 2026 i HCU) z responsywnym embedem wideo.
 Zastosuj ZMODYFIKOWANE reguły:
-- **article_body**: DOKŁADNIE 2 akapity <p>, łącznie 150-250 słów.
-  Akapit 1: o czym jest film, kto występuje / jaka jest główna teza (wpleć główną frazę kluczową).
-  Akapit 2: dlaczego warto obejrzeć ten materiał i czego widz się dowie.
-  ZAKAZ używania jakichkolwiek nagłówków (brak <h2>, brak <h3>).
-  ZAKAZ sekcji Podsumowanie.
+- **article_body**: 300-450 słów.
+  Akapit 1 <p>: o czym jest film, kto występuje, główna teza i kontekst (wpleć główną frazę kluczową).
+  Śródtytuły <h3>: 1-2 logiczne śródtytuły <h3> oddzielające kluczowe wątki.
+  Kolejne akapity <p>: konkretne argumenty, fakty, wnioski i cytaty z nagrania.
   W atrybutach HTML (np. linki) ZAWSZE używaj apostrofów ('), NIE cudzysłowów.
-- **chapters**: generuj normalnie (pełna lista)
-- **faq**: MAX 2 pytania (krótkie, najważniejsze)
-- **quotes**: MAX 2 cytaty
+- **chapters**: generuj normalnie (pełna lista rozszerzona dla wideo)
+- **faq**: 2-3 pytania zorientowane na intencję użytkownika (search intent)
+- **quotes**: 1-2 kluczowe cytaty ekspertów z wypowiedzi
 - Reszta pól (tytuły, meta, lead) — bez zmian
 """
     elif publication_type == "discover":
