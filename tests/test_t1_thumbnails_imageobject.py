@@ -6,9 +6,10 @@ Test coverage:
   3. set_youtube_thumbnail PressAI image_meta support
   4. build_schema_jsonld ImageObject generation (sources 1, 2, 3)
 """
+import asyncio
 import os
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.injector import (
     _upload_image_to_wp,
@@ -26,14 +27,14 @@ class TestT1ThumbnailsAndImageObject(unittest.TestCase):
         from api.services.pipeline import _describe_image_via_saas
 
         env_patch = {
-            "PRESSAI_API_URL": "https://pressai.test/api/v1",
+            "PRESSAI_API_URL": "https://pressai.test",
             "PRESSAI_EXTERNAL_TOKEN": "secret-pressai-token",
             "SAAS_API_URL": "",
             "EXTERNAL_API_TOKEN": "",
             "SAAS_API_TOKEN": "",
         }
         with patch.dict(os.environ, env_patch):
-            with patch("requests.post") as mock_post:
+            with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.json.return_value = {
@@ -48,25 +49,26 @@ class TestT1ThumbnailsAndImageObject(unittest.TestCase):
                 }
                 mock_post.return_value = mock_resp
 
-                res = _describe_image_via_saas(
-                    image_path_or_url="https://img.youtube.com/vi/test123/maxresdefault.jpg",
-                    portal_brand="Prawy",
-                    post_title="Testowy artykuł",
-                    focus_keyphrases=["kadr wideo", "seo"],
-                )
+                res = asyncio.run(_describe_image_via_saas(
+                    image_url="https://img.youtube.com/vi/test123/maxresdefault.jpg",
+                    article_title="Testowy artykuł",
+                    focus_keywords=["kadr wideo", "seo"],
+                    site_brand="Prawy",
+                ))
 
                 self.assertIsNotNone(res)
                 self.assertEqual(res.get("alt_text"), "Kadr wideo: test")
                 self.assertEqual(res.get("filename"), "test-kadr.jpg")
 
                 called_url = mock_post.call_args[0][0]
-                self.assertEqual(called_url, "https://pressai.test/api/v1/vision/describe-image")
+                self.assertEqual(called_url, "https://pressai.test/api/external/describe-image")
                 called_headers = mock_post.call_args[1].get("headers", {})
                 self.assertEqual(called_headers.get("Authorization"), "Bearer secret-pressai-token")
 
                 called_payload = mock_post.call_args[1].get("json", {})
-                self.assertEqual(called_payload.get("post_title"), "Testowy artykuł")
-                self.assertIn("kadr wideo", called_payload.get("focus_keyphrases", []))
+                self.assertEqual(called_payload.get("image_url"), "https://img.youtube.com/vi/test123/maxresdefault.jpg")
+                self.assertEqual(called_payload.get("context", {}).get("article_title"), "Testowy artykuł")
+                self.assertIn("kadr wideo", called_payload.get("context", {}).get("focus_keywords", []))
 
     def test_upload_image_to_wp_via_http_url(self):
         """Verify _upload_image_to_wp falls back to downloading image_url when image_path is missing."""
